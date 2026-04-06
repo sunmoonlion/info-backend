@@ -1,0 +1,26 @@
+[project]
+name = "tpl-admin-backend"
+version = "0.1.0"
+description = "通用后台管理 API 服务模板"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.16.0",
+    "asyncpg>=0.30.0",
+    "fastapi>=0.116.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.10.0",
+    "redis>=6.4.0",
+    "sqlalchemy>=2.0.0",
+    "uvicorn[standard]>=0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

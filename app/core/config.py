@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     casdoor_redirect_uri: str = ""
     casdoor_organization: str = "built-in"
     casdoor_application: str = "app-tpl"
+    casdoor_verify_ssl: bool = True
+
+    # Frontend
+    # Used for post-login redirects from backend callback.
+    frontend_base_url: str = "http://localhost:5173"
 
     # Session
     session_ttl_seconds: int = 3600

@@ -31,7 +31,7 @@ class AuthService:
 
     async def exchange_code_for_session(self, code: str) -> str:
         """用 code 换 token，存入 Redis，返回 session_id"""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=self._settings.casdoor_verify_ssl) as client:
             resp = await client.post(
                 f"{self._settings.casdoor_endpoint}/api/login/oauth/access_token",
                 data={
@@ -65,3 +65,4 @@ class AuthService:
     async def delete_session(self, session_id: str) -> None:
         """删除 session（退出登录）"""
         await get_redis().client.delete(f"{SESSION_PREFIX}{session_id}")
+

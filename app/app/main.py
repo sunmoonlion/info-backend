@@ -1,8 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 
-from alembic import command
-from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -22,10 +20,6 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("应用正在启动...")
-
-    # 数据库迁移
-    alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
 
     # 初始化基础设施
     await get_redis().init()

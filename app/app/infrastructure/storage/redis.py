@@ -18,13 +18,16 @@ class RedisClient:
             logger.warning("Redis客户端已初始化，无需重复操作")
             return
         try:
-            self._client = Redis(
+            kw: dict = dict(
                 host=self._settings.redis_host,
                 port=self._settings.redis_port,
                 db=self._settings.redis_db,
                 password=self._settings.redis_password,
                 decode_responses=True,
             )
+            if self._settings.redis_user:
+                kw["username"] = self._settings.redis_user
+            self._client = Redis(**kw)
             await self._client.ping()
             logger.info("Redis初始化成功")
         except Exception as e:

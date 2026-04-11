@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SELF_DIR}/.." && pwd)"
+
+# shellcheck source=../lib/common.sh
+source "${ROOT_DIR}/lib/common.sh"
+# shellcheck source=../drivers/mongodb.sh
+source "${ROOT_DIR}/drivers/mongodb.sh"
+# shellcheck source=../drivers/postgresql.sh
+source "${ROOT_DIR}/drivers/postgresql.sh"
+# shellcheck source=../drivers/redis.sh
+source "${ROOT_DIR}/drivers/redis.sh"
+# shellcheck source=../adapters/k8s.sh
+source "${ROOT_DIR}/adapters/k8s.sh"
+# shellcheck source=../adapters/external.sh
+source "${ROOT_DIR}/adapters/external.sh"
+
+CONFIG_FILE=""
+TARGET=""
+ACTION="provision"
+DRY_RUN="false"
+
+usage() {
+  cat <<'EOF'
+dbctl - unified db provisioner (mongodb/postgresql/redis)
+
+Usage:
+  dbctl --config <path> [--target k8s|external] [--action provision|reconcile|deprovision|rotate-password] [--dry-run]
+
+Examples:
+  dbctl --config ./examples/mongo-k8s.env --target k8s
+  dbctl --config ./examples/postgres-external.env --target external
+  dbctl --config ./examples/redis-k8s.env --dry-run
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --config)
+        CONFIG_FILE="${2:-}"
+        shift 2
+        ;;
+      --target)
+        TARGET="${2:-}"
+        shift 2
+        ;;
+      --action)
+        ACTION="${2:-}"
+        shift 2
+        ;;
+      --dry-run)
+        DRY_RUN="true"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown argument: $1"
+        ;;
+    esac
+  done
+}
+
+validate_common() {
+  require_non_empty "DB_ENGINE" "${DB_ENGINE:-}"
+  DB_ENGINE="$(lower "${DB_ENGINE}")"
+
+  if [[ -z "${TARGET}" ]]; then
+    TARGET="${TARGET_MODE:-external}"
+  fi
+  TARGET="$(lower "${TARGET}")"
+
+  case "${TARGET}" in
+    k8s|external) ;;
+    *)
+      die "Unsupported target: ${TARGET} (allowed: k8s, external)"
+      ;;
+  esac
+
+  case "${ACTION}" in
+    provision|reconcile|deprovision|rotate-password) ;;
+    *)
+      die "Unsupported action: ${ACTION} (allowed: provision, reconcile, deprovision, rotate-password)"
+      ;;
+  esac
+}
+
+run_driver() {
+  case "${DB_ENGINE}" in
+    mongodb)
+      mongo_validate
+      case "${ACTION}" in
+        provision|reconcile|rotate-password) mongo_provision ;;
+        deprovision) mongo_deprovision ;;
+      esac
+      ;;
+    postgresql|postgres|pg)
+      DB_ENGINE="postgresql"
+      pg_validate
+      case "${ACTION}" in
+        provision|reconcile|rotate-password) pg_provision ;;
+        deprovision) pg_deprovision ;;
+      esac
+      ;;
+    redis)
+      redis_validate
+      case "${ACTION}" in
+        provision|reconcile|rotate-password) redis_provision ;;
+        deprovision) redis_deprovision ;;
+      esac
+      ;;
+    *)
+      die "Unsupported DB_ENGINE: ${DB_ENGINE}"
+      ;;
+  esac
+}
+
+write_output() {
+  case "${TARGET}" in
+    k8s)
+      k8s_write_output
+      ;;
+    external)
+      external_write_output
+      ;;
+  esac
+}
+
+main() {
+  parse_args "$@"
+  require_non_empty "--config" "${CONFIG_FILE}"
+  load_env_file "${CONFIG_FILE}"
+  validate_common
+
+  export DRY_RUN
+  log "dbctl v${DBP_VERSION} start: engine=${DB_ENGINE}, target=${TARGET}, action=${ACTION}, service=${SERVICE_NAME:-unknown}"
+  run_driver
+  write_output
+  log "Done"
+}
+
+main "$@"

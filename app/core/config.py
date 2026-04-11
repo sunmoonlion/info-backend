@@ -11,10 +11,11 @@ class Settings(BaseSettings):
     # 数据库
     sqlalchemy_database_uri: str = "postgresql+asyncpg://tpl:tpl@localhost:5432/tpl"
 
-    # Redis
+    # Redis（dbctl ACL 场景可设 REDIS_USER；仅 default 密码时可留空）
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
+    redis_user: str | None = None
     redis_password: str | None = None
 
     # Casdoor BFF

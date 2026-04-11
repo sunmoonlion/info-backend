@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="${SCRIPT_DIR}/config"
+
+# shellcheck disable=SC1091
+source "${CONFIG_DIR}/common.env"
+
+PG_CONFIG="${PG_CONFIG:-${CONFIG_DIR}/postgresql.external.env}"
+MONGO_CONFIG="${MONGO_CONFIG:-${CONFIG_DIR}/mongodb.external.env}"
+
+log() {
+  printf '[db-provision-template] %s\n' "$*"
+}
+
+die() {
+  printf '[db-provision-template][error] %s\n' "$*" >&2
+  exit 1
+}
+
+bool_true() {
+  case "${1:-false}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+main() {
+  [[ -x "${DBCTL_BIN}" ]] || die "DBCTL_BIN not executable: ${DBCTL_BIN}"
+
+  if bool_true "${ENABLE_POSTGRESQL:-false}" && [[ -f "${PG_CONFIG}" ]]; then
+    "${DBCTL_BIN}" --config "${PG_CONFIG}" --target external --action deprovision
+  fi
+
+  if bool_true "${ENABLE_MONGODB:-false}" && [[ -f "${MONGO_CONFIG}" ]]; then
+    "${DBCTL_BIN}" --config "${MONGO_CONFIG}" --target external --action deprovision
+  fi
+
+  if [[ -n "${OUT_ENV:-}" && -f "${OUT_ENV}" ]]; then
+    rm -f "${OUT_ENV}"
+    log "Removed env: ${OUT_ENV}"
+  fi
+
+  log "Deprovision complete"
+}
+
+main "$@"

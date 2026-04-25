@@ -20,7 +20,20 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
+    "pyright>=1.1.400",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.pyright]
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingModuleSource = false
+reportOptionalMemberAccess = true
+reportAttributeAccessIssue = true
+include = ["app", "core"]
+exclude = ["alembic"]

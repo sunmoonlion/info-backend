@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, Optional
+from typing import TypeVar, Generic, Optional, Any
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +8,7 @@ T = TypeVar("T")
 class Response(BaseModel, Generic[T]):
     code: int = 200
     msg: str = "success"
-    data: Optional[T] = Field(default_factory=dict)
+    data: Any = Field(default=None)
 
     @staticmethod
     def success(data: Optional[T] = None, msg: str = "success") -> "Response[T]":

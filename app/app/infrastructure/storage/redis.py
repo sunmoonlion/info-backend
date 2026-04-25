@@ -28,7 +28,7 @@ class RedisClient:
             if self._settings.redis_user:
                 kw["username"] = self._settings.redis_user
             self._client = Redis(**kw)
-            await self._client.ping()
+            await self._client.ping()  # type: ignore[misc]
             logger.info("Redis初始化成功")
         except Exception as e:
             logger.error(f"Redis初始化失败: {e}")

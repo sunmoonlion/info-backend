@@ -40,6 +40,10 @@ run_postgresql() {
   export PGPASSWORD="${APP_DB_PASSWORD}"
   psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${APP_DB_USER}" -d "${APP_DB_NAME}" -c "select current_user, current_database();" >/dev/null
   replace_env_value "${OUT_ENV}" "DATABASE_URL" "postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
+  # Create required extensions as admin (app user lacks SUPERUSER privilege)
+  export PGPASSWORD="${PG_ADMIN_PASSWORD}"
+  psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${APP_DB_NAME}" \
+    -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' >/dev/null
 }
 
 run_mongodb() {

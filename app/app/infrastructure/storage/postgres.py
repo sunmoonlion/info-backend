@@ -2,7 +2,6 @@ import logging
 from functools import lru_cache
 from typing import Optional
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from core.config import get_settings
@@ -32,8 +31,6 @@ class Postgres:
                 autoflush=False,
                 bind=self._engine,
             )
-            async with self._engine.begin() as conn:
-                await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'))
             logger.info("Postgres初始化成功")
         except Exception as e:
             logger.error(f"Postgres初始化失败: {e}")

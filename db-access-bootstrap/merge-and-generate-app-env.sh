@@ -40,7 +40,7 @@ set_kv_in_app() {
     printf '\n%s=%s\n' "$k" "$v" >> "${APP}"
   fi
 }
-for key in SQLALCHEMY_DATABASE_URI REDIS_HOST REDIS_PORT REDIS_DB REDIS_PASSWORD REDIS_USER; do
+for key in DATABASE_URL REDIS_HOST REDIS_PORT REDIS_DB REDIS_PASSWORD REDIS_USER; do
   val="$(get_val "${key}" 2>/dev/null)" || continue
   [[ -z "${val}" ]] && continue
   if [[ "${key}" == REDIS_USER ]] && [[ "${val}" =~ ^[[:space:]]*$ ]]; then
@@ -55,6 +55,6 @@ fi
   printf '# merge-and-generate-app-env.sh mode=%s\n' "${MODE}"
   printf '# Source: %s UTC: %s\n' "${OUT}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '# May contain secrets.\n\n'
-  grep -E '^(APP_ENV|DATABASE_URL|SQLALCHEMY_DATABASE_URI|REDIS_)' "${OUT}" || true
+  grep -E '^(APP_ENV|DATABASE_URL|REDIS_)' "${OUT}" || true
 } > "${REF}"
 printf '[merge-and-generate-app-env] merged -> %s; wrote %s\n' "${APP}" "${REF}"

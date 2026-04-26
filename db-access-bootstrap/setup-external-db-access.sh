@@ -40,8 +40,6 @@ run_postgresql() {
   export PGPASSWORD="${APP_DB_PASSWORD}"
   psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${APP_DB_USER}" -d "${APP_DB_NAME}" -c "select current_user, current_database();" >/dev/null
   replace_env_value "${OUT_ENV}" "DATABASE_URL" "postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
-  # FastAPI / SQLAlchemy asyncpg（管理端 app/.env 使用此键名）
-  replace_env_value "${OUT_ENV}" "SQLALCHEMY_DATABASE_URI" "postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
 }
 
 run_mongodb() {

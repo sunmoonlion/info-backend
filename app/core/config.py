@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,8 +9,15 @@ class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "INFO"
 
-    # 数据库
-    sqlalchemy_database_uri: str = "postgresql+asyncpg://tpl:tpl@localhost:5432/tpl"
+    # 数据库（读 DATABASE_URL，自动补 +asyncpg 驱动前缀）
+    database_url: str = "postgresql+asyncpg://tpl:tpl@localhost:5432/tpl"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def ensure_asyncpg(cls, v: str) -> str:
+        if isinstance(v, str) and v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
     # Redis（dbctl ACL 场景可设 REDIS_USER；仅 default 密码时可留空）
     redis_host: str = "localhost"

@@ -15,14 +15,14 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = get_settings().sqlalchemy_database_uri
+    url = get_settings().database_url
     context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
 async def run_migrations_online() -> None:
-    connectable = create_async_engine(get_settings().sqlalchemy_database_uri)
+    connectable = create_async_engine(get_settings().database_url)
     async with connectable.connect() as connection:
         await connection.run_sync(
             lambda conn: context.configure(conn, target_metadata=target_metadata)

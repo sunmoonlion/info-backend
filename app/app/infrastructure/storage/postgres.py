@@ -23,7 +23,7 @@ class Postgres:
         try:
             logger.info("正在初始化Postgres连接...")
             self._engine = create_async_engine(
-                self._settings.sqlalchemy_database_uri,
+                self._settings.database_url,
                 echo=self._settings.env == "development",
                 pool_pre_ping=True,
             )

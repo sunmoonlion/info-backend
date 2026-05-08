@@ -9,6 +9,7 @@ FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS type-check
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/*
 RUN pip install uv --no-cache-dir
 
 COPY app/pyproject.toml app/uv.lock ./
@@ -37,8 +38,8 @@ FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS run
 
 WORKDIR /app
 
-COPY --from=builder /app/.venv ./.venv
 COPY app/ ./
+COPY --from=builder /app/.venv ./.venv
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1

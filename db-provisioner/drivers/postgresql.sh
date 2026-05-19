@@ -10,6 +10,38 @@ pg_validate() {
   require_non_empty "PG_ADMIN_PASSWORD" "${PG_ADMIN_PASSWORD:-}"
 }
 
+pg_use_k8s_client() {
+  [[ "${TARGET:-}" == "k8s" ]] && ! bool_true "${DBCTL_K8S_USE_LOCAL_CLIENT:-false}"
+}
+
+pg_client_namespace() {
+  if [[ -n "${PG_CLIENT_NAMESPACE:-}" ]]; then
+    printf '%s\n' "${PG_CLIENT_NAMESPACE}"
+  elif [[ "${DB_HOST}" =~ \.([a-z0-9-]+)\.svc(\.|$) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    printf '%s\n' "${K8S_PRECHECK_NAMESPACE:-${NAMESPACE:-default}}"
+  fi
+}
+
+pg_client_image() {
+  printf '%s\n' "${PG_CLIENT_IMAGE:-${POSTGRESQL_CLIENT_IMAGE:-harbor.sunmoonai.com:30443/k8s-images/postgresql:17.6.0-debian-12-r4}}"
+}
+
+pg_run_k8s_client() {
+  local pod_name="$1"
+  local namespace image
+  namespace="$(pg_client_namespace)"
+  image="$(pg_client_image)"
+
+  require_cmd "kubectl"
+  log "[pg] using temporary PostgreSQL client pod: ${namespace}/${pod_name} (${image})"
+  kubectl run "${pod_name}" --rm -i --restart=Never -n "${namespace}" \
+    --image="${image}" \
+    --env="PGPASSWORD=${PG_ADMIN_PASSWORD}" \
+    --command -- bash -se
+}
+
 pg_provision() {
   log "Provision PostgreSQL: db=${APP_DB_NAME}, user=${APP_DB_USER}"
   if bool_true "${DRY_RUN:-false}"; then
@@ -17,14 +49,50 @@ pg_provision() {
     return 0
   fi
 
-  require_cmd "psql"
-  require_cmd "createdb"
   wait_k8s_pods_ready
-  pg_precheck
 
   local admin_db="${PG_ADMIN_DB:-postgres}"
   local sslmode="${PG_SSLMODE:-prefer}"
   local db_exists role_exists
+
+  if pg_use_k8s_client; then
+    local pod_name="dbctl-pg-provision-${SERVICE_NAME:-app}-$(date +%s)"
+    pg_run_k8s_client "${pod_name}" <<EOF
+pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" >/dev/null
+
+db_exists=\$(psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -tAc "SELECT 1 FROM pg_database WHERE datname='${APP_DB_NAME}'" || true)
+if [[ "\${db_exists}" != "1" ]]; then
+  createdb -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" "${APP_DB_NAME}"
+  echo "[pg-client] created database: ${APP_DB_NAME}"
+else
+  echo "[pg-client] database already exists: ${APP_DB_NAME}"
+fi
+
+role_exists=\$(psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -tAc "SELECT 1 FROM pg_roles WHERE rolname='${APP_DB_USER}'" || true)
+if [[ "\${role_exists}" != "1" ]]; then
+  psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -v ON_ERROR_STOP=1 -c "CREATE ROLE \"${APP_DB_USER}\" LOGIN PASSWORD '${APP_DB_PASSWORD}';"
+  echo "[pg-client] created role: ${APP_DB_USER}"
+else
+  psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -v ON_ERROR_STOP=1 -c "ALTER ROLE \"${APP_DB_USER}\" WITH PASSWORD '${APP_DB_PASSWORD}';"
+  echo "[pg-client] updated role password: ${APP_DB_USER}"
+fi
+
+psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -v ON_ERROR_STOP=1 <<SQL
+GRANT CONNECT ON DATABASE "${APP_DB_NAME}" TO "${APP_DB_USER}";
+\c "${APP_DB_NAME}";
+GRANT USAGE, CREATE ON SCHEMA public TO "${APP_DB_USER}";
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public TO "${APP_DB_USER}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO "${APP_DB_USER}";
+SQL
+EOF
+    APP_DB_URI="postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}?sslmode=${sslmode}"
+    require_non_empty "APP_DB_URI(pg)" "${APP_DB_URI}"
+    return 0
+  fi
+
+  require_cmd "psql"
+  require_cmd "createdb"
+  pg_precheck
 
   export PGPASSWORD="${PG_ADMIN_PASSWORD}"
 
@@ -65,13 +133,47 @@ pg_deprovision() {
     return 0
   fi
 
-  require_cmd "psql"
   wait_k8s_pods_ready
+  local admin_db="${PG_ADMIN_DB:-postgres}"
+
+  if pg_use_k8s_client; then
+    local pod_name="dbctl-pg-deprovision-${SERVICE_NAME:-app}-$(date +%s)"
+    pg_run_k8s_client "${pod_name}" <<EOF
+pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" >/dev/null
+
+psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -v ON_ERROR_STOP=1 <<SQL
+REVOKE CONNECT ON DATABASE "${APP_DB_NAME}" FROM "${APP_DB_USER}";
+DO \$\$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${APP_DB_USER}') THEN
+    REASSIGN OWNED BY "${APP_DB_USER}" TO "${PG_ADMIN_USER}";
+    DROP OWNED BY "${APP_DB_USER}";
+    DROP ROLE "${APP_DB_USER}";
+  END IF;
+END
+\$\$;
+SQL
+echo "[pg-client] dropped role if exists: ${APP_DB_USER}"
+
+if [[ "${DEPROVISION_DROP_DATABASE:-false}" == "true" || "${DEPROVISION_DROP_DATABASE:-false}" == "1" ]]; then
+  psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -v ON_ERROR_STOP=1 <<SQL
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname='${APP_DB_NAME}' AND pid <> pg_backend_pid();
+SQL
+  dropdb -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" --if-exists "${APP_DB_NAME}"
+  echo "[pg-client] dropped database if exists: ${APP_DB_NAME}"
+fi
+EOF
+    APP_DB_URI=""
+    return 0
+  fi
+
+  require_cmd "psql"
   pg_precheck
   if bool_true "${DEPROVISION_DROP_DATABASE:-false}"; then
     require_cmd "dropdb"
   fi
-  local admin_db="${PG_ADMIN_DB:-postgres}"
   export PGPASSWORD="${PG_ADMIN_PASSWORD}"
 
   psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${PG_ADMIN_USER}" -d "${admin_db}" -v ON_ERROR_STOP=1 <<EOF
@@ -106,6 +208,10 @@ pg_precheck() {
 
   if ! precheck_enabled; then
     log "PostgreSQL precheck disabled"
+    return 0
+  fi
+
+  if pg_use_k8s_client; then
     return 0
   fi
 

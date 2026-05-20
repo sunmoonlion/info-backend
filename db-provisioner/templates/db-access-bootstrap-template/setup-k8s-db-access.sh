@@ -7,6 +7,19 @@ CONFIG_DIR="${SCRIPT_DIR}/config"
 # shellcheck disable=SC1091
 source "${CONFIG_DIR}/common.env"
 
+# dbctl 优先读取 PG_CLIENT_IMAGE；k8s 场景默认按集群解析临时 PostgreSQL client 镜像。
+if [[ -z "${APP_PG_CLIENT_IMAGE:-}" ]]; then
+  _cluster_for_pg="${CLUSTER:-${K8S_TARGET_MODE:-${TARGET_MODE:-}}}"
+  if [[ "$(printf '%s' "$_cluster_for_pg" | tr '[:lower:]' '[:upper:]')" == "KIND" ]]; then
+    export PG_CLIENT_IMAGE="harbor.sunmoonai.com:30443/k8s-images/postgresql:17.6.0-debian-12-r4"
+  else
+    export PG_CLIENT_IMAGE="harbor.sunmoonai.com/k8s-images/postgresql:17.6.0-debian-12-r4"
+  fi
+  unset _cluster_for_pg
+else
+  export PG_CLIENT_IMAGE="${APP_PG_CLIENT_IMAGE}"
+fi
+
 PG_CONFIG="${PG_K8S_CONFIG:-${CONFIG_DIR}/postgresql.k8s.env}"
 REDIS_CONFIG="${REDIS_K8S_CONFIG:-${CONFIG_DIR}/redis.k8s.env}"
 MONGO_CONFIG="${MONGO_K8S_CONFIG:-${CONFIG_DIR}/mongodb.k8s.env}"

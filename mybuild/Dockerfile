@@ -1,6 +1,6 @@
 ARG PYTHON_VERSION=3.12
 # Docker 镜像仓库；CI 传 Harbor 地址，本地默认同 Harbor（内网可用）；纯外网传 --build-arg REGISTRY= 退回 DockerHub
-ARG REGISTRY=harbor.sunmoonai.com:30443/k8s-images
+ARG REGISTRY=harbor.sunmoonai.com/k8s-images
 
 # ============================================================================
 # Stage 1: Type-check — 安装所有依赖（含 dev），运行 pyright 类型检查
@@ -33,7 +33,7 @@ RUN uv sync --no-dev --frozen
 # Stage 3: Runtime — 最小化运行镜像
 # ============================================================================
 ARG PYTHON_VERSION=3.12
-ARG REGISTRY=harbor.sunmoonai.com:30443/k8s-images
+ARG REGISTRY=harbor.sunmoonai.com/k8s-images
 FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS run
 
 WORKDIR /app

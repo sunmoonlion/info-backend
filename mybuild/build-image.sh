@@ -22,7 +22,7 @@ source "$BUILD_CONF"
 
 ADMIN_BACKEND_IMAGE="${ADMIN_BACKEND_IMAGE:-tpl-admin-backend}"
 ADMIN_BACKEND_TAG="${ADMIN_BACKEND_TAG:-1.0.0}"
-ADMIN_BACKEND_IMAGE_REGISTRY="${ADMIN_BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com:30443}"
+ADMIN_BACKEND_IMAGE_REGISTRY="${ADMIN_BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com}"
 ADMIN_BACKEND_IMAGE_PROJECT="${ADMIN_BACKEND_IMAGE_PROJECT:-k8s-images}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile}"
 PUSH_IMAGES_AFTER_BUILD="${PUSH_IMAGES_AFTER_BUILD:-false}"
@@ -77,7 +77,7 @@ build_image() {
     cd "$PROJECT_ROOT"
     $RUNTIME_CMD build -f "$SCRIPT_DIR/$DOCKERFILE" \
         -t "${ADMIN_BACKEND_IMAGE}:${ADMIN_BACKEND_TAG}" \
-        --build-arg REGISTRY="${REGISTRY:-harbor.sunmoonai.com:30443/k8s-images}" \
+        --build-arg REGISTRY="${REGISTRY:-harbor.sunmoonai.com/k8s-images}" \
         .
 
     log_success "镜像构建完成: ${ADMIN_BACKEND_IMAGE}:${ADMIN_BACKEND_TAG}"

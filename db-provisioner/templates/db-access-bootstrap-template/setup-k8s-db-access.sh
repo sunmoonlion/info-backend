@@ -20,6 +20,19 @@ else
   export PG_CLIENT_IMAGE="${APP_PG_CLIENT_IMAGE}"
 fi
 
+# dbctl 优先读取 REDIS_CLIENT_IMAGE；k8s 场景默认按集群解析临时 Redis client 镜像。
+if [[ -z "${APP_REDIS_CLIENT_IMAGE:-}" ]]; then
+  _cluster_for_redis="${CLUSTER:-${K8S_TARGET_MODE:-${TARGET_MODE:-}}}"
+  if [[ "$(printf '%s' "$_cluster_for_redis" | tr '[:lower:]' '[:upper:]')" == "KIND" ]]; then
+    export REDIS_CLIENT_IMAGE="harbor.sunmoonai.com:30443/k8s-images/redis:8.2.1-debian-12-r0"
+  else
+    export REDIS_CLIENT_IMAGE="harbor.sunmoonai.com/k8s-images/redis:8.2.1-debian-12-r0"
+  fi
+  unset _cluster_for_redis
+else
+  export REDIS_CLIENT_IMAGE="${APP_REDIS_CLIENT_IMAGE}"
+fi
+
 PG_CONFIG="${PG_K8S_CONFIG:-${CONFIG_DIR}/postgresql.k8s.env}"
 REDIS_CONFIG="${REDIS_K8S_CONFIG:-${CONFIG_DIR}/redis.k8s.env}"
 MONGO_CONFIG="${MONGO_K8S_CONFIG:-${CONFIG_DIR}/mongodb.k8s.env}"

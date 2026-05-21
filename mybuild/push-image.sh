@@ -2,7 +2,7 @@
 
 # Admin Backend 镜像推送脚本
 # 用法: ./push-image.sh [--tag TAG]
-# 凭证: 设置环境变量 HARBOR_USER / HARBOR_PASSWORD，或运行时提示输入
+# 凭证: 优先读取 HARBOR_USER/HARBOR_PASSWORD 或 k8s Harbor 配置，缺失时提示输入
 
 set -e
 
@@ -17,11 +17,12 @@ log_error()   { echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') $1"; }
 BUILD_CONF="${SCRIPT_DIR}/build.conf"
 if [ ! -f "$BUILD_CONF" ]; then log_error "build.conf 不存在"; exit 1; fi
 source "$BUILD_CONF"
+source "$SCRIPT_DIR/harbor-cluster.sh"
 
 IMAGE_NAME="${ADMIN_BACKEND_IMAGE:-tpl-admin-backend}"
 IMAGE_TAG="${ADMIN_BACKEND_TAG:-1.0.0}"
-IMAGE_REGISTRY="${ADMIN_BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com}"
-IMAGE_PROJECT="${ADMIN_BACKEND_IMAGE_PROJECT:-k8s-images}"
+IMAGE_REGISTRY="$(resolve_harbor_registry_for_push "${ADMIN_BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com}")"
+IMAGE_PROJECT="${ADMIN_BACKEND_IMAGE_PROJECT:-app-images}"
 
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
 if [[ "$CONTAINER_RUNTIME" == "sudo nerdctl" || "$CONTAINER_RUNTIME" == "nerdctl" ]]; then
@@ -32,10 +33,10 @@ fi
 
 if [[ "$1" == "--tag" && -n "$2" ]]; then IMAGE_TAG="$2"; fi
 
-_harbor_user="${HARBOR_USER:-}"
-_harbor_pass="${HARBOR_PASSWORD:-}"
-if [ -z "$_harbor_user" ]; then read -rp "Harbor 用户名: " _harbor_user; fi
-if [ -z "$_harbor_pass" ]; then read -rsp "Harbor 密码: " _harbor_pass; echo; fi
+# ── Harbor 凭证（优先从环境变量和 k8s 配置读取，缺失时才提示输入）────────────────
+load_harbor_credentials_for_push
+_harbor_user="${HARBOR_USER}"
+_harbor_pass="${HARBOR_PASSWORD}"
 
 ensure_harbor_project() {
     local registry="$1"
@@ -82,7 +83,7 @@ ensure_harbor_project "${IMAGE_REGISTRY}" "${IMAGE_PROJECT}"
 
 $RUNTIME_CMD tag "${LOCAL_IMAGE_NAME}" "${FULL_IMAGE_NAME}"
 
-if $RUNTIME_CMD push "${FULL_IMAGE_NAME}"; then
+if push_image_with_harbor_verify "$RUNTIME_CMD" "$FULL_IMAGE_NAME"; then
     log_success "✅ 推送成功: ${FULL_IMAGE_NAME}"
 else
     log_error "❌ 推送失败，请确认已登录: ${RUNTIME_CMD} login ${IMAGE_REGISTRY}"

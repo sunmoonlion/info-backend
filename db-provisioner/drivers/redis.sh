@@ -9,6 +9,37 @@ redis_admin_auth_args() {
   die "redis-cli does not support --user. Please install redis-cli >= 6."
 }
 
+redis_use_k8s_client() {
+  [[ "${TARGET:-}" == "k8s" ]] && ! bool_true "${DBCTL_K8S_USE_LOCAL_CLIENT:-false}"
+}
+
+redis_client_namespace() {
+  if [[ -n "${REDIS_CLIENT_NAMESPACE:-}" ]]; then
+    printf '%s\n' "${REDIS_CLIENT_NAMESPACE}"
+  elif [[ "${DB_HOST}" =~ \.([a-z0-9-]+)\.svc(\.|$) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    printf '%s\n' "${K8S_PRECHECK_NAMESPACE:-${NAMESPACE:-default}}"
+  fi
+}
+
+redis_client_image() {
+  printf '%s\n' "${REDIS_CLIENT_IMAGE:-harbor.sunmoonai.com:30443/k8s-images/redis:8.2.1-debian-12-r0}"
+}
+
+redis_run_k8s_client() {
+  local pod_name="$1"
+  local namespace image
+  namespace="$(redis_client_namespace)"
+  image="$(redis_client_image)"
+
+  require_cmd "kubectl"
+  log "[redis] using temporary Redis client pod: ${namespace}/${pod_name} (${image})"
+  kubectl run "${pod_name}" --rm -i --restart=Never -n "${namespace}" \
+    --image="${image}" \
+    --command -- bash -se
+}
+
 redis_validate() {
   require_non_empty "DB_HOST" "${DB_HOST:-}"
   require_non_empty "DB_PORT" "${DB_PORT:-}"
@@ -33,9 +64,16 @@ redis_provision() {
       log "DRY_RUN=true, skip executing redis-cli"
       return 0
     fi
-    require_cmd "redis-cli"
     wait_k8s_pods_ready
-    redis_precheck
+    if redis_use_k8s_client; then
+      local pod_name="dbctl-redis-auth-${SERVICE_NAME:-app}-$(date +%s)"
+      redis_run_k8s_client "${pod_name}" <<EOF
+REDISCLI_AUTH='${REDIS_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' -n '${REDIS_DB_INDEX}' PING >/dev/null
+EOF
+    else
+      require_cmd "redis-cli"
+      redis_precheck
+    fi
     APP_DB_URI="redis://:${REDIS_PASSWORD}@${DB_HOST}:${DB_PORT}/${REDIS_DB_INDEX}"
     require_non_empty "APP_DB_URI(redis)" "${APP_DB_URI}"
     return 0
@@ -54,8 +92,34 @@ redis_provision() {
     return 0
   fi
 
-  require_cmd "redis-cli"
   wait_k8s_pods_ready
+
+  if redis_use_k8s_client; then
+    local pod_name="dbctl-redis-provision-${SERVICE_NAME:-app}-$(date +%s)"
+    redis_run_k8s_client "${pod_name}" <<EOF
+key_spec='${key_spec}'
+key_sep='${key_sep}'
+category='${category}'
+key_args=()
+if [[ -n "\${key_sep}" ]]; then
+  IFS="\${key_sep}" read -ra prefix_parts <<< "\${key_spec}"
+else
+  read -ra prefix_parts <<< "\${key_spec}"
+fi
+for pat in "\${prefix_parts[@]}"; do
+  [[ -z "\${pat}" ]] && continue
+  key_args+=( "~\${pat}" )
+done
+REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' PING >/dev/null
+REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL SETUSER '${APP_DB_USER}' on '>${APP_DB_PASSWORD}' "\${key_args[@]}" \${category} -@dangerous >/dev/null
+echo '[redis-client] ACL user upserted: ${APP_DB_USER}'
+EOF
+    APP_DB_URI="redis://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${REDIS_DB_INDEX}"
+    require_non_empty "APP_DB_URI(redis)" "${APP_DB_URI}"
+    return 0
+  fi
+
+  require_cmd "redis-cli"
   redis_precheck
 
   local auth_args
@@ -98,8 +162,27 @@ redis_deprovision() {
     return 0
   fi
 
-  require_cmd "redis-cli"
   wait_k8s_pods_ready
+
+  if redis_use_k8s_client; then
+    local pod_name="dbctl-redis-deprovision-${SERVICE_NAME:-app}-$(date +%s)"
+    redis_run_k8s_client "${pod_name}" <<EOF
+REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' PING >/dev/null
+REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL DELUSER '${APP_DB_USER}' >/dev/null || true
+if [[ '${DEPROVISION_DROP_DATABASE:-false}' == 'true' || '${DEPROVISION_DROP_DATABASE:-false}' == '1' ]]; then
+  if [[ '${REDIS_ALLOW_FLUSH_DB:-false}' == 'true' || '${REDIS_ALLOW_FLUSH_DB:-false}' == '1' ]]; then
+    REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' -n '${REDIS_DB_INDEX}' FLUSHDB ASYNC >/dev/null
+  else
+    echo '[redis-client][warn] DEPROVISION_DROP_DATABASE=true but REDIS_ALLOW_FLUSH_DB!=true, skip FLUSHDB for safety'
+  fi
+fi
+echo '[redis-client] dropped ACL user if exists: ${APP_DB_USER}'
+EOF
+    APP_DB_URI=""
+    return 0
+  fi
+
+  require_cmd "redis-cli"
   redis_precheck
   local auth_args
   auth_args="$(redis_admin_auth_args)"
@@ -127,6 +210,11 @@ redis_precheck() {
     return 0
   fi
 
+  if redis_use_k8s_client; then
+    return 0
+  fi
+
+  require_cmd "redis-cli"
   log "Redis precheck: waiting for readiness (timeout=${timeout}s, interval=${interval}s)"
   if bool_true "${REDIS_AUTH_ONLY:-false}"; then
     if wait_until "${timeout}" "${interval}" redis-cli -h "${DB_HOST}" -p "${DB_PORT}" -a "${REDIS_PASSWORD}" PING >/dev/null 2>&1; then

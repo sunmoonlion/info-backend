@@ -49,6 +49,10 @@ ensure_base_image() {
     local public_image="$1"
     local harbor_image="${REGISTRY}/${public_image}"
     log_info "检查基础镜像: ${harbor_image}"
+    if $RUNTIME_CMD image inspect "${harbor_image}" > /dev/null 2>&1; then
+        log_info "本地基础镜像已就绪: ${harbor_image}"
+        return 0
+    fi
     if $RUNTIME_CMD pull "${harbor_image}" > /dev/null 2>&1; then
         log_info "基础镜像已就绪: ${harbor_image}"
     else

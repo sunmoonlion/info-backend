@@ -20,6 +20,8 @@ fi
 log_info "加载构建配置: $BUILD_CONF"
 source "$BUILD_CONF"
 source "$SCRIPT_DIR/harbor-cluster.sh"
+REGISTRY="$(resolve_k8s_images_registry)" || exit 1
+export REGISTRY
 
 ADMIN_BACKEND_IMAGE="${ADMIN_BACKEND_IMAGE:-tpl-admin-backend}"
 ADMIN_BACKEND_TAG="${ADMIN_BACKEND_TAG:-1.0.0}"
@@ -84,7 +86,7 @@ build_image() {
     cd "$PROJECT_ROOT"
     $RUNTIME_CMD build -f "$SCRIPT_DIR/$DOCKERFILE" \
         -t "${ADMIN_BACKEND_IMAGE}:${ADMIN_BACKEND_TAG}" \
-        --build-arg REGISTRY="${REGISTRY:-harbor.sunmoonai.com/k8s-images}" \
+        --build-arg REGISTRY="${REGISTRY}" \
         .
 
     log_success "镜像构建完成: ${ADMIN_BACKEND_IMAGE}:${ADMIN_BACKEND_TAG}"

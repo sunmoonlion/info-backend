@@ -33,10 +33,15 @@ redis_run_k8s_client() {
   namespace="$(redis_client_namespace)"
   image="$(redis_client_image)"
 
+  local pull_secret="${REDIS_CLIENT_IMAGE_PULL_SECRET:-harbor-registry-secret}"
+  local overrides
+  overrides="$(printf '{"spec":{"imagePullSecrets":[{"name":"%s"}]}}' "${pull_secret}")"
+
   require_cmd "kubectl"
   log "[redis] using temporary Redis client pod: ${namespace}/${pod_name} (${image})"
   kubectl run "${pod_name}" --rm -i --restart=Never -n "${namespace}" \
     --image="${image}" \
+    --overrides="${overrides}" \
     --command -- bash -se
 }
 

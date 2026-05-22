@@ -35,12 +35,16 @@ pg_run_k8s_client() {
   image="$(pg_client_image)"
   timeout="${PG_CLIENT_POD_RUNNING_TIMEOUT:-5m0s}"
   pull_policy="${PG_CLIENT_IMAGE_PULL_POLICY:-IfNotPresent}"
+  local pull_secret="${PG_CLIENT_IMAGE_PULL_SECRET:-harbor-registry-secret}"
+  local overrides
+  overrides="$(printf '{"spec":{"imagePullSecrets":[{"name":"%s"}]}}' "${pull_secret}")"
 
   require_cmd "kubectl"
   log "[pg] using temporary PostgreSQL client pod: ${namespace}/${pod_name} (${image})"
   kubectl run "${pod_name}" --rm -i --restart=Never -n "${namespace}" \
     --image="${image}" \
     --image-pull-policy="${pull_policy}" \
+    --overrides="${overrides}" \
     --pod-running-timeout="${timeout}" \
     --env="PGPASSWORD=${PG_ADMIN_PASSWORD}" \
     --command -- bash -se

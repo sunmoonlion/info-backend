@@ -25,7 +25,7 @@ pg_client_namespace() {
 }
 
 pg_client_image() {
-  printf '%s\n' "${PG_CLIENT_IMAGE:-${POSTGRESQL_CLIENT_IMAGE:-harbor.sunmoonai.com/k8s-images/postgresql:17.6.0-debian-12-r4}}"
+  printf '%s\n' "${PG_CLIENT_IMAGE:-${POSTGRESQL_CLIENT_IMAGE:-harbor.sunmoonai.com:30443/k8s-images/postgresql:17.6.0-debian-12-r4}}"
 }
 
 pg_run_k8s_client() {

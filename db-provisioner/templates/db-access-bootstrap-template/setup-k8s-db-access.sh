@@ -13,7 +13,7 @@ if [[ -z "${APP_PG_CLIENT_IMAGE:-}" ]]; then
   if [[ "$(printf '%s' "$_cluster_for_pg" | tr '[:lower:]' '[:upper:]')" == "KIND" ]]; then
     export PG_CLIENT_IMAGE="harbor.sunmoonai.com:30443/k8s-images/postgresql:17.6.0-debian-12-r4"
   else
-    export PG_CLIENT_IMAGE="harbor.sunmoonai.com/k8s-images/postgresql:17.6.0-debian-12-r4"
+    export PG_CLIENT_IMAGE="harbor.sunmoonai.com:30443/k8s-images/postgresql:17.6.0-debian-12-r4"
   fi
   unset _cluster_for_pg
 else
@@ -26,7 +26,7 @@ if [[ -z "${APP_REDIS_CLIENT_IMAGE:-}" ]]; then
   if [[ "$(printf '%s' "$_cluster_for_redis" | tr '[:lower:]' '[:upper:]')" == "KIND" ]]; then
     export REDIS_CLIENT_IMAGE="harbor.sunmoonai.com:30443/k8s-images/redis:8.2.1-debian-12-r0"
   else
-    export REDIS_CLIENT_IMAGE="harbor.sunmoonai.com/k8s-images/redis:8.2.1-debian-12-r0"
+    export REDIS_CLIENT_IMAGE="harbor.sunmoonai.com:30443/k8s-images/redis:8.2.1-debian-12-r0"
   fi
   unset _cluster_for_redis
 else

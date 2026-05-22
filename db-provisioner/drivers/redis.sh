@@ -24,7 +24,7 @@ redis_client_namespace() {
 }
 
 redis_client_image() {
-  printf '%s\n' "${REDIS_CLIENT_IMAGE:-harbor.sunmoonai.com/k8s-images/redis:8.2.1-debian-12-r0}"
+  printf '%s\n' "${REDIS_CLIENT_IMAGE:-harbor.sunmoonai.com:30443/k8s-images/redis:8.2.1-debian-12-r0}"
 }
 
 redis_run_k8s_client() {

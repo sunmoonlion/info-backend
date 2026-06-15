@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="tpl Admin Backend",
+    title="info Admin Backend",
     description="通用后台管理 API 服务",
     version="0.1.0",
     lifespan=lifespan,

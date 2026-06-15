@@ -1,5 +1,5 @@
 [project]
-name = "tpl-admin-backend"
+name = "info-admin-backend"
 version = "0.1.0"
 description = "通用后台管理 API 服务模板"
 requires-python = ">=3.12"

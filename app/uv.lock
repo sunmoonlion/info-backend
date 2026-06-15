@@ -633,7 +633,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tpl-admin-backend"
+name = "info-admin-backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

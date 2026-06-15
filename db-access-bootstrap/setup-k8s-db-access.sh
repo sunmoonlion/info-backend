@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="${SCRIPT_DIR}/config"
+BOOTSTRAP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="${BOOTSTRAP_DIR}/config"
 
 # shellcheck disable=SC1091
 source "${CONFIG_DIR}/common.env"
@@ -11,7 +11,7 @@ PG_CONFIG="${PG_K8S_CONFIG:-${CONFIG_DIR}/postgresql.k8s.env}"
 REDIS_CONFIG="${REDIS_K8S_CONFIG:-${CONFIG_DIR}/redis.k8s.env}"
 MONGO_CONFIG="${MONGO_K8S_CONFIG:-${CONFIG_DIR}/mongodb.k8s.env}"
 
-OUT="${K8S_OUT_ENV:-${SCRIPT_DIR}/.env.local.k8s.db}"
+OUT="${K8S_OUT_ENV:-${BOOTSTRAP_DIR}/.env.local.k8s.db}"
 
 log() { printf '[db-access-bootstrap][k8s] %s\n' "$*"; }
 die() { printf '[db-access-bootstrap][k8s][error] %s\n' "$*" >&2; exit 1; }
@@ -51,6 +51,13 @@ write_k8s_out() {
     replace_env_value "${OUT}" "REDIS_DB"       "${REDIS_DB_INDEX}"
     replace_env_value "${OUT}" "REDIS_USER"     "${APP_DB_USER}"
     replace_env_value "${OUT}" "REDIS_PASSWORD" "${APP_DB_PASSWORD}"
+  fi
+
+  if bool_true "${ENABLE_MONGODB:-false}" && [[ -f "${MONGO_CONFIG}" ]]; then
+    # shellcheck disable=SC1090
+    source "${MONGO_CONFIG}"
+    replace_env_value "${OUT}" "MONGODB_URI" \
+      "mongodb://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}?authSource=${APP_DB_NAME}"
   fi
 
   log "k8s env written: ${OUT}"

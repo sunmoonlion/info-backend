@@ -1,6 +1,6 @@
 # db-access-bootstrap (admin-backend)
 
-用于 `tpl-admin-backend` 的数据库接入脚手架（与 `tpl-web-backend/db-access-bootstrap` 结构对齐）。
+用于 `info-admin-backend` 的数据库接入脚手架（与 `info-web-backend/db-access-bootstrap` 结构对齐）。
 
 **执行环境**：Git Bash（Windows）或 Linux/macOS 的 `bash`（脚本依赖 `sed`、`grep` 等）。
 
@@ -35,7 +35,7 @@
 
 - **`ENABLE_POSTGRESQL` / `ENABLE_REDIS` / `ENABLE_MONGODB`**：管理端不用 Mongo，一般 **`ENABLE_MONGODB=false`**。
 - **`OUT_ENV`**：默认 **`${SCRIPT_DIR}/.env.local.db`**。
-- **`DBCTL_BIN`**：未设置时解析为 **`tpl-admin-backend/db-provisioner/bin/dbctl`**（相对 `db-access-bootstrap` 的上一级）；使用仓库外二进制时用环境变量覆盖（Windows 可用 `/c/...`）。
+- **`DBCTL_BIN`**：未设置时解析为 **`info-admin-backend/db-provisioner/bin/dbctl`**（相对 `db-access-bootstrap` 的上一级）；使用仓库外二进制时用环境变量覆盖（Windows 可用 `/c/...`）。
 
 ---
 
@@ -44,7 +44,7 @@
 一条命令：**（可选）provision → 合并 `../app/.env` → 写 `.env.reference`**。
 
 ```bash
-cd tpl-admin-backend/db-access-bootstrap
+cd info-admin-backend/db-access-bootstrap
 chmod +x merge-and-generate-app-env.sh setup-external-db-access.sh setup-k8s-db-access.sh   # 如需
 
 ./merge-and-generate-app-env.sh              # 默认 = external
@@ -112,4 +112,4 @@ chmod +x merge-and-generate-app-env.sh setup-external-db-access.sh setup-k8s-db-
 3. 检查 `../app/.env`（PG/Redis + Casdoor）。
 4. 重启：`uv run uvicorn app.main:app --host 0.0.0.0 --port 8001`
 
-默认 **PostgreSQL + Redis 开启**，**MongoDB 关闭**。占位规则与 `init.sh` 一致（保留 `tpl` 锚点）。
+默认 **PostgreSQL + Redis 开启**，**MongoDB 关闭**。占位规则与 `init.sh` 一致（保留 `info` 锚点）。

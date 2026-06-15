@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Usage: ./merge-and-generate-app-env.sh [external|k8s|merge-only]
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="${SCRIPT_DIR}/config"
+BOOTSTRAP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="${BOOTSTRAP_DIR}/config"
 MODE="${1:-external}"
 # shellcheck disable=SC1091
 source "${CONFIG_DIR}/common.env"
 # external 模式用 .env.local.db（NodePort 地址）；k8s 模式用 .env.local.k8s.db（集群内 Service DNS）
 case "${MODE}" in
-  k8s) OUT="${K8S_OUT_ENV:-${SCRIPT_DIR}/.env.local.k8s.db}" ;;
+  k8s) OUT="${K8S_OUT_ENV:-${BOOTSTRAP_DIR}/.env.local.k8s.db}" ;;
   *)   OUT="${OUT_ENV}" ;;
 esac
-APP="${SCRIPT_DIR}/../app/.env"
-REF="${SCRIPT_DIR}/.env.reference"
+APP="${BOOTSTRAP_DIR}/../app/.env"
+REF="${BOOTSTRAP_DIR}/.env.reference"
 usage() {
   printf 'Usage: %s [external|k8s|merge-only]\n' "$(basename "$0")" >&2
   printf '  external (default) — setup-external-db-access.sh + merge + .env.reference\n' >&2
@@ -21,8 +21,8 @@ usage() {
   exit 1
 }
 case "${MODE}" in
-  external) "${SCRIPT_DIR}/setup-external-db-access.sh" ;;
-  k8s) "${SCRIPT_DIR}/setup-k8s-db-access.sh" ;;
+  external) "${BOOTSTRAP_DIR}/setup-external-db-access.sh" ;;
+  k8s) "${BOOTSTRAP_DIR}/setup-k8s-db-access.sh" ;;
   merge-only) : ;;
   -h|--help|help) usage ;;
   *) usage ;;

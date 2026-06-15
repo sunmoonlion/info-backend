@@ -1,4 +1,4 @@
-# 管理端后端（tpl-admin-backend）— Claude Code 规则
+# 管理端后端（info-admin-backend）— Claude Code 规则
 
 > 进入本目录时自动叠加，补充根目录 CLAUDE.md 的全局规则。
 

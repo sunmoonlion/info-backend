@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # 数据库（读 DATABASE_URL，自动补 +asyncpg 驱动前缀）
-    database_url: str = "postgresql+asyncpg://tpl:tpl@localhost:5432/tpl"
+    database_url: str = "postgresql+asyncpg://info:info@localhost:5432/info"
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     casdoor_client_secret: str = ""
     casdoor_redirect_uri: str = ""
     casdoor_organization: str = "built-in"
-    casdoor_application: str = "app-tpl"
+    casdoor_application: str = "app-info"
     casdoor_verify_ssl: bool = True
 
     # Frontend

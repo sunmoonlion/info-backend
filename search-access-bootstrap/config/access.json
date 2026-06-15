@@ -1,0 +1,45 @@
+{
+  "apiVersion": "search.sunmoonai.com/v1alpha1",
+  "kind": "ElasticsearchAccess",
+  "metadata": {
+    "name": "info-admin-backend"
+  },
+  "spec": {
+    "provider": "platform-elasticsearch",
+    "environment": "development",
+    "app": "info-app",
+    "backend": "info-admin-backend",
+    "namespace": "app-platform-dev",
+    "secretName": "info-admin-backend-elasticsearch",
+    "configMapName": "info-admin-backend-elasticsearch",
+    "datasets": [
+      {
+        "name": "information",
+        "schemaVersion": 1,
+        "permissions": ["read", "write"],
+        "settings": {
+          "refresh_interval": "1s"
+        },
+        "mappings": {
+          "dynamic": false,
+          "properties": {
+            "info_id": {"type": "keyword"},
+            "version_id": {"type": "keyword"},
+            "source_id": {"type": "keyword"},
+            "title": {"type": "text"},
+            "content": {"type": "text"},
+            "summary": {"type": "text"},
+            "language": {"type": "keyword"},
+            "content_type": {"type": "keyword"},
+            "status": {"type": "keyword"},
+            "entities": {"type": "keyword"},
+            "tags": {"type": "keyword"},
+            "importance": {"type": "float"},
+            "published_at": {"type": "date"},
+            "collected_at": {"type": "date"}
+          }
+        }
+      }
+    ]
+  }
+}

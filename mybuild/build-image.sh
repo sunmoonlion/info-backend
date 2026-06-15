@@ -23,7 +23,7 @@ source "$SCRIPT_DIR/harbor-cluster.sh"
 REGISTRY="$(resolve_k8s_images_registry)" || exit 1
 export REGISTRY
 
-ADMIN_BACKEND_IMAGE="${ADMIN_BACKEND_IMAGE:-tpl-admin-backend}"
+ADMIN_BACKEND_IMAGE="${ADMIN_BACKEND_IMAGE:-info-admin-backend}"
 ADMIN_BACKEND_TAG="${ADMIN_BACKEND_TAG:-1.0.0}"
 ADMIN_BACKEND_IMAGE_REGISTRY="${ADMIN_BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com}"
 ADMIN_BACKEND_IMAGE_PROJECT="${ADMIN_BACKEND_IMAGE_PROJECT:-app-images}"

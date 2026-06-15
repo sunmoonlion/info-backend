@@ -1,11 +1,11 @@
-# tpl-admin-backend 镜像构建
+# info-admin-backend 镜像构建
 
 ## 架构
 
-- **构建上下文**：子模块根目录（`tpl-admin-backend/`）
+- **构建上下文**：子模块根目录（`info-admin-backend/`）
 - **源码位置**：`app/` 子目录（pyproject.toml、uv.lock、应用代码）
 - **构建方式**：多阶段构建（python:slim 安装依赖 → python:slim 运行时）
-- **镜像名称**：`tpl-admin-backend:1.0.0`（本地）；CI 使用 git SHA tag
+- **镜像名称**：`info-admin-backend:1.0.0`（本地）；CI 使用 git SHA tag
 
 ## 文件说明
 
@@ -23,7 +23,7 @@
 # 在子模块根目录执行
 docker build -f mybuild/Dockerfile \
   --build-arg REGISTRY=harbor.sunmoonai.com:30443/k8s-images \
-  -t tpl-admin-backend:1.0.0 .
+  -t info-admin-backend:1.0.0 .
 ```
 
 ## 使用脚本构建
@@ -42,8 +42,8 @@ cd mybuild
 --dockerfile    mybuild/Dockerfile
 --context       <子模块根目录>
 --build-arg     REGISTRY=harbor.sunmoonai.com:30443/k8s-images
---destination   harbor.sunmoonai.com:30443/k8s-images/tpl-admin-backend:<git-sha>
---destination   harbor.sunmoonai.com:30443/k8s-images/tpl-admin-backend:latest
+--destination   harbor.sunmoonai.com:30443/k8s-images/info-admin-backend:<git-sha>
+--destination   harbor.sunmoonai.com:30443/k8s-images/info-admin-backend:latest
 ```
 
 ## 注意事项

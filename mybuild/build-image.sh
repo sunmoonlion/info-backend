@@ -88,6 +88,8 @@ build_image() {
         -t "${ADMIN_BACKEND_IMAGE}:${ADMIN_BACKEND_TAG}" \
         --build-arg REGISTRY="${REGISTRY}" \
         --build-arg PYPI_INDEX_URL="${PYPI_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}" \
+        --build-arg DEBIAN_MIRROR="${DEBIAN_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}" \
+        --build-arg DEBIAN_SECURITY_MIRROR="${DEBIAN_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}" \
         .
 
     log_success "镜像构建完成: ${ADMIN_BACKEND_IMAGE}:${ADMIN_BACKEND_TAG}"

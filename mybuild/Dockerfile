@@ -8,12 +8,20 @@ ARG REGISTRY=harbor.sunmoonai.com:30443/k8s-images
 FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS type-check
 
 ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG DEBIAN_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG DEBIAN_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
 ENV PIP_INDEX_URL=${PYPI_INDEX_URL} \
     UV_DEFAULT_INDEX=${PYPI_INDEX_URL}
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 nodejs && rm -rf /var/lib/apt/lists/*
+RUN sed -i \
+      -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+      -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+      /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 nodejs \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install uv --no-cache-dir
 
 COPY app/pyproject.toml app/uv.lock ./

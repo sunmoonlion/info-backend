@@ -7,6 +7,10 @@ ARG REGISTRY=harbor.sunmoonai.com:30443/k8s-images
 # ============================================================================
 FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS type-check
 
+ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PYPI_INDEX_URL} \
+    UV_DEFAULT_INDEX=${PYPI_INDEX_URL}
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 nodejs && rm -rf /var/lib/apt/lists/*

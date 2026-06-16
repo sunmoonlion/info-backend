@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.11.0",
     "pydantic-settings>=2.10.0",
     "redis>=6.4.0",
+    "celery>=5.5.0",
     "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.35.0",
 ]
@@ -35,5 +36,5 @@ reportMissingImports = true
 reportMissingModuleSource = false
 reportOptionalMemberAccess = true
 reportAttributeAccessIssue = true
-include = ["app", "core"]
+include = ["app", "core", "app/tasks"]
 exclude = ["alembic"]

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.infrastructure.logging.logging import setup_logging
+from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_postgres
 from app.infrastructure.storage.redis import get_redis
 from app.interfaces.endpoints.routes import router
@@ -24,6 +25,15 @@ async def lifespan(app: FastAPI):
     # 初始化基础设施
     await get_redis().init()
     await get_postgres().init()
+
+    producer = get_celery_producer()
+    if producer.enabled:
+        logger.info(
+            "Celery producer 已启用，queue=%s",
+            settings.celery_queue,
+        )
+    else:
+        logger.info("Celery producer 未配置，跳过")
 
     try:
         yield

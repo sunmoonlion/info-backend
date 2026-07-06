@@ -22,6 +22,7 @@ from app.interfaces.schemas.info import (
     DocumentVersionRead,
     DocumentVersionReviewRequest,
     RawArtifactRead,
+    SearchIndexRebuildRead,
     SourceCreate,
     SourceRead,
     UploadIngestRead,
@@ -312,6 +313,14 @@ async def retry_distribution(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/admin/search-index/rebuild", response_model=SearchIndexRebuildRead)
+async def rebuild_search_index(
+    limit: int = Query(default=200, ge=1, le=1000),
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await info_crawl_service.rebuild_search_index(session, limit=limit)
 
 
 @router.post(

@@ -175,6 +175,16 @@ class DistributionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SearchIndexRebuildRead(BaseModel):
+    enabled: bool
+    index_name: str
+    index_created: bool = False
+    indexed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    errors: list[str] = Field(default_factory=list)
+
+
 class UploadIngestRead(BaseModel):
     document_version_id: uuid.UUID
     document_id: uuid.UUID

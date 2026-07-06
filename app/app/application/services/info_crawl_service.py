@@ -27,6 +27,7 @@ from app.infrastructure.storage.object_storage import (
     get_object_storage,
     make_artifact_key,
 )
+from app.infrastructure.search import build_info_index_document, get_info_search_index
 from core.config import get_settings
 
 try:
@@ -655,6 +656,56 @@ async def retry_distribution(
     await session.commit()
     await session.refresh(record)
     return record
+
+
+async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
+    search_index = get_info_search_index()
+    result = {
+        "enabled": search_index.enabled,
+        "index_name": search_index.index_name,
+        "index_created": False,
+        "indexed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+    }
+    if not search_index.enabled:
+        result["skipped"] = limit
+        return result
+
+    result["index_created"] = await search_index.ensure_index()
+    versions_result = await session.execute(
+        select(InfoDocumentVersion)
+        .order_by(InfoDocumentVersion.updated_at.desc())
+        .limit(limit)
+    )
+    versions = list(versions_result.scalars())
+    for version in versions:
+        document = await session.get(InfoDocument, version.document_id)
+        if document is None:
+            result["skipped"] += 1
+            continue
+        artifacts = await list_artifacts(
+            session, document_version_id=version.id
+        )
+        extracted_result = await session.execute(
+            select(ExtractedContent).where(
+                ExtractedContent.document_version_id == version.id
+            )
+        )
+        payload = build_info_index_document(
+            document=document,
+            version=version,
+            artifacts=artifacts,
+            extracted_contents=list(extracted_result.scalars()),
+        )
+        try:
+            await search_index.index_document(document_id=str(version.id), payload=payload)
+            result["indexed"] += 1
+        except Exception as exc:
+            result["failed"] += 1
+            result["errors"].append(f"{version.id}: {exc}")
+    return result
 
 
 async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJob:

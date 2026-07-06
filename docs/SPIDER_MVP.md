@@ -44,7 +44,32 @@ S3_FORCE_PATH_STYLE=true
 S3_USE_TLS=false
 ```
 
-## 3. API
+## 3. 搜索索引
+
+Elasticsearch/OpenSearch 是可重建读模型，默认关闭：
+
+```text
+SEARCH_BACKEND=disabled
+ELASTICSEARCH_URL=https://localhost:9200
+ELASTICSEARCH_INDEX=info-information
+ELASTICSEARCH_TIMEOUT_SECONDS=10
+```
+
+启用时设置：
+
+```text
+SEARCH_BACKEND=elasticsearch
+```
+
+重建索引会从 PostgreSQL 读取 `document_version`，并携带 S3 artifact 引用：
+
+```bash
+curl -X POST 'http://localhost:8000/api/admin/search-index/rebuild?limit=200'
+```
+
+当前重建入口会自动创建 `info-information` 索引；正文全文读取与采集成功后的自动增量写入仍留给下一步。
+
+## 4. API
 
 创建来源：
 
@@ -146,13 +171,13 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/sta
 curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/retry
 ```
 
-## 4. Celery
+## 5. Celery
 
 配置 `CELERY_BROKER_URL` 后，`POST /api/admin/crawl-jobs` 默认投递
 `app.tasks.crawl_url`。未配置 Celery 时，API 只创建 `pending` 任务，可通过
 `POST /api/admin/crawl-jobs/{job_id}/run` 手动同步执行，方便本地验证。
 
-## 5. 当前边界
+## 6. 当前边界
 
 - 已实现静态 HTML 拉取、原始证据保存、正文抽取和版本治理。
 - 已实现 RSS/Atom feed 发现，并将条目转为待采集 `crawl_job`。
@@ -161,8 +186,9 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/ret
 - 已实现文件上传入口；文本/HTML/Markdown 直接入库，PDF/Office 标记为 `pending_tool_processing`。
 - 已预留 S3 写入；本地默认使用文件 fallback。
 - 已实现 artifact 元数据查询和基础标题/URL 搜索。
+- 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
 - 已实现 `knowledge-app` 分发记录、payload 生成、状态对账和失败重试；尚未调用 `knowledge-app` API。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已提供 Scrapy 和 Playwright adapter 占位；尚未执行真实 Scrapy/Playwright 采集。
 - 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，但因前端依赖安装未完成尚未构建验证。
-- 尚未实现 Elasticsearch 索引、抽取结果审核和完整反爬策略。
+- 尚未实现搜索索引自动增量写入、抽取结果审核和完整反爬策略。

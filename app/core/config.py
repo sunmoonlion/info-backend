@@ -80,9 +80,27 @@ class Settings(BaseSettings):
         validation_alias="CRAWL_USER_AGENT",
     )
 
+    # Optional Elasticsearch/OpenSearch index used as a rebuildable read model.
+    search_backend: str = Field(default="disabled", validation_alias="SEARCH_BACKEND")
+    elasticsearch_url: str | None = Field(
+        default=None, validation_alias="ELASTICSEARCH_URL"
+    )
+    elasticsearch_index: str = Field(
+        default="info-information", validation_alias="ELASTICSEARCH_INDEX"
+    )
+    elasticsearch_timeout_seconds: float = Field(
+        default=10.0, validation_alias="ELASTICSEARCH_TIMEOUT_SECONDS"
+    )
+
     @property
     def celery_enabled(self) -> bool:
         return bool(self.celery_broker_url)
+
+    @property
+    def search_enabled(self) -> bool:
+        return self.search_backend.lower() in {"elasticsearch", "opensearch"} and bool(
+            self.elasticsearch_url
+        )
 
     model_config = SettingsConfigDict(
         env_file=".env",

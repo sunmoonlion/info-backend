@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from functools import lru_cache
 
 from celery.result import AsyncResult
@@ -38,6 +39,21 @@ class CeleryProducer:
         queue = get_settings().celery_queue
         async_result = ping.apply_async(queue=queue)
         logger.info("已投递 ping 任务 task_id=%s queue=%s", async_result.id, queue)
+        return async_result.id
+
+    def dispatch_crawl_url(self, job_id: uuid.UUID) -> str:
+        """投递 URL 采集任务，返回 Celery task_id。"""
+        self._ensure_ready()
+        from app.tasks.crawl import crawl_url
+
+        queue = get_settings().celery_queue
+        async_result = crawl_url.apply_async(args=[str(job_id)], queue=queue)
+        logger.info(
+            "已投递 crawl_url 任务 task_id=%s job_id=%s queue=%s",
+            async_result.id,
+            job_id,
+            queue,
+        )
         return async_result.id
 
     def get_task_result(self, task_id: str) -> AsyncResult:

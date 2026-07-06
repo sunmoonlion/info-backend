@@ -65,3 +65,4 @@ if os.environ.get("CELERY_BROKER_URL"):
     configure_celery()
 
 import app.tasks.ping  # noqa: E402, F401 — register tasks
+import app.tasks.crawl  # noqa: E402, F401 — register tasks

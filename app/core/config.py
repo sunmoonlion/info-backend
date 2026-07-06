@@ -54,6 +54,32 @@ class Settings(BaseSettings):
         default=None, validation_alias="CELERY_RESULT_BACKEND"
     )
 
+    # Info App object storage. S3 is the production contract; local storage keeps
+    # the first development loop runnable before platform S3 credentials exist.
+    storage_backend: str = Field(default="local", validation_alias="STORAGE_BACKEND")
+    storage_local_root: str = Field(
+        default=".local-storage/info-originals",
+        validation_alias="STORAGE_LOCAL_ROOT",
+    )
+    s3_endpoint: str | None = Field(default=None, validation_alias="S3_ENDPOINT")
+    s3_region: str = Field(default="us-east-1", validation_alias="S3_REGION")
+    s3_access_key_id: str | None = Field(
+        default=None, validation_alias="S3_ACCESS_KEY_ID"
+    )
+    s3_secret_access_key: str | None = Field(
+        default=None, validation_alias="S3_SECRET_ACCESS_KEY"
+    )
+    s3_bucket: str = Field(default="development-info-originals", validation_alias="S3_BUCKET")
+    s3_force_path_style: bool = Field(default=True, validation_alias="S3_FORCE_PATH_STYLE")
+    s3_use_tls: bool = Field(default=False, validation_alias="S3_USE_TLS")
+
+    crawl_timeout_seconds: float = Field(default=20.0, validation_alias="CRAWL_TIMEOUT_SECONDS")
+    crawl_max_bytes: int = Field(default=10 * 1024 * 1024, validation_alias="CRAWL_MAX_BYTES")
+    crawl_user_agent: str = Field(
+        default="SunmoonAI InfoAppBot/0.1",
+        validation_alias="CRAWL_USER_AGENT",
+    )
+
     @property
     def celery_enabled(self) -> bool:
         return bool(self.celery_broker_url)

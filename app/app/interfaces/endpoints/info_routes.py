@@ -16,6 +16,7 @@ from app.interfaces.schemas.info import (
     CrawlJobRead,
     DistributionCreate,
     DistributionRead,
+    DistributionStatusUpdate,
     DocumentReviewRequest,
     DocumentRead,
     DocumentVersionRead,
@@ -252,6 +253,65 @@ async def create_knowledge_distribution(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/admin/distributions", response_model=list[DistributionRead])
+async def list_distributions(
+    document_version_id: uuid.UUID | None = Query(default=None),
+    target_app: str | None = Query(default=None),
+    distribution_status: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await info_crawl_service.list_distributions(
+        session,
+        document_version_id=document_version_id,
+        target_app=target_app,
+        status=distribution_status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/admin/distributions/{distribution_id}", response_model=DistributionRead)
+async def get_distribution(
+    distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
+    record = await info_crawl_service.get_distribution(session, distribution_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="distribution not found")
+    return record
+
+
+@router.post("/admin/distributions/{distribution_id}/status", response_model=DistributionRead)
+async def update_distribution_status(
+    distribution_id: uuid.UUID,
+    payload: DistributionStatusUpdate,
+    session: AsyncSession = Depends(get_db_session),
+):
+    try:
+        return await info_crawl_service.update_distribution_status(
+            session,
+            distribution_id=distribution_id,
+            status=payload.status,
+            last_error=payload.last_error,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/admin/distributions/{distribution_id}/retry", response_model=DistributionRead)
+async def retry_distribution(
+    distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
+    try:
+        return await info_crawl_service.retry_distribution(
+            session, distribution_id=distribution_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(

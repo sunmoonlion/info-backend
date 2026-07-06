@@ -134,6 +134,18 @@ curl -X POST http://localhost:8000/api/admin/distributions/knowledge \
   -d '{"document_version_id":"00000000-0000-0000-0000-000000000000","target_dataset":"default"}'
 ```
 
+查询、对账和重试分发记录：
+
+```bash
+curl 'http://localhost:8000/api/admin/distributions?status=failed'
+
+curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/status \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"failed","last_error":"knowledge-app timeout","metadata":{"remote_id":"abc"}}'
+
+curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/retry
+```
+
 ## 4. Celery
 
 配置 `CELERY_BROKER_URL` 后，`POST /api/admin/crawl-jobs` 默认投递
@@ -149,7 +161,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/knowledge \
 - 已实现文件上传入口；文本/HTML/Markdown 直接入库，PDF/Office 标记为 `pending_tool_processing`。
 - 已预留 S3 写入；本地默认使用文件 fallback。
 - 已实现 artifact 元数据查询和基础标题/URL 搜索。
-- 已实现 `knowledge-app` 分发记录与 payload 生成，但尚未调用 `knowledge-app` API。
+- 已实现 `knowledge-app` 分发记录、payload 生成、状态对账和失败重试；尚未调用 `knowledge-app` API。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已提供 Scrapy 和 Playwright adapter 占位；尚未执行真实 Scrapy/Playwright 采集。
 - 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，但因前端依赖安装未完成尚未构建验证。

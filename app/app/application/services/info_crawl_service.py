@@ -551,6 +551,112 @@ async def create_knowledge_distribution(
     return record
 
 
+async def list_distributions(
+    session: AsyncSession,
+    *,
+    document_version_id: uuid.UUID | None,
+    target_app: str | None,
+    status: str | None,
+    limit: int,
+    offset: int,
+) -> list[DistributionRecord]:
+    query = select(DistributionRecord)
+    if document_version_id:
+        query = query.where(DistributionRecord.document_version_id == document_version_id)
+    if target_app:
+        query = query.where(DistributionRecord.target_app == target_app)
+    if status:
+        query = query.where(DistributionRecord.status == status)
+    result = await session.execute(
+        query.order_by(DistributionRecord.updated_at.desc()).limit(limit).offset(offset)
+    )
+    return list(result.scalars())
+
+
+async def get_distribution(
+    session: AsyncSession, distribution_id: uuid.UUID
+) -> DistributionRecord | None:
+    return await session.get(DistributionRecord, distribution_id)
+
+
+def _distribution_status_payload(
+    *,
+    existing: dict | None,
+    status: str,
+    last_error: str | None,
+    metadata: dict | None,
+) -> dict:
+    payload = dict(existing or {})
+    history = list(payload.get("status_history") or [])
+    history.append(
+        {
+            "status": status,
+            "last_error": last_error,
+            "metadata": metadata or {},
+            "updated_at": _now().isoformat(),
+        }
+    )
+    payload["status_history"] = history
+    payload["last_status_update"] = history[-1]
+    return payload
+
+
+async def update_distribution_status(
+    session: AsyncSession,
+    *,
+    distribution_id: uuid.UUID,
+    status: str,
+    last_error: str | None,
+    metadata: dict | None = None,
+) -> DistributionRecord:
+    record = await session.get(DistributionRecord, distribution_id)
+    if record is None:
+        raise ValueError(f"distribution not found: {distribution_id}")
+    record.status = status
+    record.last_error = last_error
+    record.payload = _distribution_status_payload(
+        existing=record.payload,
+        status=status,
+        last_error=last_error,
+        metadata=metadata,
+    )
+    await session.commit()
+    await session.refresh(record)
+    return record
+
+
+def _distribution_retry_payload(existing: dict | None, *, previous_error: str | None) -> dict:
+    payload = dict(existing or {})
+    history = list(payload.get("retry_history") or [])
+    history.append(
+        {
+            "previous_error": previous_error,
+            "retried_at": _now().isoformat(),
+        }
+    )
+    payload["retry_history"] = history
+    payload["last_retry"] = history[-1]
+    return payload
+
+
+async def retry_distribution(
+    session: AsyncSession, *, distribution_id: uuid.UUID
+) -> DistributionRecord:
+    record = await session.get(DistributionRecord, distribution_id)
+    if record is None:
+        raise ValueError(f"distribution not found: {distribution_id}")
+    if record.status != "failed":
+        raise ValueError("only failed distributions can be retried")
+    record.payload = _distribution_retry_payload(
+        record.payload, previous_error=record.last_error
+    )
+    record.status = "pending"
+    record.last_error = None
+    await session.commit()
+    await session.refresh(record)
+    return record
+
+
 async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJob:
     settings = get_settings()
     storage = get_object_storage()

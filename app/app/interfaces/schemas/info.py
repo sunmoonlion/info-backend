@@ -153,6 +153,12 @@ class DistributionCreate(BaseModel):
     target_dataset: str | None = None
 
 
+class DistributionStatusUpdate(BaseModel):
+    status: str = Field(min_length=1, max_length=30)
+    last_error: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
 class DistributionRead(BaseModel):
     id: uuid.UUID
     document_id: uuid.UUID

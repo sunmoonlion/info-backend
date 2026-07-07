@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import logging
+import re
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
@@ -36,6 +38,8 @@ from app.infrastructure.search import build_info_index_document, get_info_search
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
+_SIMHASH_BITS = 64
+_NEAR_DUPLICATE_THRESHOLD = 0.84
 
 try:
     import trafilatura
@@ -53,6 +57,52 @@ def _hash_text(text: str) -> str:
 
 def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _content_fingerprint(text: str) -> dict:
+    tokens = _fingerprint_tokens(text)
+    if not tokens:
+        return {
+            "algorithm": "simhash64",
+            "value": None,
+            "token_count": 0,
+        }
+
+    weights = [0] * _SIMHASH_BITS
+    for token, count in Counter(tokens).items():
+        digest = int.from_bytes(
+            hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest(),
+            "big",
+        )
+        for bit in range(_SIMHASH_BITS):
+            if digest & (1 << bit):
+                weights[bit] += count
+            else:
+                weights[bit] -= count
+
+    value = 0
+    for bit, weight in enumerate(weights):
+        if weight >= 0:
+            value |= 1 << bit
+
+    return {
+        "algorithm": "simhash64",
+        "value": f"{value:016x}",
+        "token_count": len(tokens),
+    }
+
+
+def _fingerprint_tokens(text: str) -> list[str]:
+    return [
+        token
+        for token in re.findall(r"[\w]+", text.lower())
+        if len(token) >= 3
+    ]
+
+
+def _simhash_similarity(left: str, right: str) -> float:
+    distance = (int(left, 16) ^ int(right, 16)).bit_count()
+    return round(1 - distance / _SIMHASH_BITS, 4)
 
 
 def _extract_html(html: str, url: str) -> tuple[str, str, str, datetime | None]:
@@ -287,6 +337,12 @@ async def ingest_uploaded_file(
         title=display_title,
         published_at=None,
         content_hash=content_hash,
+    )
+    await _apply_duplicate_metadata(
+        session=session,
+        document=document,
+        content_hash=content_hash,
+        text=text,
     )
     clean = storage.put_bytes(
         object_key=make_artifact_key(
@@ -946,6 +1002,12 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
             published_at=published_at,
             content_hash=content_hash,
         )
+        await _apply_duplicate_metadata(
+            session=session,
+            document=document,
+            content_hash=content_hash,
+            text=text,
+        )
         next_version = await _next_version_no(session, document.id)
         if document.content_hash == content_hash and document.current_version_id:
             job.status = "succeeded"
@@ -1144,6 +1206,63 @@ def _decode_upload_text(
     ):
         return content.decode("utf-8", errors="replace")
     return None
+
+
+async def _apply_duplicate_metadata(
+    *,
+    session: AsyncSession,
+    document: InfoDocument,
+    content_hash: str,
+    text: str,
+) -> None:
+    fingerprint = _content_fingerprint(text)
+    candidates: list[dict] = []
+    duplicate_state = "unique"
+
+    result = await session.execute(
+        select(InfoDocument)
+        .where(InfoDocument.id != document.id)
+        .order_by(InfoDocument.updated_at.desc())
+        .limit(200)
+    )
+    for candidate in result.scalars():
+        match_type: str | None = None
+        similarity: float | None = None
+        if candidate.content_hash == content_hash:
+            match_type = "exact_hash"
+            similarity = 1.0
+        else:
+            current_value = fingerprint.get("value")
+            candidate_value = (
+                (candidate.metadata_json or {})
+                .get("content_fingerprint", {})
+                .get("value")
+            )
+            if current_value and candidate_value:
+                similarity = _simhash_similarity(str(current_value), str(candidate_value))
+                if similarity >= _NEAR_DUPLICATE_THRESHOLD:
+                    match_type = "simhash64"
+        if match_type is None or similarity is None:
+            continue
+        candidates.append(
+            {
+                "document_id": str(candidate.id),
+                "canonical_url": candidate.canonical_url,
+                "title": candidate.title,
+                "match_type": match_type,
+                "similarity": similarity,
+            }
+        )
+        if match_type == "exact_hash":
+            duplicate_state = "exact_duplicate"
+        elif duplicate_state == "unique":
+            duplicate_state = "near_duplicate"
+
+    metadata = dict(document.metadata_json or {})
+    metadata["content_fingerprint"] = fingerprint
+    metadata["duplicate_state"] = duplicate_state
+    metadata["duplicate_candidates"] = candidates[:5]
+    document.metadata_json = metadata
 
 
 async def _find_or_create_document(

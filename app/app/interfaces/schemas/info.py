@@ -100,6 +100,7 @@ class DocumentRead(BaseModel):
     status: str
     current_version_id: uuid.UUID | None
     content_hash: str | None
+    metadata_json: dict
     created_at: datetime
     updated_at: datetime
 
@@ -115,6 +116,15 @@ class DocumentReviewRequest(BaseModel):
 class DocumentRelationRequest(BaseModel):
     target_document_id: uuid.UUID
     relation_type: str = Field(min_length=1, max_length=30)
+    reviewer: str | None = Field(default=None, max_length=120)
+    reason: str | None = None
+
+
+class DocumentEntityLinksRequest(BaseModel):
+    companies: list[str] = Field(default_factory=list)
+    securities: list[str] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
     reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = None
 

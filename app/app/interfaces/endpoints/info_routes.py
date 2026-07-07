@@ -17,6 +17,7 @@ from app.interfaces.schemas.info import (
     DistributionCreate,
     DistributionRead,
     DistributionStatusUpdate,
+    DocumentEntityLinksRequest,
     DocumentReviewRequest,
     DocumentRelationRequest,
     DocumentRead,
@@ -186,6 +187,27 @@ async def mark_document_relation(
             document_id=document_id,
             target_document_id=payload.target_document_id,
             relation_type=payload.relation_type,
+            reviewer=payload.reviewer,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/documents/{document_id}/entity-links", response_model=DocumentRead)
+async def update_document_entity_links(
+    document_id: uuid.UUID,
+    payload: DocumentEntityLinksRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    try:
+        return await info_crawl_service.update_document_entity_links(
+            session,
+            document_id=document_id,
+            companies=payload.companies,
+            securities=payload.securities,
+            industries=payload.industries,
+            topics=payload.topics,
             reviewer=payload.reviewer,
             reason=payload.reason,
         )

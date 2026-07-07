@@ -535,6 +535,50 @@ def _document_relation_metadata(
     return metadata
 
 
+def _normalize_entity_values(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(text)
+    return normalized
+
+
+def _document_entity_metadata(
+    *,
+    existing: dict | None,
+    companies: list[str],
+    securities: list[str],
+    industries: list[str],
+    topics: list[str],
+    reviewer: str | None,
+    reason: str | None,
+) -> dict:
+    metadata = dict(existing or {})
+    entity_links = {
+        "companies": _normalize_entity_values(companies),
+        "securities": _normalize_entity_values(securities),
+        "industries": _normalize_entity_values(industries),
+        "topics": _normalize_entity_values(topics),
+    }
+    update = {
+        "entity_links": entity_links,
+        "reviewer": reviewer,
+        "reason": reason,
+        "updated_at": _now().isoformat(),
+    }
+    history = list(metadata.get("entity_link_history") or [])
+    history.append(update)
+    metadata["entity_links"] = entity_links
+    metadata["entity_link_history"] = history
+    metadata["last_entity_link_update"] = update
+    return metadata
+
+
 async def review_document(
     session: AsyncSession,
     *,
@@ -550,6 +594,34 @@ async def review_document(
     document.metadata_json = _review_metadata(
         existing=document.metadata_json,
         status=status,
+        reviewer=reviewer,
+        reason=reason,
+    )
+    await session.commit()
+    await session.refresh(document)
+    return document
+
+
+async def update_document_entity_links(
+    session: AsyncSession,
+    *,
+    document_id: uuid.UUID,
+    companies: list[str],
+    securities: list[str],
+    industries: list[str],
+    topics: list[str],
+    reviewer: str | None,
+    reason: str | None,
+) -> InfoDocument:
+    document = await session.get(InfoDocument, document_id)
+    if document is None:
+        raise ValueError(f"document not found: {document_id}")
+    document.metadata_json = _document_entity_metadata(
+        existing=document.metadata_json,
+        companies=companies,
+        securities=securities,
+        industries=industries,
+        topics=topics,
         reviewer=reviewer,
         reason=reason,
     )

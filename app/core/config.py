@@ -1,4 +1,5 @@
 from functools import lru_cache
+import json
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -91,6 +92,21 @@ class Settings(BaseSettings):
     elasticsearch_timeout_seconds: float = Field(
         default=10.0, validation_alias="ELASTICSEARCH_TIMEOUT_SECONDS"
     )
+    elasticsearch_username: str | None = Field(
+        default=None, validation_alias="ELASTICSEARCH_USERNAME"
+    )
+    elasticsearch_password: str | None = Field(
+        default=None, validation_alias="ELASTICSEARCH_PASSWORD"
+    )
+    elasticsearch_ca_cert_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ELASTICSEARCH_CA_CERT_PATH", "ELASTICSEARCH_CA_CERT"
+        ),
+    )
+    elasticsearch_aliases: str | None = Field(
+        default=None, validation_alias="ELASTICSEARCH_ALIASES"
+    )
 
     # Optional Knowledge App ingestion endpoint. Disabled until a public
     # knowledge-admin-backend contract is configured.
@@ -117,6 +133,19 @@ class Settings(BaseSettings):
     @property
     def knowledge_app_ingest_enabled(self) -> bool:
         return bool(self.knowledge_app_ingest_url)
+
+    @property
+    def elasticsearch_write_target(self) -> str:
+        if not self.elasticsearch_aliases:
+            return self.elasticsearch_index
+        try:
+            aliases = json.loads(self.elasticsearch_aliases)
+        except json.JSONDecodeError:
+            return self.elasticsearch_index
+        information = aliases.get("information")
+        if isinstance(information, dict) and information.get("write"):
+            return str(information["write"])
+        return self.elasticsearch_index
 
     model_config = SettingsConfigDict(
         env_file=".env",

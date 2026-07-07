@@ -113,11 +113,22 @@ class InfoSearchIndex:
     index_name: str
     timeout_seconds: float
     enabled: bool
+    username: str | None = None
+    password: str | None = None
+    ca_cert_path: str | None = None
+
+    def _client_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"timeout": self.timeout_seconds}
+        if self.username and self.password:
+            kwargs["auth"] = (self.username, self.password)
+        if self.ca_cert_path:
+            kwargs["verify"] = self.ca_cert_path
+        return kwargs
 
     async def ensure_index(self) -> bool:
         if not self.enabled or not self.base_url:
             return False
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(**self._client_kwargs()) as client:
             response = await client.head(f"{self.base_url.rstrip('/')}/{self.index_name}")
             if response.status_code == 404:
                 create_response = await client.put(
@@ -132,7 +143,7 @@ class InfoSearchIndex:
     async def index_document(self, *, document_id: str, payload: dict[str, Any]) -> bool:
         if not self.enabled or not self.base_url:
             return False
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(**self._client_kwargs()) as client:
             response = await client.put(
                 f"{self.base_url.rstrip('/')}/{self.index_name}/_doc/{document_id}",
                 json=payload,
@@ -145,7 +156,10 @@ def get_info_search_index() -> InfoSearchIndex:
     settings = get_settings()
     return InfoSearchIndex(
         base_url=settings.elasticsearch_url,
-        index_name=settings.elasticsearch_index,
+        index_name=settings.elasticsearch_write_target,
         timeout_seconds=settings.elasticsearch_timeout_seconds,
         enabled=settings.search_enabled,
+        username=settings.elasticsearch_username,
+        password=settings.elasticsearch_password,
+        ca_cert_path=settings.elasticsearch_ca_cert_path,
     )

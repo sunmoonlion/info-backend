@@ -9,6 +9,7 @@ from app.application.services.info_crawl_service import index_document_version
 from app.infrastructure.search import (
     INFO_INFORMATION_INDEX_MAPPING,
     build_info_index_document,
+    get_info_search_index,
 )
 from core.config import get_settings
 
@@ -73,6 +74,30 @@ def test_build_info_index_document_includes_rebuildable_artifact_refs() -> None:
     assert payload["artifacts"][0]["object_key"] == "clean.md"
     assert payload["extracted_contents"][0]["content_format"] == "markdown"
     assert payload["metadata"]["document"]["topic"] == "market"
+
+
+def test_info_search_index_uses_platform_auth_ca_and_write_alias(monkeypatch) -> None:
+    monkeypatch.setenv("SEARCH_BACKEND", "elasticsearch")
+    monkeypatch.setenv("ELASTICSEARCH_URL", "https://elasticsearch.example:9200")
+    monkeypatch.setenv("ELASTICSEARCH_USERNAME", "info-user")
+    monkeypatch.setenv("ELASTICSEARCH_PASSWORD", "info-password")
+    monkeypatch.setenv("ELASTICSEARCH_CA_CERT_PATH", "/var/run/secrets/es/ca.crt")
+    monkeypatch.setenv(
+        "ELASTICSEARCH_ALIASES",
+        '{"information":{"read":"info-read","write":"info-write"}}',
+    )
+    get_settings.cache_clear()
+
+    index = get_info_search_index()
+
+    assert index.enabled is True
+    assert index.index_name == "info-write"
+    assert index.username == "info-user"
+    assert index.password == "info-password"
+    assert index.ca_cert_path == "/var/run/secrets/es/ca.crt"
+    assert index._client_kwargs()["auth"] == ("info-user", "info-password")
+    assert index._client_kwargs()["verify"] == "/var/run/secrets/es/ca.crt"
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

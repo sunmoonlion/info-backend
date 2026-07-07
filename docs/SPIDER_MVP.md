@@ -15,6 +15,8 @@ uv sync
 uv run alembic upgrade head
 ```
 
+迁移不依赖 `uuid-ossp` 等需要超管权限的扩展；UUID 主键由应用侧生成。
+
 ## 2. 本地对象存储
 
 默认 `.env.example` 使用本地对象存储 fallback：

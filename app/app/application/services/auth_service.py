@@ -96,7 +96,7 @@ class AuthService:
         create_table_sql = text(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                id UUID PRIMARY KEY,
                 username VARCHAR(255) UNIQUE NOT NULL,
                 casdoor_sub VARCHAR(255),
                 email VARCHAR(255),
@@ -108,8 +108,8 @@ class AuthService:
         )
         upsert_sql = text(
             """
-            INSERT INTO users (username, casdoor_sub, email, full_name)
-            VALUES (:username, :casdoor_sub, :email, :full_name)
+            INSERT INTO users (id, username, casdoor_sub, email, full_name)
+            VALUES (:id, :username, :casdoor_sub, :email, :full_name)
             ON CONFLICT (username) DO UPDATE SET
                 casdoor_sub = EXCLUDED.casdoor_sub,
                 email = EXCLUDED.email,
@@ -123,6 +123,7 @@ class AuthService:
             await session.execute(
                 upsert_sql,
                 {
+                    "id": uuid.uuid4(),
                     "username": username,
                     "casdoor_sub": sub,
                     "email": email,
@@ -141,4 +142,3 @@ class AuthService:
     async def delete_session(self, session_id: str) -> None:
         """删除 session（退出登录）"""
         await get_redis().client.delete(f"{SESSION_PREFIX}{session_id}")
-

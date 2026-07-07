@@ -33,6 +33,10 @@ S3_BUCKET=development-info-originals
 .local-storage/info-originals/development-info-originals/
 ```
 
+平台 S3 已用本机 kind MinIO/AIStor 验证：`STORAGE_BACKEND=s3` 下 crawl job
+可写入 `raw.html`、`headers.json`、`clean.md` 和 `text.txt`，并记录对象
+`version_id`。
+
 K8S 环境应设置：
 
 ```text

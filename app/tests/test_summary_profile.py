@@ -19,6 +19,8 @@ def test_document_summary_metadata_normalizes_tags_and_preserves_existing_metada
     assert metadata["summary_profile"]["importance_reason"] == "market-moving policy signal"
     assert metadata["last_summary_update"]["reviewer"] == "alice"
     assert len(metadata["summary_history"]) == 1
+    assert metadata["last_audit"]["action"] == "summary_profile"
+    assert metadata["last_audit"]["payload"]["tags"] == ["Markets", "Policy"]
 
 
 def test_document_summary_metadata_appends_history() -> None:
@@ -36,3 +38,4 @@ def test_document_summary_metadata_appends_history() -> None:
     assert metadata["summary_profile"]["tags"] == []
     assert len(metadata["summary_history"]) == 2
     assert metadata["summary_history"][-1]["reason"] == "clear profile"
+    assert metadata["last_audit"]["action"] == "summary_profile"

@@ -15,6 +15,9 @@ def test_review_metadata_appends_history() -> None:
     assert metadata["last_review"]["reviewer"] == "alice"
     assert metadata["last_review"]["reason"] == "looks good"
     assert metadata["last_review"]["reviewed_at"]
+    assert metadata["last_audit"]["action"] == "review"
+    assert metadata["last_audit"]["actor"] == "alice"
+    assert metadata["last_audit"]["payload"]["status"] == "reviewed"
 
 
 def test_review_metadata_preserves_existing_history() -> None:
@@ -37,3 +40,4 @@ def test_review_metadata_preserves_existing_history() -> None:
     assert len(metadata["review_history"]) == 2
     assert metadata["review_history"][0]["status"] == "pending_review"
     assert metadata["last_review"]["status"] == "rejected"
+    assert metadata["last_audit"]["action"] == "review"

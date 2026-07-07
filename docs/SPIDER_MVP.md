@@ -231,6 +231,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 - 已实现文档关系标注 API：可记录转载、同源故事和 canonical 候选，写入 `metadata_json.document_relations`，不做物理合并。
 - 已实现实体/主题关联标注 API：可记录公司、证券、行业、主题到 `metadata_json.entity_links`，并保留标注历史。
 - 已实现摘要、标签和重要性评分标注 API：写入 `metadata_json.summary_profile`，并保留 `summary_history`。
+- 已实现统一人工治理审计日志：review、relation、entity-links、summary-profile 都会追加 `metadata_json.audit_log`。
 - 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
 - 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
 - 搜索 adapter 已支持平台注入的 `ELASTICSEARCH_USERNAME`、`ELASTICSEARCH_PASSWORD`、`ELASTICSEARCH_CA_CERT_PATH` 和 `ELASTICSEARCH_ALIASES`，会优先写入 `information.write` alias。

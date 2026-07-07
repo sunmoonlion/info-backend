@@ -487,17 +487,48 @@ def _review_metadata(
 ) -> dict:
     metadata = dict(existing or {})
     history = list(metadata.get("review_history") or [])
+    reviewed_at = _now().isoformat()
     history.append(
         {
             "status": status,
             "reviewer": reviewer,
             "reason": reason,
-            "reviewed_at": _now().isoformat(),
+            "reviewed_at": reviewed_at,
         }
     )
     metadata["review_history"] = history
     metadata["last_review"] = history[-1]
+    _append_audit_log(
+        metadata,
+        action="review",
+        actor=reviewer,
+        reason=reason,
+        payload={"status": status},
+        at=reviewed_at,
+    )
     return metadata
+
+
+def _append_audit_log(
+    metadata: dict,
+    *,
+    action: str,
+    actor: str | None,
+    reason: str | None,
+    payload: dict,
+    at: str | None = None,
+) -> None:
+    entry = {
+        "action": action,
+        "actor": actor,
+        "reason": reason,
+        "payload": payload,
+        "created_at": at or _now().isoformat(),
+    }
+    audit_log = list(metadata.get("audit_log") or [])
+    audit_log.append(entry)
+    metadata["audit_log"] = audit_log
+    metadata["last_audit"] = entry
 
 
 def _document_relation_metadata(
@@ -509,6 +540,7 @@ def _document_relation_metadata(
     reason: str | None,
 ) -> dict:
     metadata = dict(existing or {})
+    related_at = _now().isoformat()
     relation = {
         "target_document_id": str(target_document.id),
         "target_canonical_url": target_document.canonical_url,
@@ -516,7 +548,7 @@ def _document_relation_metadata(
         "relation_type": relation_type,
         "reviewer": reviewer,
         "reason": reason,
-        "related_at": _now().isoformat(),
+        "related_at": related_at,
     }
     relations = [
         item
@@ -532,6 +564,14 @@ def _document_relation_metadata(
     if relation_type in {"repost", "same_story", "canonical_duplicate"}:
         metadata["canonical_document_id"] = str(target_document.id)
         metadata["governance_state"] = relation_type
+    _append_audit_log(
+        metadata,
+        action="document_relation",
+        actor=reviewer,
+        reason=reason,
+        payload=relation,
+        at=related_at,
+    )
     return metadata
 
 
@@ -565,17 +605,26 @@ def _document_entity_metadata(
         "industries": _normalize_entity_values(industries),
         "topics": _normalize_entity_values(topics),
     }
+    updated_at = _now().isoformat()
     update = {
         "entity_links": entity_links,
         "reviewer": reviewer,
         "reason": reason,
-        "updated_at": _now().isoformat(),
+        "updated_at": updated_at,
     }
     history = list(metadata.get("entity_link_history") or [])
     history.append(update)
     metadata["entity_links"] = entity_links
     metadata["entity_link_history"] = history
     metadata["last_entity_link_update"] = update
+    _append_audit_log(
+        metadata,
+        action="entity_links",
+        actor=reviewer,
+        reason=reason,
+        payload=entity_links,
+        at=updated_at,
+    )
     return metadata
 
 
@@ -596,17 +645,26 @@ def _document_summary_metadata(
         "importance_score": importance_score,
         "importance_reason": importance_reason,
     }
+    updated_at = _now().isoformat()
     update = {
         "summary_profile": profile,
         "reviewer": reviewer,
         "reason": reason,
-        "updated_at": _now().isoformat(),
+        "updated_at": updated_at,
     }
     history = list(metadata.get("summary_history") or [])
     history.append(update)
     metadata["summary_profile"] = profile
     metadata["summary_history"] = history
     metadata["last_summary_update"] = update
+    _append_audit_log(
+        metadata,
+        action="summary_profile",
+        actor=reviewer,
+        reason=reason,
+        payload=profile,
+        at=updated_at,
+    )
     return metadata
 
 

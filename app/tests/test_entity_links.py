@@ -19,6 +19,8 @@ def test_document_entity_metadata_normalizes_and_preserves_existing_metadata() -
     assert metadata["entity_links"]["topics"] == ["AI", "EV"]
     assert metadata["last_entity_link_update"]["reviewer"] == "alice"
     assert len(metadata["entity_link_history"]) == 1
+    assert metadata["last_audit"]["action"] == "entity_links"
+    assert metadata["last_audit"]["payload"]["companies"] == ["Apple", "Tesla"]
 
 
 def test_document_entity_metadata_appends_history() -> None:
@@ -35,3 +37,4 @@ def test_document_entity_metadata_appends_history() -> None:
     assert metadata["entity_links"]["topics"] == ["Policy"]
     assert len(metadata["entity_link_history"]) == 2
     assert metadata["entity_link_history"][-1]["reason"] == "updated"
+    assert metadata["last_audit"]["action"] == "entity_links"

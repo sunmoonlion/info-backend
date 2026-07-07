@@ -24,6 +24,9 @@ def test_document_relation_metadata_preserves_review_history() -> None:
     assert metadata["governance_state"] == "same_story"
     assert metadata["last_document_relation"]["target_title"] == "Canonical Story"
     assert metadata["last_document_relation"]["reviewer"] == "alice"
+    assert metadata["last_audit"]["action"] == "document_relation"
+    assert metadata["last_audit"]["actor"] == "alice"
+    assert metadata["last_audit"]["payload"]["relation_type"] == "same_story"
 
 
 def test_document_relation_metadata_replaces_same_relation() -> None:
@@ -51,3 +54,4 @@ def test_document_relation_metadata_replaces_same_relation() -> None:
 
     assert len(metadata["document_relations"]) == 1
     assert metadata["document_relations"][0]["reason"] == "updated"
+    assert metadata["last_audit"]["action"] == "document_relation"

@@ -151,6 +151,7 @@ class DocumentVersionReviewRequest(BaseModel):
 class DistributionCreate(BaseModel):
     document_version_id: uuid.UUID
     target_dataset: str | None = None
+    dispatch: bool = False
 
 
 class DistributionStatusUpdate(BaseModel):

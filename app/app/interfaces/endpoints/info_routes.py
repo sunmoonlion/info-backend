@@ -247,11 +247,20 @@ async def create_knowledge_distribution(
     payload: DistributionCreate, session: AsyncSession = Depends(get_db_session)
 ):
     try:
-        return await info_crawl_service.create_knowledge_distribution(
+        record = await info_crawl_service.create_knowledge_distribution(
             session,
             document_version_id=payload.document_version_id,
             target_dataset=payload.target_dataset,
         )
+        if payload.dispatch:
+            producer = get_celery_producer()
+            if producer.enabled:
+                producer.dispatch_distribution(record.id)
+            else:
+                record = await info_crawl_service.dispatch_distribution(
+                    session, distribution_id=record.id
+                )
+        return record
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -309,6 +318,25 @@ async def retry_distribution(
 ):
     try:
         return await info_crawl_service.retry_distribution(
+            session, distribution_id=distribution_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/admin/distributions/{distribution_id}/dispatch", response_model=DistributionRead)
+async def dispatch_distribution(
+    distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
+    try:
+        producer = get_celery_producer()
+        if producer.enabled:
+            producer.dispatch_distribution(distribution_id)
+            record = await info_crawl_service.get_distribution(session, distribution_id)
+            if record is None:
+                raise ValueError(f"distribution not found: {distribution_id}")
+            return record
+        return await info_crawl_service.dispatch_distribution(
             session, distribution_id=distribution_id
         )
     except ValueError as exc:

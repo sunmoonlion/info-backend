@@ -92,6 +92,18 @@ class Settings(BaseSettings):
         default=10.0, validation_alias="ELASTICSEARCH_TIMEOUT_SECONDS"
     )
 
+    # Optional Knowledge App ingestion endpoint. Disabled until a public
+    # knowledge-admin-backend contract is configured.
+    knowledge_app_ingest_url: str | None = Field(
+        default=None, validation_alias="KNOWLEDGE_APP_INGEST_URL"
+    )
+    knowledge_app_api_key: str | None = Field(
+        default=None, validation_alias="KNOWLEDGE_APP_API_KEY"
+    )
+    knowledge_app_timeout_seconds: float = Field(
+        default=20.0, validation_alias="KNOWLEDGE_APP_TIMEOUT_SECONDS"
+    )
+
     @property
     def celery_enabled(self) -> bool:
         return bool(self.celery_broker_url)
@@ -101,6 +113,10 @@ class Settings(BaseSettings):
         return self.search_backend.lower() in {"elasticsearch", "opensearch"} and bool(
             self.elasticsearch_url
         )
+
+    @property
+    def knowledge_app_ingest_enabled(self) -> bool:
+        return bool(self.knowledge_app_ingest_url)
 
     model_config = SettingsConfigDict(
         env_file=".env",

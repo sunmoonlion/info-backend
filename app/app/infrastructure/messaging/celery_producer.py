@@ -73,6 +73,23 @@ class CeleryProducer:
         )
         return async_result.id
 
+    def dispatch_distribution(self, distribution_id: uuid.UUID) -> str:
+        """投递下游分发任务，返回 Celery task_id。"""
+        self._ensure_ready()
+        from app.tasks.distribution import dispatch_distribution
+
+        queue = get_settings().celery_queue
+        async_result = dispatch_distribution.apply_async(
+            args=[str(distribution_id)], queue=queue
+        )
+        logger.info(
+            "已投递 dispatch_distribution 任务 task_id=%s distribution_id=%s queue=%s",
+            async_result.id,
+            distribution_id,
+            queue,
+        )
+        return async_result.id
+
     def get_task_result(self, task_id: str) -> AsyncResult:
         self._ensure_ready()
         return AsyncResult(task_id, app=celery_app)

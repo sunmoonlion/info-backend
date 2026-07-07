@@ -158,7 +158,7 @@ curl -X POST http://localhost:8000/api/documents/{document_id}/versions/{version
 ```bash
 curl -X POST http://localhost:8000/api/admin/distributions/knowledge \
   -H 'Content-Type: application/json' \
-  -d '{"document_version_id":"00000000-0000-0000-0000-000000000000","target_dataset":"default"}'
+  -d '{"document_version_id":"00000000-0000-0000-0000-000000000000","target_dataset":"default","dispatch":false}'
 ```
 
 查询、对账和重试分发记录：
@@ -172,6 +172,22 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/sta
 
 curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/retry
 ```
+
+配置 `knowledge-app` ingestion API 后，可手动触发投递：
+
+```text
+KNOWLEDGE_APP_INGEST_URL=http://knowledge-admin-backend:8000/api/internal/ingestions
+KNOWLEDGE_APP_API_KEY=optional-shared-secret
+KNOWLEDGE_APP_TIMEOUT_SECONDS=20
+```
+
+```bash
+curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dispatch
+```
+
+也可在创建记录时设置 `"dispatch": true`。Celery broker 可用时会投递后台任务；
+未配置 Celery 时同步执行一次。未配置 `KNOWLEDGE_APP_INGEST_URL` 时记录保持
+`pending`，并在 `last_error` / `payload.status_history` 里标记跳过原因。
 
 ## 5. Celery
 
@@ -190,7 +206,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/ret
 - 已实现 artifact 元数据查询和基础标题/URL 搜索。
 - 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
 - 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
-- 已实现 `knowledge-app` 分发记录、payload 生成、状态对账和失败重试；尚未调用 `knowledge-app` API。
+- 已实现 `knowledge-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已提供 Scrapy 和 Playwright adapter 占位；尚未执行真实 Scrapy/Playwright 采集。
 - 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，但因前端依赖安装未完成尚未构建验证。

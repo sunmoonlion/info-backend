@@ -1,6 +1,17 @@
+from types import SimpleNamespace
+from typing import Any, cast
+from uuid import UUID
+
+import pytest
+
 from app.application.services.info_crawl_service import (
     _distribution_retry_payload,
     _distribution_status_payload,
+    _knowledge_ingestion_payload,
+)
+from app.infrastructure.external.knowledge_app import (
+    KnowledgeAppClient,
+    KnowledgeAppNotConfiguredError,
 )
 
 
@@ -35,3 +46,38 @@ def test_distribution_retry_payload_preserves_existing_history() -> None:
     assert len(payload["retry_history"]) == 2
     assert payload["retry_history"][0]["previous_error"] == "bad gateway"
     assert payload["last_retry"]["previous_error"] == "timeout"
+
+
+def test_knowledge_ingestion_payload_excludes_internal_distribution_history() -> None:
+    record = SimpleNamespace(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        target_dataset="default",
+        payload={
+            "document_id": "doc-1",
+            "version_id": "version-1",
+            "status_history": [{"status": "running"}],
+            "last_status_update": {"status": "running"},
+            "retry_history": [{"previous_error": "timeout"}],
+            "last_retry": {"previous_error": "timeout"},
+        },
+    )
+
+    payload = _knowledge_ingestion_payload(cast(Any, record))
+
+    assert payload["document_id"] == "doc-1"
+    assert payload["distribution_id"] == str(record.id)
+    assert payload["target_dataset"] == "default"
+    assert "status_history" not in payload
+    assert "retry_history" not in payload
+
+
+@pytest.mark.asyncio
+async def test_knowledge_app_client_requires_ingest_url() -> None:
+    client = KnowledgeAppClient(
+        ingest_url=None,
+        api_key=None,
+        timeout_seconds=1.0,
+    )
+
+    with pytest.raises(KnowledgeAppNotConfiguredError):
+        await client.ingest_document({"document_id": "doc-1"})

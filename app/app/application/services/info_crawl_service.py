@@ -23,6 +23,10 @@ from app.infrastructure.models.info import (
     InfoSource,
     RawArtifact,
 )
+from app.infrastructure.external.knowledge_app import (
+    KnowledgeAppNotConfiguredError,
+    get_knowledge_app_client,
+)
 from app.infrastructure.storage.object_storage import (
     StoredObject,
     get_object_storage,
@@ -607,6 +611,23 @@ def _distribution_status_payload(
     return payload
 
 
+def _knowledge_ingestion_payload(record: DistributionRecord) -> dict:
+    internal_keys = {
+        "status_history",
+        "last_status_update",
+        "retry_history",
+        "last_retry",
+    }
+    payload = {
+        key: value
+        for key, value in dict(record.payload or {}).items()
+        if key not in internal_keys
+    }
+    payload["distribution_id"] = str(record.id)
+    payload["target_dataset"] = record.target_dataset
+    return payload
+
+
 async def update_distribution_status(
     session: AsyncSession,
     *,
@@ -626,6 +647,67 @@ async def update_distribution_status(
         last_error=last_error,
         metadata=metadata,
     )
+    await session.commit()
+    await session.refresh(record)
+    return record
+
+
+async def dispatch_distribution(
+    session: AsyncSession,
+    *,
+    distribution_id: uuid.UUID,
+) -> DistributionRecord:
+    record = await session.get(DistributionRecord, distribution_id)
+    if record is None:
+        raise ValueError(f"distribution not found: {distribution_id}")
+    if record.target_app != "knowledge-app":
+        raise ValueError(f"unsupported distribution target: {record.target_app}")
+    if record.status == "succeeded":
+        return record
+
+    record.status = "running"
+    record.last_error = None
+    record.payload = _distribution_status_payload(
+        existing=record.payload,
+        status="running",
+        last_error=None,
+        metadata={"target_app": record.target_app},
+    )
+    await session.commit()
+    await session.refresh(record)
+
+    try:
+        response = await get_knowledge_app_client().ingest_document(
+            _knowledge_ingestion_payload(record)
+        )
+    except KnowledgeAppNotConfiguredError as exc:
+        record.status = "pending"
+        record.last_error = str(exc)
+        record.payload = _distribution_status_payload(
+            existing=record.payload,
+            status="pending",
+            last_error=str(exc),
+            metadata={"skipped": True, "reason": "not_configured"},
+        )
+    except Exception as exc:
+        record.status = "failed"
+        record.last_error = str(exc)
+        record.payload = _distribution_status_payload(
+            existing=record.payload,
+            status="failed",
+            last_error=str(exc),
+            metadata={"target_app": record.target_app},
+        )
+    else:
+        record.status = "succeeded"
+        record.last_error = None
+        record.payload = _distribution_status_payload(
+            existing=record.payload,
+            status="succeeded",
+            last_error=None,
+            metadata={"target_app": record.target_app, "response": response},
+        )
+
     await session.commit()
     await session.refresh(record)
     return record

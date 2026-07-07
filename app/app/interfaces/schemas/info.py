@@ -11,6 +11,10 @@ class SourceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     source_type: str = "website"
     base_url: str | None = None
+    trust_level: str = "unknown"
+    copyright_status: str = "unknown"
+    license_url: str | None = None
+    terms_url: str | None = None
     description: str | None = None
 
 
@@ -21,6 +25,10 @@ class SourceRead(BaseModel):
     source_type: str
     base_url: str | None
     status: str
+    trust_level: str
+    copyright_status: str
+    license_url: str | None
+    terms_url: str | None
     description: str | None
     created_at: datetime
     updated_at: datetime

@@ -226,6 +226,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 - 已实现文件上传入口；文本/HTML/Markdown 直接入库，PDF/Office 标记为 `pending_tool_processing`。
 - 已预留 S3 写入；本地默认使用文件 fallback。
 - 已实现 artifact 元数据查询和基础标题/URL 搜索。
+- 已实现来源治理字段：`trust_level`、`copyright_status`、`license_url`、`terms_url`，用于记录来源可信度和版权状态。
 - 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
 - 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
 - 搜索 adapter 已支持平台注入的 `ELASTICSEARCH_USERNAME`、`ELASTICSEARCH_PASSWORD`、`ELASTICSEARCH_CA_CERT_PATH` 和 `ELASTICSEARCH_ALIASES`，会优先写入 `information.write` alias。

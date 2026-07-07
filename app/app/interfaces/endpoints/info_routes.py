@@ -41,6 +41,10 @@ async def create_source(
         name=payload.name,
         source_type=payload.source_type,
         base_url=payload.base_url,
+        trust_level=payload.trust_level,
+        copyright_status=payload.copyright_status,
+        license_url=payload.license_url,
+        terms_url=payload.terms_url,
         description=payload.description,
     )
 

@@ -106,13 +106,21 @@ async def create_source(
     name: str,
     source_type: str,
     base_url: str | None,
-    description: str | None,
+    trust_level: str = "unknown",
+    copyright_status: str = "unknown",
+    license_url: str | None = None,
+    terms_url: str | None = None,
+    description: str | None = None,
 ) -> InfoSource:
     source = InfoSource(
         code=code,
         name=name,
         source_type=source_type,
         base_url=base_url,
+        trust_level=trust_level,
+        copyright_status=copyright_status,
+        license_url=license_url,
+        terms_url=terms_url,
         description=description,
     )
     session.add(source)

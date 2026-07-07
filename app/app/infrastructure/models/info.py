@@ -27,6 +27,12 @@ class InfoSource(UUIDMixin, TimestampMixin, Base):
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="website")
     base_url: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    trust_level: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown")
+    copyright_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="unknown"
+    )
+    license_url: Mapped[str | None] = mapped_column(Text)
+    terms_url: Mapped[str | None] = mapped_column(Text)
     crawl_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     description: Mapped[str | None] = mapped_column(Text)
 

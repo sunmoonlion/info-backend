@@ -112,6 +112,13 @@ class DocumentReviewRequest(BaseModel):
     reason: str | None = None
 
 
+class DocumentRelationRequest(BaseModel):
+    target_document_id: uuid.UUID
+    relation_type: str = Field(min_length=1, max_length=30)
+    reviewer: str | None = Field(default=None, max_length=120)
+    reason: str | None = None
+
+
 class RawArtifactRead(BaseModel):
     id: uuid.UUID
     crawl_job_id: uuid.UUID

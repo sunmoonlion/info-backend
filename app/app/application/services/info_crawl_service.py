@@ -500,6 +500,41 @@ def _review_metadata(
     return metadata
 
 
+def _document_relation_metadata(
+    *,
+    existing: dict | None,
+    target_document: InfoDocument,
+    relation_type: str,
+    reviewer: str | None,
+    reason: str | None,
+) -> dict:
+    metadata = dict(existing or {})
+    relation = {
+        "target_document_id": str(target_document.id),
+        "target_canonical_url": target_document.canonical_url,
+        "target_title": target_document.title,
+        "relation_type": relation_type,
+        "reviewer": reviewer,
+        "reason": reason,
+        "related_at": _now().isoformat(),
+    }
+    relations = [
+        item
+        for item in list(metadata.get("document_relations") or [])
+        if not (
+            item.get("target_document_id") == relation["target_document_id"]
+            and item.get("relation_type") == relation_type
+        )
+    ]
+    relations.append(relation)
+    metadata["document_relations"] = relations
+    metadata["last_document_relation"] = relation
+    if relation_type in {"repost", "same_story", "canonical_duplicate"}:
+        metadata["canonical_document_id"] = str(target_document.id)
+        metadata["governance_state"] = relation_type
+    return metadata
+
+
 async def review_document(
     session: AsyncSession,
     *,
@@ -515,6 +550,36 @@ async def review_document(
     document.metadata_json = _review_metadata(
         existing=document.metadata_json,
         status=status,
+        reviewer=reviewer,
+        reason=reason,
+    )
+    await session.commit()
+    await session.refresh(document)
+    return document
+
+
+async def mark_document_relation(
+    session: AsyncSession,
+    *,
+    document_id: uuid.UUID,
+    target_document_id: uuid.UUID,
+    relation_type: str,
+    reviewer: str | None,
+    reason: str | None,
+) -> InfoDocument:
+    if document_id == target_document_id:
+        raise ValueError("document relation target must be different")
+    document = await session.get(InfoDocument, document_id)
+    if document is None:
+        raise ValueError(f"document not found: {document_id}")
+    target_document = await session.get(InfoDocument, target_document_id)
+    if target_document is None:
+        raise ValueError(f"target document not found: {target_document_id}")
+    normalized_relation = relation_type.strip().lower()
+    document.metadata_json = _document_relation_metadata(
+        existing=document.metadata_json,
+        target_document=target_document,
+        relation_type=normalized_relation,
         reviewer=reviewer,
         reason=reason,
     )

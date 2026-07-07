@@ -228,6 +228,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 - 已实现 artifact 元数据查询和基础标题/URL 搜索。
 - 已实现来源治理字段：`trust_level`、`copyright_status`、`license_url`、`terms_url`，用于记录来源可信度和版权状态。
 - 已实现轻量近似重复检测：正文入库时写入 `metadata_json.content_fingerprint`、`duplicate_state` 和候选列表，只做提示不自动合并。
+- 已实现文档关系标注 API：可记录转载、同源故事和 canonical 候选，写入 `metadata_json.document_relations`，不做物理合并。
 - 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
 - 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
 - 搜索 adapter 已支持平台注入的 `ELASTICSEARCH_USERNAME`、`ELASTICSEARCH_PASSWORD`、`ELASTICSEARCH_CA_CERT_PATH` 和 `ELASTICSEARCH_ALIASES`，会优先写入 `information.write` alias。

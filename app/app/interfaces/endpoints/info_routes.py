@@ -18,6 +18,7 @@ from app.interfaces.schemas.info import (
     DistributionRead,
     DistributionStatusUpdate,
     DocumentReviewRequest,
+    DocumentRelationRequest,
     DocumentRead,
     DocumentVersionRead,
     DocumentVersionReviewRequest,
@@ -166,6 +167,25 @@ async def review_document(
             session,
             document_id=document_id,
             status=payload.status,
+            reviewer=payload.reviewer,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/documents/{document_id}/relations", response_model=DocumentRead)
+async def mark_document_relation(
+    document_id: uuid.UUID,
+    payload: DocumentRelationRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    try:
+        return await info_crawl_service.mark_document_relation(
+            session,
+            document_id=document_id,
+            target_document_id=payload.target_document_id,
+            relation_type=payload.relation_type,
             reviewer=payload.reviewer,
             reason=payload.reason,
         )

@@ -123,6 +123,18 @@ curl -X POST http://localhost:8000/api/admin/collectors \
   -d '{"code":"watch-home","name":"Watch Home","collector_type":"changedetection","config":{"url":"https://example.com","watch_id":"watch-1"}}'
 ```
 
+导入专用 crawler worker 产出的 Scrapy / Playwright 发现结果：
+
+```bash
+curl -X POST http://localhost:8000/api/admin/collectors \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"scrapy-news","name":"Scrapy News","collector_type":"scrapy","config":{"url":"https://example.com","spider_name":"example_news","results":[{"url":"https://example.com/news/2","title":"Scraped News"}]}}'
+
+curl -X POST http://localhost:8000/api/admin/collectors \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"dynamic-news","name":"Dynamic News","collector_type":"playwright","config":{"url":"https://example.com/dynamic","enabled":true,"links":["https://example.com/dynamic/article"]}}'
+```
+
 上传文件：
 
 ```bash
@@ -222,7 +234,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 - 已实现 `knowledge-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已在本机 kind PostgreSQL / Redis 和本地对象存储配置下执行 migration，并通过本机 HTTP 页面验证同步 crawl job 成功路径。
-- 已提供 Scrapy 和 Playwright adapter 占位；尚未执行真实 Scrapy/Playwright 采集。
+- 已实现 Scrapy 和 Playwright 外部结果导入 adapter；真实 Scrapy/Playwright 执行仍由后续专用 crawler worker 承担。
 - 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，并通过 `pnpm type-check` 与 `pnpm build-only` 验证。
 - 当前本机外网抓取 `https://example.com` 超时，API 已能记录为 crawl job 业务失败，不再返回 500。
 - 尚未实现完整反爬策略。

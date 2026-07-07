@@ -208,6 +208,8 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 - 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
 - 已实现 `knowledge-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
+- 已在本机 kind PostgreSQL / Redis 和本地对象存储配置下执行 migration，并通过本机 HTTP 页面验证同步 crawl job 成功路径。
 - 已提供 Scrapy 和 Playwright adapter 占位；尚未执行真实 Scrapy/Playwright 采集。
 - 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，并通过 `pnpm type-check` 与 `pnpm build-only` 验证。
+- 当前本机外网抓取 `https://example.com` 超时，API 已能记录为 crawl job 业务失败，不再返回 500。
 - 尚未实现完整反爬策略。

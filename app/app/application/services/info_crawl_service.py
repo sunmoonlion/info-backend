@@ -874,6 +874,7 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
     job.started_at = _now()
     job.attempt_count += 1
     await session.commit()
+    await session.refresh(job)
     raw_artifact: RawArtifact | None = None
     headers_artifact: RawArtifact | None = None
     final_url = job.target_url

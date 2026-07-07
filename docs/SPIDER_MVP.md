@@ -67,7 +67,9 @@ SEARCH_BACKEND=elasticsearch
 curl -X POST 'http://localhost:8000/api/admin/search-index/rebuild?limit=200'
 ```
 
-当前重建入口会自动创建 `info-information` 索引；正文全文读取与采集成功后的自动增量写入仍留给下一步。
+当前重建入口会自动创建 `info-information` 索引。创建新的 `document_version`
+并提交成功后，会优先投递 Celery 后台任务写入索引；未配置 Celery broker
+时会在主事务提交后执行一次 best-effort 增量写入，搜索服务故障不会回滚采集结果。
 
 ## 4. API
 
@@ -187,8 +189,9 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/ret
 - 已预留 S3 写入；本地默认使用文件 fallback。
 - 已实现 artifact 元数据查询和基础标题/URL 搜索。
 - 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
+- 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
 - 已实现 `knowledge-app` 分发记录、payload 生成、状态对账和失败重试；尚未调用 `knowledge-app` API。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已提供 Scrapy 和 Playwright adapter 占位；尚未执行真实 Scrapy/Playwright 采集。
 - 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，但因前端依赖安装未完成尚未构建验证。
-- 尚未实现搜索索引自动增量写入、抽取结果审核和完整反爬策略。
+- 尚未实现完整反爬策略。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import logging
 import time
 import uuid
 from datetime import UTC, datetime
@@ -29,6 +30,8 @@ from app.infrastructure.storage.object_storage import (
 )
 from app.infrastructure.search import build_info_index_document, get_info_search_index
 from core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 try:
     import trafilatura
@@ -259,6 +262,7 @@ async def ingest_uploaded_file(
         job.document_id = document.id
         job.document_version_id = version.id
         await session.commit()
+        await _enqueue_or_index_document_version(session, version.id)
         await session.refresh(version)
         return version
 
@@ -344,6 +348,7 @@ async def ingest_uploaded_file(
     job.document_id = document.id
     job.document_version_id = version.id
     await session.commit()
+    await _enqueue_or_index_document_version(session, version.id)
     await session.refresh(version)
     return version
 
@@ -658,6 +663,87 @@ async def retry_distribution(
     return record
 
 
+async def index_document_version(
+    session: AsyncSession, *, document_version_id: uuid.UUID
+) -> dict:
+    search_index = get_info_search_index()
+    result = {
+        "enabled": search_index.enabled,
+        "index_name": search_index.index_name,
+        "index_created": False,
+        "indexed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+    }
+    if not search_index.enabled:
+        result["skipped"] = 1
+        return result
+
+    version = await session.get(InfoDocumentVersion, document_version_id)
+    if version is None:
+        result["skipped"] = 1
+        result["errors"].append(f"document version not found: {document_version_id}")
+        return result
+
+    document = await session.get(InfoDocument, version.document_id)
+    if document is None:
+        result["skipped"] = 1
+        result["errors"].append(f"document not found: {version.document_id}")
+        return result
+
+    artifacts = await list_artifacts(session, document_version_id=version.id)
+    extracted_result = await session.execute(
+        select(ExtractedContent).where(ExtractedContent.document_version_id == version.id)
+    )
+    payload = build_info_index_document(
+        document=document,
+        version=version,
+        artifacts=artifacts,
+        extracted_contents=list(extracted_result.scalars()),
+    )
+    try:
+        result["index_created"] = await search_index.ensure_index()
+        await search_index.index_document(document_id=str(version.id), payload=payload)
+        result["indexed"] = 1
+    except Exception as exc:
+        result["failed"] = 1
+        result["errors"].append(f"{version.id}: {exc}")
+    return result
+
+
+async def _enqueue_or_index_document_version(
+    session: AsyncSession, document_version_id: uuid.UUID
+) -> None:
+    try:
+        from app.infrastructure.messaging.celery_producer import get_celery_producer
+
+        producer = get_celery_producer()
+        if producer.enabled:
+            producer.dispatch_index_document_version(document_version_id)
+            return
+    except Exception as exc:
+        logger.warning(
+            "document_version search indexing task dispatch failed; falling back inline",
+            extra={
+                "document_version_id": str(document_version_id),
+                "error": str(exc),
+            },
+        )
+
+    result = await index_document_version(
+        session, document_version_id=document_version_id
+    )
+    if result["failed"]:
+        logger.warning(
+            "document_version search indexing failed",
+            extra={
+                "document_version_id": str(document_version_id),
+                "errors": result["errors"],
+            },
+        )
+
+
 async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
     search_index = get_info_search_index()
     result = {
@@ -673,7 +759,6 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
         result["skipped"] = limit
         return result
 
-    result["index_created"] = await search_index.ensure_index()
     versions_result = await session.execute(
         select(InfoDocumentVersion)
         .order_by(InfoDocumentVersion.updated_at.desc())
@@ -681,30 +766,14 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
     )
     versions = list(versions_result.scalars())
     for version in versions:
-        document = await session.get(InfoDocument, version.document_id)
-        if document is None:
-            result["skipped"] += 1
-            continue
-        artifacts = await list_artifacts(
+        indexed = await index_document_version(
             session, document_version_id=version.id
         )
-        extracted_result = await session.execute(
-            select(ExtractedContent).where(
-                ExtractedContent.document_version_id == version.id
-            )
-        )
-        payload = build_info_index_document(
-            document=document,
-            version=version,
-            artifacts=artifacts,
-            extracted_contents=list(extracted_result.scalars()),
-        )
-        try:
-            await search_index.index_document(document_id=str(version.id), payload=payload)
-            result["indexed"] += 1
-        except Exception as exc:
-            result["failed"] += 1
-            result["errors"].append(f"{version.id}: {exc}")
+        result["index_created"] = result["index_created"] or indexed["index_created"]
+        result["indexed"] += indexed["indexed"]
+        result["skipped"] += indexed["skipped"]
+        result["failed"] += indexed["failed"]
+        result["errors"].extend(indexed["errors"])
     return result
 
 
@@ -726,6 +795,7 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
     raw_artifact: RawArtifact | None = None
     headers_artifact: RawArtifact | None = None
     final_url = job.target_url
+    version_to_index_id: uuid.UUID | None = None
 
     try:
         async with httpx.AsyncClient(
@@ -876,6 +946,7 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
         job.status = "succeeded"
         job.document_id = document.id
         job.document_version_id = version.id
+        version_to_index_id = version.id
     except Exception as exc:
         if raw_artifact is not None and job.http_status and job.http_status < 400:
             failed_document, failed_version = await _record_extraction_failure(
@@ -889,6 +960,7 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
             )
             job.document_id = failed_document.id
             job.document_version_id = failed_version.id
+            version_to_index_id = failed_version.id
         job.status = "failed"
         job.error_code = exc.__class__.__name__
         job.error_message = str(exc)
@@ -897,6 +969,8 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
         job.duration_ms = int((time.perf_counter() - started) * 1000)
         await session.commit()
         await session.refresh(job)
+        if version_to_index_id is not None:
+            await _enqueue_or_index_document_version(session, version_to_index_id)
     return job
 
 

@@ -56,6 +56,23 @@ class CeleryProducer:
         )
         return async_result.id
 
+    def dispatch_index_document_version(self, document_version_id: uuid.UUID) -> str:
+        """投递 document_version 搜索索引任务，返回 Celery task_id。"""
+        self._ensure_ready()
+        from app.tasks.search import index_document_version
+
+        queue = get_settings().celery_queue
+        async_result = index_document_version.apply_async(
+            args=[str(document_version_id)], queue=queue
+        )
+        logger.info(
+            "已投递 index_document_version 任务 task_id=%s document_version_id=%s queue=%s",
+            async_result.id,
+            document_version_id,
+            queue,
+        )
+        return async_result.id
+
     def get_task_result(self, task_id: str) -> AsyncResult:
         self._ensure_ready()
         return AsyncResult(task_id, app=celery_app)

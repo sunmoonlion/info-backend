@@ -21,6 +21,7 @@ from app.interfaces.schemas.info import (
     DocumentReviewRequest,
     DocumentRelationRequest,
     DocumentRead,
+    DocumentSummaryProfileRequest,
     DocumentVersionRead,
     DocumentVersionReviewRequest,
     RawArtifactRead,
@@ -208,6 +209,27 @@ async def update_document_entity_links(
             securities=payload.securities,
             industries=payload.industries,
             topics=payload.topics,
+            reviewer=payload.reviewer,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/documents/{document_id}/summary-profile", response_model=DocumentRead)
+async def update_document_summary_profile(
+    document_id: uuid.UUID,
+    payload: DocumentSummaryProfileRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    try:
+        return await info_crawl_service.update_document_summary_profile(
+            session,
+            document_id=document_id,
+            summary=payload.summary,
+            tags=payload.tags,
+            importance_score=payload.importance_score,
+            importance_reason=payload.importance_reason,
             reviewer=payload.reviewer,
             reason=payload.reason,
         )

@@ -129,6 +129,15 @@ class DocumentEntityLinksRequest(BaseModel):
     reason: str | None = None
 
 
+class DocumentSummaryProfileRequest(BaseModel):
+    summary: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    importance_score: float | None = Field(default=None, ge=0, le=1)
+    importance_reason: str | None = None
+    reviewer: str | None = Field(default=None, max_length=120)
+    reason: str | None = None
+
+
 class RawArtifactRead(BaseModel):
     id: uuid.UUID
     crawl_job_id: uuid.UUID

@@ -201,6 +201,10 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 `app.tasks.crawl_url`。未配置 Celery 时，API 只创建 `pending` 任务，可通过
 `POST /api/admin/crawl-jobs/{job_id}/run` 手动同步执行，方便本地验证。
 
+平台 RabbitMQ 已验证默认队列路由：`info.admin.default` 使用同名 direct exchange
+和 routing key。验证 job `a14ebe20-2bf1-422a-8637-fc9178ebff9c` 由 API 投递后被
+本地 worker 消费，采集成功，并继续投递/执行 `app.tasks.index_document_version`。
+
 ## 6. 当前边界
 
 - 已实现静态 HTML 拉取、原始证据保存、正文抽取和版本治理。
@@ -214,6 +218,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 - 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
 - 搜索 adapter 已支持平台注入的 `ELASTICSEARCH_USERNAME`、`ELASTICSEARCH_PASSWORD`、`ELASTICSEARCH_CA_CERT_PATH` 和 `ELASTICSEARCH_ALIASES`，会优先写入 `information.write` alias。
 - 已通过平台 Elasticsearch Secret/CA 和 `development-info-app-information-write` alias 验证真实写入权限；验证文档写入后已删除。
+- 已通过平台 RabbitMQ 队列验证 `crawl_url -> document_version -> index_document_version` 后台任务链路。
 - 已实现 `knowledge-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已在本机 kind PostgreSQL / Redis 和本地对象存储配置下执行 migration，并通过本机 HTTP 页面验证同步 crawl job 成功路径。

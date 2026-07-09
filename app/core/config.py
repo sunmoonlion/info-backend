@@ -1,5 +1,6 @@
 from functools import lru_cache
 import json
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,12 +13,31 @@ class Settings(BaseSettings):
 
     # 数据库（读 DATABASE_URL，自动补 +asyncpg 驱动前缀）
     database_url: str = "postgresql+asyncpg://info:info@localhost:5432/info"
+    # 可选：Alembic 迁移专用账号。运行时仍使用 DATABASE_URL。
+    migration_database_url: str | None = None
 
-    @field_validator("database_url", mode="before")
+    @field_validator("database_url", "migration_database_url", mode="before")
     @classmethod
     def ensure_asyncpg(cls, v: str) -> str:
-        if isinstance(v, str) and v.startswith("postgresql://"):
-            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if isinstance(v, str) and (
+            v.startswith("postgresql://") or v.startswith("postgresql+asyncpg://")
+        ):
+            url = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            parts = urlsplit(url)
+            query = [
+                (key, value)
+                for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                if key != "sslmode"
+            ]
+            return urlunsplit(
+                (
+                    parts.scheme,
+                    parts.netloc,
+                    parts.path,
+                    urlencode(query),
+                    parts.fragment,
+                )
+            )
         return v
 
     # Redis（dbctl ACL 场景可设 REDIS_USER；仅 default 密码时可留空）

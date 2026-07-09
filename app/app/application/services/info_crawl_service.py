@@ -323,8 +323,9 @@ async def ingest_uploaded_file(
         document.content_hash = content_hash
         job.document_id = document.id
         job.document_version_id = version.id
+        version_to_index_id = version.id
         await session.commit()
-        await _enqueue_or_index_document_version(session, version.id)
+        await _enqueue_or_index_document_version(session, version_to_index_id)
         await session.refresh(version)
         return version
 
@@ -415,8 +416,9 @@ async def ingest_uploaded_file(
     document.content_hash = content_hash
     job.document_id = document.id
     job.document_version_id = version.id
+    version_to_index_id = version.id
     await session.commit()
-    await _enqueue_or_index_document_version(session, version.id)
+    await _enqueue_or_index_document_version(session, version_to_index_id)
     await session.refresh(version)
     return version
 

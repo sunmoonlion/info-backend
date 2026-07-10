@@ -53,8 +53,9 @@ def test_knowledge_ingestion_payload_excludes_internal_distribution_history() ->
         id=UUID("00000000-0000-0000-0000-000000000001"),
         target_dataset="default",
         payload={
-            "document_id": "doc-1",
-            "version_id": "version-1",
+            "source_document_id": "doc-1",
+            "source_document_version_id": "version-1",
+            "canonical_url": "https://example.com/news",
             "status_history": [{"status": "running"}],
             "last_status_update": {"status": "running"},
             "retry_history": [{"previous_error": "timeout"}],
@@ -64,9 +65,14 @@ def test_knowledge_ingestion_payload_excludes_internal_distribution_history() ->
 
     payload = _knowledge_ingestion_payload(cast(Any, record))
 
-    assert payload["document_id"] == "doc-1"
+    assert payload["source_document_id"] == "doc-1"
+    assert payload["source_document_version_id"] == "version-1"
+    assert payload["canonical_url"] == "https://example.com/news"
     assert payload["distribution_id"] == str(record.id)
     assert payload["target_dataset"] == "default"
+    assert "document_id" not in payload
+    assert "version_id" not in payload
+    assert "source_url" not in payload
     assert "status_history" not in payload
     assert "retry_history" not in payload
 
@@ -80,4 +86,4 @@ async def test_knowledge_app_client_requires_ingest_url() -> None:
     )
 
     with pytest.raises(KnowledgeAppNotConfiguredError):
-        await client.ingest_document({"document_id": "doc-1"})
+        await client.ingest_document({"source_document_id": "doc-1"})

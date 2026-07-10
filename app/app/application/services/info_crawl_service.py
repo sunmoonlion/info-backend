@@ -848,23 +848,38 @@ async def create_knowledge_distribution(
     document = await session.get(InfoDocument, version.document_id)
     if document is None:
         raise ValueError(f"document not found: {version.document_id}")
+    artifact_refs = []
+    if version.clean_artifact_id:
+        artifact_refs.append(
+            {
+                "artifact_type": "clean",
+                "uri": f"info-artifact:{version.clean_artifact_id}",
+                "metadata": {"artifact_id": str(version.clean_artifact_id)},
+            }
+        )
+    if version.text_artifact_id:
+        artifact_refs.append(
+            {
+                "artifact_type": "text",
+                "uri": f"info-artifact:{version.text_artifact_id}",
+                "metadata": {"artifact_id": str(version.text_artifact_id)},
+            }
+        )
     payload = {
-        "document_id": str(document.id),
-        "version_id": str(version.id),
+        "source_app": "info-app",
+        "source_document_id": str(document.id),
+        "source_document_version_id": str(version.id),
+        "source_artifact_refs": artifact_refs,
         "content_hash": version.content_hash,
         "title": version.title,
-        "source_url": version.source_url,
+        "canonical_url": version.source_url,
         "source_name": document.source_name,
         "published_at": document.published_at.isoformat()
         if document.published_at
         else None,
-        "clean_artifact_id": str(version.clean_artifact_id)
-        if version.clean_artifact_id
-        else None,
-        "text_artifact_id": str(version.text_artifact_id)
-        if version.text_artifact_id
-        else None,
         "metadata": document.metadata_json,
+        "profile_key": "markdown",
+        "idempotency_key": f"info-app:{version.id}:{target_dataset or 'default'}",
     }
     record = DistributionRecord(
         document_id=document.id,

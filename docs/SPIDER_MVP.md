@@ -194,7 +194,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/ret
 配置 `knowledge-app` ingestion API 后，可手动触发投递：
 
 ```text
-KNOWLEDGE_APP_INGEST_URL=http://knowledge-admin-backend:8000/api/internal/ingestions
+KNOWLEDGE_APP_INGEST_URL=http://knowledge-admin-backend:8000/api/knowledge/ingestions
 KNOWLEDGE_APP_API_KEY=optional-shared-secret
 KNOWLEDGE_APP_TIMEOUT_SECONDS=20
 ```
@@ -206,6 +206,10 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 也可在创建记录时设置 `"dispatch": true`。Celery broker 可用时会投递后台任务；
 未配置 Celery 时同步执行一次。未配置 `KNOWLEDGE_APP_INGEST_URL` 时记录保持
 `pending`，并在 `last_error` / `payload.status_history` 里标记跳过原因。
+
+分发请求遵循 Knowledge Provider 的 Artifact Contract v1：仅发送带 S3 对象版本、
+SHA-256、大小和 media type 的不可变 `s3://` 引用。Knowledge 使用自己的只读身份
+解析并校验对象；不得发送 `info-artifact:`、inline 正文或 signed URL。
 
 ## 5. Celery
 

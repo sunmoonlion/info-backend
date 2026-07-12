@@ -9,6 +9,7 @@ import uuid
 from collections import Counter
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import func, select
@@ -40,6 +41,10 @@ from core.config import get_settings
 logger = logging.getLogger(__name__)
 _SIMHASH_BITS = 64
 _NEAR_DUPLICATE_THRESHOLD = 0.84
+
+
+class ArtifactNotDistributableError(ValueError):
+    """The document version has no immutable artifact safe for cross-app use."""
 
 try:
     import trafilatura
@@ -848,44 +853,24 @@ async def create_knowledge_distribution(
     document = await session.get(InfoDocument, version.document_id)
     if document is None:
         raise ValueError(f"document not found: {version.document_id}")
-    artifact_refs = []
-    if version.clean_artifact_id:
-        artifact_refs.append(
-            {
-                "artifact_type": "clean",
-                "uri": f"info-artifact:{version.clean_artifact_id}",
-                "metadata": {"artifact_id": str(version.clean_artifact_id)},
-            }
-        )
-    if version.text_artifact_id:
-        artifact_refs.append(
-            {
-                "artifact_type": "text",
-                "uri": f"info-artifact:{version.text_artifact_id}",
-                "metadata": {"artifact_id": str(version.text_artifact_id)},
-            }
-        )
-    payload = {
-        "source_app": "info-app",
-        "source_document_id": str(document.id),
-        "source_document_version_id": str(version.id),
-        "source_artifact_refs": artifact_refs,
-        "content_hash": version.content_hash,
-        "title": version.title,
-        "canonical_url": version.source_url,
-        "source_name": document.source_name,
-        "published_at": document.published_at.isoformat()
-        if document.published_at
-        else None,
-        "metadata": document.metadata_json,
-        "profile_key": "markdown",
-        "idempotency_key": f"info-app:{version.id}:{target_dataset or 'default'}",
-    }
+    dataset_key = target_dataset or "default"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,119}", dataset_key):
+        raise ValueError("target_dataset must be a lowercase stable dataset key")
+    artifact = await _select_distribution_artifact(session, version)
+    distribution_id = uuid.uuid4()
+    payload = _artifact_contract_payload(
+        distribution_id=distribution_id,
+        document=document,
+        version=version,
+        artifact=artifact,
+        dataset_key=dataset_key,
+    )
     record = DistributionRecord(
+        id=distribution_id,
         document_id=document.id,
         document_version_id=version.id,
         target_app="knowledge-app",
-        target_dataset=target_dataset,
+        target_dataset=dataset_key,
         content_hash=version.content_hash,
         status="pending",
         payload=payload,
@@ -894,6 +879,81 @@ async def create_knowledge_distribution(
     await session.commit()
     await session.refresh(record)
     return record
+
+
+def _artifact_contract_payload(
+    *,
+    distribution_id: uuid.UUID,
+    document: InfoDocument,
+    version: InfoDocumentVersion,
+    artifact: RawArtifact,
+    dataset_key: str,
+) -> dict:
+    return {
+        "contract_version": 1,
+        "operation": "upsert",
+        "distribution_id": str(distribution_id),
+        "source_app": "info-app",
+        "source_document_id": str(document.id),
+        "source_document_version_id": str(version.id),
+        "artifact": {
+            "artifact_type": artifact.artifact_type,
+            "uri": f"s3://{artifact.bucket}/{quote(artifact.object_key, safe='/=-_.~')}",
+            "storage_version": artifact.version_id,
+            "sha256": artifact.sha256,
+            "size_bytes": artifact.size_bytes,
+            "content_type": artifact.content_type,
+        },
+        "dataset_key": dataset_key,
+        "idempotency_key": f"info-app:{version.id}:{dataset_key}:artifact-v1",
+        "correlation_id": str(distribution_id),
+        "causation_id": str(version.id),
+        "document": {
+            "title": version.title,
+            "canonical_url": version.source_url,
+            "content_hash": version.content_hash,
+            "source_name": document.source_name,
+            "published_at": document.published_at.isoformat()
+            if document.published_at
+            else None,
+            "metadata": document.metadata_json,
+        },
+    }
+
+
+async def _select_distribution_artifact(
+    session: AsyncSession, version: InfoDocumentVersion
+) -> RawArtifact:
+    artifact_id = version.clean_artifact_id or version.text_artifact_id
+    if artifact_id is None:
+        raise ArtifactNotDistributableError(
+            "document version has no clean markdown or text artifact"
+        )
+    artifact = await session.get(RawArtifact, artifact_id)
+    if artifact is None or artifact.document_version_id != version.id:
+        raise ArtifactNotDistributableError(
+            "document version artifact lineage is missing or inconsistent"
+        )
+    if artifact.storage_state != "available":
+        raise ArtifactNotDistributableError("document version artifact is not available")
+    if not artifact.version_id or artifact.version_id.lower() == "null":
+        raise ArtifactNotDistributableError(
+            "document version artifact is not backed by versioned S3 storage"
+        )
+    if artifact.artifact_type not in {"clean_markdown", "text_plain"}:
+        raise ArtifactNotDistributableError("document version artifact type is not distributable")
+    if artifact.size_bytes < 1 or artifact.size_bytes > 52_428_800:
+        raise ArtifactNotDistributableError("document version artifact size is outside contract")
+    if not re.fullmatch(r"[a-f0-9]{64}", artifact.sha256):
+        raise ArtifactNotDistributableError("document version artifact sha256 is invalid")
+    if artifact.content_type.split(";", 1)[0].strip().lower() not in {
+        "text/markdown",
+        "text/plain",
+    }:
+        raise ArtifactNotDistributableError(
+            "document version artifact content type is not distributable"
+        )
+    return artifact
 
 
 async def list_distributions(
@@ -958,8 +1018,6 @@ def _knowledge_ingestion_payload(record: DistributionRecord) -> dict:
         for key, value in dict(record.payload or {}).items()
         if key not in internal_keys
     }
-    payload["distribution_id"] = str(record.id)
-    payload["target_dataset"] = record.target_dataset
     return payload
 
 

@@ -329,6 +329,8 @@ async def create_knowledge_distribution(
                     session, distribution_id=record.id
                 )
         return record
+    except info_crawl_service.ArtifactNotDistributableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

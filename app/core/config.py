@@ -2,7 +2,7 @@ from functools import lru_cache
 import json
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,15 +53,87 @@ class Settings(BaseSettings):
     casdoor_client_secret: str = ""
     casdoor_redirect_uri: str = ""
     casdoor_organization: str = "built-in"
-    casdoor_application: str = "app-info"
+    casdoor_application: str = "sunmoonai-info-admin"
+    casdoor_discovery_url: str | None = None
     casdoor_verify_ssl: bool = True
+
+    auth_http_timeout_seconds: float = 10.0
+    auth_transaction_ttl_seconds: int = 300
+    auth_discovery_cache_seconds: int = 300
+    auth_jwks_cache_seconds: int = 300
+    auth_clock_skew_seconds: int = 30
+    auth_allowed_algorithms: str = "RS256,ES256"
+    auth_policy_version: str = "info-admin-v1"
+    session_cookie_secure: bool | None = None
 
     # Frontend
     # Used for post-login redirects from backend callback.
     frontend_base_url: str = "http://localhost:5173"
+    frontend_allowed_origins: str | None = None
 
     # Session
     session_ttl_seconds: int = 3600
+
+    @model_validator(mode="after")
+    def validate_security_configuration(self) -> "Settings":
+        raw_origins = self.frontend_allowed_origins or self.frontend_base_url
+        if any(item.strip() == "*" for item in raw_origins.split(",")):
+            raise ValueError("credential CORS cannot use wildcard origin")
+        if self.env not in {"development", "test"}:
+            if not self.casdoor_verify_ssl:
+                raise ValueError("CASDOOR_VERIFY_SSL must be true in production")
+            for field, value in (
+                ("CASDOOR_ENDPOINT", self.casdoor_endpoint),
+                ("CASDOOR_REDIRECT_URI", self.casdoor_redirect_uri),
+                ("FRONTEND_BASE_URL", self.frontend_base_url),
+            ):
+                if value and urlsplit(value).scheme != "https":
+                    raise ValueError(f"{field} must use HTTPS in production")
+        return self
+
+    @property
+    def casdoor_discovery_endpoint(self) -> str:
+        if self.casdoor_discovery_url:
+            return self.casdoor_discovery_url
+        if not self.casdoor_endpoint or not self.casdoor_application:
+            return ""
+        return (
+            f"{self.casdoor_endpoint.rstrip('/')}/.well-known/"
+            f"{self.casdoor_application}/openid-configuration"
+        )
+
+    @property
+    def auth_allowed_algorithm_list(self) -> tuple[str, ...]:
+        values = tuple(
+            item.strip() for item in self.auth_allowed_algorithms.split(",") if item.strip()
+        )
+        if not values:
+            raise ValueError("AUTH_ALLOWED_ALGORITHMS cannot be empty")
+        allowed = {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}
+        unsupported = set(values) - allowed
+        if unsupported:
+            raise ValueError(
+                "AUTH_ALLOWED_ALGORITHMS must contain only configured asymmetric algorithms"
+            )
+        return values
+
+    @property
+    def frontend_origin_list(self) -> tuple[str, ...]:
+        raw = self.frontend_allowed_origins or self.frontend_base_url
+        values: list[str] = []
+        for item in raw.split(","):
+            parsed = urlsplit(item.strip())
+            if not parsed.scheme or not parsed.hostname:
+                continue
+            port = f":{parsed.port}" if parsed.port is not None else ""
+            values.append(f"{parsed.scheme}://{parsed.hostname}{port}")
+        return tuple(dict.fromkeys(values))
+
+    @property
+    def auth_cookie_secure(self) -> bool:
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.env not in {"development", "test"}
 
     # Celery（应用层只读 CELERY_BROKER_URL；k8s 按 Deployment 注入 producer/worker 账号）
     celery_broker_url: str | None = Field(

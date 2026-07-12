@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services import info_crawl_service
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_db_session
+from app.domain.security import Principal
+from app.interfaces.middleware.auth import require_info_admin
 from app.interfaces.schemas.info import (
     CollectorCreate,
     CollectorDiscoverRequest,
@@ -162,6 +164,7 @@ async def get_document(document_id: uuid.UUID, session: AsyncSession = Depends(g
 async def review_document(
     document_id: uuid.UUID,
     payload: DocumentReviewRequest,
+    principal: Principal = Depends(require_info_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -169,7 +172,7 @@ async def review_document(
             session,
             document_id=document_id,
             status=payload.status,
-            reviewer=payload.reviewer,
+            reviewer=str(principal.actor_id),
             reason=payload.reason,
         )
     except ValueError as exc:
@@ -180,6 +183,7 @@ async def review_document(
 async def mark_document_relation(
     document_id: uuid.UUID,
     payload: DocumentRelationRequest,
+    principal: Principal = Depends(require_info_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -188,7 +192,7 @@ async def mark_document_relation(
             document_id=document_id,
             target_document_id=payload.target_document_id,
             relation_type=payload.relation_type,
-            reviewer=payload.reviewer,
+            reviewer=str(principal.actor_id),
             reason=payload.reason,
         )
     except ValueError as exc:
@@ -199,6 +203,7 @@ async def mark_document_relation(
 async def update_document_entity_links(
     document_id: uuid.UUID,
     payload: DocumentEntityLinksRequest,
+    principal: Principal = Depends(require_info_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -209,7 +214,7 @@ async def update_document_entity_links(
             securities=payload.securities,
             industries=payload.industries,
             topics=payload.topics,
-            reviewer=payload.reviewer,
+            reviewer=str(principal.actor_id),
             reason=payload.reason,
         )
     except ValueError as exc:
@@ -220,6 +225,7 @@ async def update_document_entity_links(
 async def update_document_summary_profile(
     document_id: uuid.UUID,
     payload: DocumentSummaryProfileRequest,
+    principal: Principal = Depends(require_info_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -230,7 +236,7 @@ async def update_document_summary_profile(
             tags=payload.tags,
             importance_score=payload.importance_score,
             importance_reason=payload.importance_reason,
-            reviewer=payload.reviewer,
+            reviewer=str(principal.actor_id),
             reason=payload.reason,
         )
     except ValueError as exc:
@@ -252,6 +258,7 @@ async def review_document_version(
     document_id: uuid.UUID,
     version_id: uuid.UUID,
     payload: DocumentVersionReviewRequest,
+    principal: Principal = Depends(require_info_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -260,7 +267,7 @@ async def review_document_version(
             document_id=document_id,
             version_id=version_id,
             extraction_status=payload.extraction_status,
-            reviewer=payload.reviewer,
+            reviewer=str(principal.actor_id),
             reason=payload.reason,
         )
     except ValueError as exc:

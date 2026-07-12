@@ -49,14 +49,18 @@ app = FastAPI(
     description="通用后台管理 API 服务",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if settings.env == "production" else "/docs",
+    redoc_url=None if settings.env == "production" else "/redoc",
+    openapi_url=None if settings.env == "production" else "/openapi.json",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(settings.frontend_origin_list),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "X-CSRF-Token", "X-Correlation-ID"],
+    expose_headers=["X-Correlation-ID"],
 )
 
 register_exception_handlers(app)

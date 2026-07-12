@@ -181,7 +181,7 @@ async def test_distribution_rejects_unversioned_artifact() -> None:
 async def test_knowledge_app_client_requires_ingest_url() -> None:
     client = KnowledgeAppClient(
         ingest_url=None,
-        api_key=None,
+        token_provider=None,
         timeout_seconds=1.0,
     )
 

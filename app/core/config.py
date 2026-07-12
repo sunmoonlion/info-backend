@@ -205,8 +205,18 @@ class Settings(BaseSettings):
     knowledge_app_ingest_url: str | None = Field(
         default=None, validation_alias="KNOWLEDGE_APP_INGEST_URL"
     )
-    knowledge_app_api_key: str | None = Field(
-        default=None, validation_alias="KNOWLEDGE_APP_API_KEY"
+    knowledge_app_service_application: str = Field(
+        default="sunmoonai-info-knowledge-ingest",
+        validation_alias="KNOWLEDGE_APP_SERVICE_APPLICATION",
+    )
+    knowledge_app_service_client_id: str | None = Field(
+        default=None, validation_alias="KNOWLEDGE_APP_SERVICE_CLIENT_ID"
+    )
+    knowledge_app_service_client_secret: str | None = Field(
+        default=None, validation_alias="KNOWLEDGE_APP_SERVICE_CLIENT_SECRET"
+    )
+    knowledge_app_service_scope: str = Field(
+        default="knowledge:ingest", validation_alias="KNOWLEDGE_APP_SERVICE_SCOPE"
     )
     knowledge_app_timeout_seconds: float = Field(
         default=20.0, validation_alias="KNOWLEDGE_APP_TIMEOUT_SECONDS"
@@ -224,7 +234,11 @@ class Settings(BaseSettings):
 
     @property
     def knowledge_app_ingest_enabled(self) -> bool:
-        return bool(self.knowledge_app_ingest_url)
+        return bool(
+            self.knowledge_app_ingest_url
+            and self.knowledge_app_service_client_id
+            and self.knowledge_app_service_client_secret
+        )
 
     @property
     def elasticsearch_write_target(self) -> str:

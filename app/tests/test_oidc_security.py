@@ -30,7 +30,7 @@ def _settings() -> Settings:
 def _token(key: RSAKey, **overrides) -> str:
     now = int(time.time())
     claims = {
-        "iss": "https://identity.example.test/.well-known/sunmoonai-info-admin",
+        "iss": "https://identity.example.test",
         "sub": "user-123",
         "aud": "info-admin-client",
         "iat": now,
@@ -53,10 +53,10 @@ def _client(token: str, key: RSAKey) -> OidcProviderClient:
             return httpx.Response(
                 200,
                 json={
-                    "issuer": "https://identity.example.test/.well-known/sunmoonai-info-admin",
+                    "issuer": "https://identity.example.test",
                     "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
                     "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
-                    "jwks_uri": "https://identity.example.test/.well-known/sunmoonai-info-admin/jwks",
+                    "jwks_uri": "https://identity.example.test/.well-known/jwks",
                 },
             )
         if request.url.path.endswith("/jwks"):
@@ -96,10 +96,10 @@ async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
             return httpx.Response(
                 200,
                 json={
-                    "issuer": "https://identity.example.test/.well-known/sunmoonai-info-admin",
+                    "issuer": "https://identity.example.test",
                     "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
                     "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
-                    "jwks_uri": "https://identity.example.test/.well-known/sunmoonai-info-admin/jwks",
+                    "jwks_uri": "https://identity.example.test/.well-known/jwks",
                 },
             )
         if request.url.path.endswith("/jwks"):
@@ -120,11 +120,11 @@ async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
     )
 
     assert authorization_url.startswith("https://identity.example.test/login/oauth/authorize?")
-    assert claims["iss"] == "https://identity.example.test/.well-known/sunmoonai-info-admin"
+    assert claims["iss"] == "https://identity.example.test"
     assert paths == [
-        "/.well-known/sunmoonai-info-admin/openid-configuration",
+        "/.well-known/openid-configuration",
         "/api/login/oauth/access_token",
-        "/.well-known/sunmoonai-info-admin/jwks",
+        "/.well-known/jwks",
     ]
 
 
@@ -169,7 +169,7 @@ async def test_discovery_cannot_redirect_jwks_to_another_origin() -> None:
         return httpx.Response(
             200,
             json={
-                "issuer": "https://identity.example.test/.well-known/sunmoonai-info-admin",
+                "issuer": "https://identity.example.test",
                 "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
                 "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
                 "jwks_uri": "https://attacker.example.test/jwks",

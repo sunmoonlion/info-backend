@@ -98,12 +98,9 @@ class Settings(BaseSettings):
     def casdoor_discovery_endpoint(self) -> str:
         if self.casdoor_discovery_url:
             return self.casdoor_discovery_url
-        if not self.casdoor_endpoint or not self.casdoor_application:
+        if not self.casdoor_endpoint:
             return ""
-        return (
-            f"{self.casdoor_endpoint.rstrip('/')}/.well-known/"
-            f"{self.casdoor_application}/openid-configuration"
-        )
+        return f"{self.casdoor_endpoint.rstrip('/')}/.well-known/openid-configuration"
 
     @property
     def auth_allowed_algorithm_list(self) -> tuple[str, ...]:

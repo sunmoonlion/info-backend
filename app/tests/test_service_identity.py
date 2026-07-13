@@ -4,7 +4,12 @@ import httpx
 import pytest
 
 import app.infrastructure.external.knowledge_app as knowledge_app
-from app.infrastructure.external.knowledge_app import KnowledgeAppClient, KnowledgeAppNotConfiguredError
+from app.infrastructure.external.knowledge_app import (
+    KnowledgeAppClient,
+    KnowledgeAppNotConfiguredError,
+    ServiceTokenProvider,
+)
+from core.config import Settings
 
 
 class FakeTokenProvider:
@@ -54,3 +59,29 @@ async def test_knowledge_client_fails_closed_without_service_credentials() -> No
 
     with pytest.raises(KnowledgeAppNotConfiguredError):
         await client.ingest_document({"contract_version": 1})
+
+
+def test_service_token_provider_uses_dedicated_discovery_and_backchannel() -> None:
+    settings = Settings(
+        _env_file=None,
+        casdoor_endpoint="https://browser-identity.example.test",
+        casdoor_backchannel_endpoint="http://browser-casdoor:8000",
+        KNOWLEDGE_APP_SERVICE_DISCOVERY_URL=(
+            "https://service-identity.example.test/.well-known/openid-configuration"
+        ),
+        KNOWLEDGE_APP_SERVICE_BACKCHANNEL_ENDPOINT="http://service-casdoor:8000",
+        KNOWLEDGE_APP_SERVICE_CLIENT_ID="service-client",
+        KNOWLEDGE_APP_SERVICE_CLIENT_SECRET="service-secret",
+    )
+
+    provider = ServiceTokenProvider(settings)
+
+    assert provider._oidc._settings.casdoor_endpoint == (
+        "https://service-identity.example.test"
+    )
+    assert provider._oidc._settings.casdoor_discovery_url == (
+        "https://service-identity.example.test/.well-known/openid-configuration"
+    )
+    assert provider._oidc._settings.casdoor_backchannel_endpoint == (
+        "http://service-casdoor:8000"
+    )

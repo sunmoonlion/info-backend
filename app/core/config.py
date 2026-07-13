@@ -209,6 +209,14 @@ class Settings(BaseSettings):
         default="sunmoonai-info-knowledge-ingest",
         validation_alias="KNOWLEDGE_APP_SERVICE_APPLICATION",
     )
+    knowledge_app_service_discovery_url: str | None = Field(
+        default=None,
+        validation_alias="KNOWLEDGE_APP_SERVICE_DISCOVERY_URL",
+    )
+    knowledge_app_service_backchannel_endpoint: str | None = Field(
+        default=None,
+        validation_alias="KNOWLEDGE_APP_SERVICE_BACKCHANNEL_ENDPOINT",
+    )
     knowledge_app_service_client_id: str | None = Field(
         default=None, validation_alias="KNOWLEDGE_APP_SERVICE_CLIENT_ID"
     )

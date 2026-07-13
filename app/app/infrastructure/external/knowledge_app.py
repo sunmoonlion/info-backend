@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -21,9 +22,25 @@ class ServiceTokenProvider:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        service_discovery_url = (
+            settings.knowledge_app_service_discovery_url
+            or settings.casdoor_discovery_endpoint
+        )
+        service_endpoint = settings.casdoor_endpoint
+        if service_discovery_url:
+            parsed = urlsplit(service_discovery_url)
+            if parsed.scheme in {"http", "https"} and parsed.hostname:
+                service_endpoint = urlunsplit(
+                    (parsed.scheme, parsed.netloc, "", "", "")
+                )
         service_settings = settings.model_copy(
             update={
+                "casdoor_endpoint": service_endpoint,
                 "casdoor_application": settings.knowledge_app_service_application,
+                "casdoor_discovery_url": service_discovery_url,
+                "casdoor_backchannel_endpoint": (
+                    settings.knowledge_app_service_backchannel_endpoint
+                ),
                 "casdoor_client_id": settings.knowledge_app_service_client_id or "",
                 "casdoor_client_secret": settings.knowledge_app_service_client_secret or "",
                 "casdoor_redirect_uri": "",

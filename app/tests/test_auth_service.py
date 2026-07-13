@@ -10,7 +10,11 @@ import pytest
 
 import app.application.services.auth_service as auth_module
 from app.application.errors.exceptions import ForbiddenError, UnauthorizedError
-from app.application.services.auth_service import SESSION_PREFIX, AuthService
+from app.application.services.auth_service import (
+    SESSION_PREFIX,
+    TRANSACTION_PREFIX,
+    AuthService,
+)
 from core.config import Settings
 
 
@@ -88,6 +92,11 @@ def _settings() -> Settings:
         casdoor_verify_ssl=True,
         env="production",
     )
+
+
+def test_auth_keys_stay_inside_info_redis_acl_namespace() -> None:
+    assert SESSION_PREFIX.startswith("info:")
+    assert TRANSACTION_PREFIX.startswith("info:")
 
 
 @pytest.mark.asyncio

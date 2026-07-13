@@ -22,8 +22,8 @@ from core.config import Settings, get_settings
 
 SESSION_COOKIE = "sunmoonai_info_admin_sid"
 TRANSACTION_COOKIE = "sunmoonai_info_admin_oidc_tx"
-SESSION_PREFIX = "sunmoonai:auth:info:admin:session:"
-TRANSACTION_PREFIX = "sunmoonai:auth:info:admin:oidc:"
+SESSION_PREFIX = "info:auth:admin:session:"
+TRANSACTION_PREFIX = "info:auth:admin:oidc:"
 ADMIN_SCOPE = "info:admin"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 

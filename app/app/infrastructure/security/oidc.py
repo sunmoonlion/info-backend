@@ -229,6 +229,46 @@ class OidcProviderClient:
             raise UnauthorizedError("OIDC ID token missing")
         return await self.verify_id_token(id_token, nonce=nonce, metadata=metadata)
 
+    async def exchange_client_credentials(self, *, scope: str) -> dict[str, Any]:
+        """Request a service token through the same validated OIDC transport.
+
+        Discovery remains authoritative for the public issuer and token URL,
+        while ``_backchannel_target`` may replace only the network
+        destination.  This prevents service calls from bypassing the provider
+        origin checks or losing the public Host header inside Kubernetes.
+        """
+
+        metadata = await self.get_metadata()
+        try:
+            token_url, routing_headers = self._backchannel_target(
+                metadata.token_endpoint, "token_endpoint"
+            )
+            async with self._client() as client:
+                response = await client.post(
+                    token_url,
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": self._settings.casdoor_client_id,
+                        "client_secret": self._settings.casdoor_client_secret,
+                        "scope": scope,
+                    },
+                    headers={"Accept": "application/json", **routing_headers},
+                )
+        except httpx.HTTPError as exc:
+            raise ServiceUnavailableError("OIDC token endpoint unavailable") from exc
+        if response.status_code != 200:
+            raise UnauthorizedError("OIDC client credentials rejected")
+        try:
+            token_response = response.json()
+        except ValueError as exc:
+            raise UnauthorizedError("OIDC token response invalid") from exc
+        if not isinstance(token_response, dict):
+            raise UnauthorizedError("OIDC token response invalid")
+        access_token = token_response.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise UnauthorizedError("OIDC access token missing")
+        return token_response
+
     async def verify_id_token(
         self,
         encoded: str,

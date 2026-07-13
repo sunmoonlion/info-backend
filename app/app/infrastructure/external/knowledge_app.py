@@ -49,31 +49,9 @@ class ServiceTokenProvider:
             now = time.time()
             if self._access_token and self._expires_at > now + 30:
                 return self._access_token
-            metadata = await self._oidc.get_metadata()
-            async with httpx.AsyncClient(
-                verify=self._settings.casdoor_verify_ssl,
-                timeout=self._settings.auth_http_timeout_seconds,
-                follow_redirects=False,
-            ) as client:
-                try:
-                    response = await client.post(
-                        metadata.token_endpoint,
-                        data={
-                            "grant_type": "client_credentials",
-                            "client_id": client_id,
-                            "client_secret": client_secret,
-                            "scope": self._settings.knowledge_app_service_scope,
-                        },
-                        headers={"Accept": "application/json"},
-                    )
-                except httpx.HTTPError as exc:
-                    raise RuntimeError("Knowledge service token endpoint unavailable") from exc
-            if response.status_code != 200:
-                raise RuntimeError("Knowledge service token request failed")
-            try:
-                body: Any = response.json()
-            except ValueError as exc:
-                raise RuntimeError("Knowledge service token response invalid") from exc
+            body = await self._oidc.exchange_client_credentials(
+                scope=self._settings.knowledge_app_service_scope
+            )
             access_token = body.get("access_token") if isinstance(body, dict) else None
             if not isinstance(access_token, str) or not access_token:
                 raise RuntimeError("Knowledge service token missing")

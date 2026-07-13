@@ -129,6 +129,52 @@ async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
 
 
 @pytest.mark.asyncio
+async def test_client_credentials_uses_validated_backchannel_transport() -> None:
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "casdoor-sunmoonai"
+        assert request.headers["host"] == "identity.example.test"
+        requests.append((request.method, request.url.path))
+        if request.url.path.endswith("/openid-configuration"):
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://identity.example.test",
+                    "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
+                    "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
+                    "jwks_uri": "https://identity.example.test/.well-known/jwks",
+                },
+            )
+        if request.url.path.endswith("/access_token"):
+            form = parse_qs(request.content.decode())
+            assert form == {
+                "grant_type": ["client_credentials"],
+                "client_id": ["info-admin-client"],
+                "client_secret": ["test-only-secret"],
+                "scope": ["knowledge:ingest"],
+            }
+            return httpx.Response(
+                200,
+                json={"access_token": "opaque-service-token", "expires_in": 300},
+            )
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    settings = _settings().model_copy(
+        update={"casdoor_backchannel_endpoint": "http://casdoor-sunmoonai:8000"}
+    )
+    client = OidcProviderClient(settings, transport=httpx.MockTransport(handler))
+
+    result = await client.exchange_client_credentials(scope="knowledge:ingest")
+
+    assert result == {"access_token": "opaque-service-token", "expires_in": 300}
+    assert requests == [
+        ("GET", "/.well-known/openid-configuration"),
+        ("POST", "/api/login/oauth/access_token"),
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "overrides",
     [

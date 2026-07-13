@@ -1,6 +1,6 @@
 # 管理端后端（info-admin-backend）— Claude Code 规则
 
-> 进入本目录时自动叠加，补充根目录 CLAUDE.md 的全局规则。
+> 进入本目录时自动叠加，补充根目录 CLAUDE.md 的全局规则。本文件只约束局部编码；若与代码/OpenAPI、父 App 的 `docs/README.md` 或 k8s v5 权威文档冲突，以后者为准。
 
 ## 技术栈
 
@@ -45,4 +45,4 @@ app/
 
 1. 读 `app/interfaces/endpoints/` 相关文件，确认现有路由和响应结构
 2. 读 `app/infrastructure/models/` 确认数据字段
-3. 提取接口契约，更新 `docs-claude/API_CONTRACT.md`（或等价文档）
+3. 以路由/OpenAPI/schema/tests 为接口真相；跨仓契约只更新 k8s v5 contracts 和 provider/consumer tests，不创建按 AI 工具命名的契约副本

@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     casdoor_organization: str = "built-in"
     casdoor_application: str = "sunmoonai-info-admin"
     casdoor_discovery_url: str | None = None
+    # Optional fixed in-cluster transport for discovery/token/JWKS. Published
+    # metadata and token issuer still belong to CASDOOR_ENDPOINT.
+    casdoor_backchannel_endpoint: str | None = None
     casdoor_verify_ssl: bool = True
 
     auth_http_timeout_seconds: float = 10.0

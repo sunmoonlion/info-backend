@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from joserfc import jwt
@@ -62,6 +62,37 @@ class OidcProviderClient:
             raise ServiceUnavailableError(f"OIDC metadata cross-origin {field}")
         return value
 
+    def _backchannel_target(self, public_url: str, field: str) -> tuple[str, dict[str, str]]:
+        public_url = self._validate_provider_url(public_url, field)
+        configured = self._settings.casdoor_backchannel_endpoint
+        if not configured:
+            return public_url, {}
+        backchannel = urlsplit(configured)
+        if (
+            backchannel.scheme not in {"http", "https"}
+            or not backchannel.hostname
+            or backchannel.username
+            or backchannel.password
+            or backchannel.path not in {"", "/"}
+            or backchannel.query
+            or backchannel.fragment
+        ):
+            raise ServiceUnavailableError("OIDC backchannel endpoint invalid")
+        public = urlsplit(public_url)
+        endpoint = urlsplit(self._settings.casdoor_endpoint)
+        return (
+            urlunsplit(
+                (
+                    backchannel.scheme,
+                    backchannel.netloc,
+                    public.path,
+                    public.query,
+                    "",
+                )
+            ),
+            {"Host": endpoint.netloc},
+        )
+
     async def get_metadata(self, *, force_refresh: bool = False) -> OidcMetadata:
         now = time.monotonic()
         if (
@@ -73,11 +104,14 @@ class OidcProviderClient:
         discovery_url = self._settings.casdoor_discovery_endpoint
         if not discovery_url:
             raise ServiceUnavailableError("OIDC discovery is not configured")
-        discovery_url = self._validate_provider_url(discovery_url, "discovery")
+        discovery_url, routing_headers = self._backchannel_target(
+            discovery_url, "discovery"
+        )
         try:
             async with self._client() as client:
                 response = await client.get(
-                    discovery_url, headers={"Accept": "application/json"}
+                    discovery_url,
+                    headers={"Accept": "application/json", **routing_headers},
                 )
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("OIDC discovery unavailable") from exc
@@ -112,9 +146,13 @@ class OidcProviderClient:
         ):
             return self._key_set
         try:
+            jwks_url, routing_headers = self._backchannel_target(
+                metadata.jwks_uri, "jwks_uri"
+            )
             async with self._client() as client:
                 response = await client.get(
-                    metadata.jwks_uri, headers={"Accept": "application/json"}
+                    jwks_url,
+                    headers={"Accept": "application/json", **routing_headers},
                 )
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("OIDC JWKS unavailable") from exc
@@ -160,9 +198,12 @@ class OidcProviderClient:
     ) -> dict[str, Any]:
         metadata = await self.get_metadata()
         try:
+            token_url, routing_headers = self._backchannel_target(
+                metadata.token_endpoint, "token_endpoint"
+            )
             async with self._client() as client:
                 response = await client.post(
-                    metadata.token_endpoint,
+                    token_url,
                     data={
                         "grant_type": "authorization_code",
                         "client_id": self._settings.casdoor_client_id,
@@ -171,7 +212,7 @@ class OidcProviderClient:
                         "redirect_uri": self._settings.casdoor_redirect_uri,
                         "code_verifier": code_verifier,
                     },
-                    headers={"Accept": "application/json"},
+                    headers={"Accept": "application/json", **routing_headers},
                 )
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("OIDC token endpoint unavailable") from exc

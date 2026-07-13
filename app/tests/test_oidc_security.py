@@ -83,6 +83,52 @@ async def test_code_exchange_verifies_signature_claims_and_pkce() -> None:
 
 
 @pytest.mark.asyncio
+async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
+    key = RSAKey.generate_key(parameters={"kid": "test-key"})
+    encoded = _token(key)
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "casdoor-sunmoonai"
+        assert request.headers["host"] == "identity.example.test"
+        paths.append(request.url.path)
+        if request.url.path.endswith("/openid-configuration"):
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://identity.example.test/.well-known/sunmoonai-info-admin",
+                    "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
+                    "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
+                    "jwks_uri": "https://identity.example.test/.well-known/sunmoonai-info-admin/jwks",
+                },
+            )
+        if request.url.path.endswith("/jwks"):
+            return httpx.Response(200, json={"keys": [key.as_dict(private=False)]})
+        if request.url.path.endswith("/access_token"):
+            return httpx.Response(200, json={"id_token": encoded})
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    settings = _settings().model_copy(
+        update={"casdoor_backchannel_endpoint": "http://casdoor-sunmoonai:8000"}
+    )
+    client = OidcProviderClient(settings, transport=httpx.MockTransport(handler))
+    authorization_url = await client.build_authorization_url(
+        state="state", nonce="nonce-123", code_challenge="challenge"
+    )
+    claims = await client.exchange_authorization_code(
+        code="code", code_verifier="verifier", nonce="nonce-123"
+    )
+
+    assert authorization_url.startswith("https://identity.example.test/login/oauth/authorize?")
+    assert claims["iss"] == "https://identity.example.test/.well-known/sunmoonai-info-admin"
+    assert paths == [
+        "/.well-known/sunmoonai-info-admin/openid-configuration",
+        "/api/login/oauth/access_token",
+        "/.well-known/sunmoonai-info-admin/jwks",
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "overrides",
     [

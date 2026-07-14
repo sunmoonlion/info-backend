@@ -111,6 +111,7 @@ class DocumentReviewRequest(BaseModel):
     status: str = Field(min_length=1, max_length=30)
     reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = None
+    expected_updated_at: datetime | None = None
 
 
 class DocumentRelationRequest(BaseModel):
@@ -118,6 +119,7 @@ class DocumentRelationRequest(BaseModel):
     relation_type: str = Field(min_length=1, max_length=30)
     reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = None
+    expected_updated_at: datetime | None = None
 
 
 class DocumentEntityLinksRequest(BaseModel):
@@ -127,6 +129,7 @@ class DocumentEntityLinksRequest(BaseModel):
     topics: list[str] = Field(default_factory=list)
     reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = None
+    expected_updated_at: datetime | None = None
 
 
 class DocumentSummaryProfileRequest(BaseModel):
@@ -136,6 +139,7 @@ class DocumentSummaryProfileRequest(BaseModel):
     importance_reason: str | None = None
     reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = None
+    expected_updated_at: datetime | None = None
 
 
 class RawArtifactRead(BaseModel):
@@ -180,6 +184,7 @@ class DocumentVersionReviewRequest(BaseModel):
     extraction_status: str = Field(min_length=1, max_length=30)
     reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = None
+    expected_updated_at: datetime | None = None
 
 
 class DistributionCreate(BaseModel):

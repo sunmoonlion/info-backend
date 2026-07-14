@@ -174,6 +174,7 @@ async def review_document(
             status=payload.status,
             reviewer=str(principal.actor_id),
             reason=payload.reason,
+            expected_updated_at=payload.expected_updated_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -194,6 +195,7 @@ async def mark_document_relation(
             relation_type=payload.relation_type,
             reviewer=str(principal.actor_id),
             reason=payload.reason,
+            expected_updated_at=payload.expected_updated_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -216,6 +218,7 @@ async def update_document_entity_links(
             topics=payload.topics,
             reviewer=str(principal.actor_id),
             reason=payload.reason,
+            expected_updated_at=payload.expected_updated_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -238,6 +241,7 @@ async def update_document_summary_profile(
             importance_reason=payload.importance_reason,
             reviewer=str(principal.actor_id),
             reason=payload.reason,
+            expected_updated_at=payload.expected_updated_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -269,6 +273,7 @@ async def review_document_version(
             extraction_status=payload.extraction_status,
             reviewer=str(principal.actor_id),
             reason=payload.reason,
+            expected_updated_at=payload.expected_updated_at,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

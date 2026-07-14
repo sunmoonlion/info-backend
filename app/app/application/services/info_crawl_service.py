@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.collectors import get_collector_adapter
+from app.application.errors.exceptions import ConcurrencyConflictError
 from app.infrastructure.models.info import (
     CrawlJob,
     DistributionRecord,
@@ -55,6 +56,46 @@ except ImportError:  # pragma: no cover - allows code import before optional dep
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+async def _get_document_for_mutation(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    expected_updated_at: datetime | None,
+) -> InfoDocument:
+    result = await session.execute(
+        select(InfoDocument)
+        .where(InfoDocument.id == document_id)
+        .with_for_update()
+    )
+    document = result.scalar_one_or_none()
+    if document is None:
+        raise ValueError(f"document not found: {document_id}")
+    if expected_updated_at is not None and document.updated_at != expected_updated_at:
+        raise ConcurrencyConflictError()
+    return document
+
+
+async def _get_version_for_mutation(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    version_id: uuid.UUID,
+    expected_updated_at: datetime | None,
+) -> InfoDocumentVersion:
+    result = await session.execute(
+        select(InfoDocumentVersion)
+        .where(
+            InfoDocumentVersion.id == version_id,
+            InfoDocumentVersion.document_id == document_id,
+        )
+        .with_for_update()
+    )
+    version = result.scalar_one_or_none()
+    if version is None:
+        raise ValueError(f"document version not found: {version_id}")
+    if expected_updated_at is not None and version.updated_at != expected_updated_at:
+        raise ConcurrencyConflictError()
+    return version
 
 
 def _hash_text(text: str) -> str:
@@ -692,10 +733,9 @@ async def review_document(
     status: str,
     reviewer: str | None,
     reason: str | None,
+    expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
-    document = await session.get(InfoDocument, document_id)
-    if document is None:
-        raise ValueError(f"document not found: {document_id}")
+    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
     document.status = status
     document.metadata_json = _review_metadata(
         existing=document.metadata_json,
@@ -718,10 +758,9 @@ async def update_document_summary_profile(
     importance_reason: str | None,
     reviewer: str | None,
     reason: str | None,
+    expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
-    document = await session.get(InfoDocument, document_id)
-    if document is None:
-        raise ValueError(f"document not found: {document_id}")
+    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
     document.metadata_json = _document_summary_metadata(
         existing=document.metadata_json,
         summary=summary,
@@ -746,10 +785,9 @@ async def update_document_entity_links(
     topics: list[str],
     reviewer: str | None,
     reason: str | None,
+    expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
-    document = await session.get(InfoDocument, document_id)
-    if document is None:
-        raise ValueError(f"document not found: {document_id}")
+    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
     document.metadata_json = _document_entity_metadata(
         existing=document.metadata_json,
         companies=companies,
@@ -772,12 +810,11 @@ async def mark_document_relation(
     relation_type: str,
     reviewer: str | None,
     reason: str | None,
+    expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
     if document_id == target_document_id:
         raise ValueError("document relation target must be different")
-    document = await session.get(InfoDocument, document_id)
-    if document is None:
-        raise ValueError(f"document not found: {document_id}")
+    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
     target_document = await session.get(InfoDocument, target_document_id)
     if target_document is None:
         raise ValueError(f"target document not found: {target_document_id}")
@@ -813,10 +850,11 @@ async def review_document_version(
     extraction_status: str,
     reviewer: str | None,
     reason: str | None,
+    expected_updated_at: datetime | None = None,
 ) -> InfoDocumentVersion:
-    version = await session.get(InfoDocumentVersion, version_id)
-    if version is None or version.document_id != document_id:
-        raise ValueError(f"document version not found: {version_id}")
+    version = await _get_version_for_mutation(
+        session, document_id, version_id, expected_updated_at
+    )
     version.extraction_status = extraction_status
     version.metadata_json = _review_metadata(
         existing=version.metadata_json,

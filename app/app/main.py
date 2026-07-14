@@ -4,7 +4,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.application.audit_context import from_request, reset_context, set_context
+from app.application.audit_context import (
+    from_request,
+    get_context,
+    reset_context,
+    set_context,
+)
 from app.infrastructure.logging.logging import setup_logging
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_postgres
@@ -61,8 +66,43 @@ async def audit_context_middleware(request, call_next):
     context = from_request(request)
     token = set_context(context)
     request.state.audit_context = context
+    active_context = context
     try:
         response = await call_next(request)
+        active_context = get_context() or context
+        if (
+            request.method not in {"GET", "HEAD", "OPTIONS"}
+            and request.url.path.startswith("/api/")
+        ):
+            logger.info(
+                "audit_mutation method=%s path=%s status=%s actor_id=%s "
+                "correlation_id=%s operation_id=%s reason_present=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+                active_context.actor_id or "-",
+                active_context.correlation_id,
+                active_context.operation_id or "-",
+                bool(active_context.reason),
+            )
+    except Exception:
+        active_context = get_context() or context
+        if (
+            request.method not in {"GET", "HEAD", "OPTIONS"}
+            and request.url.path.startswith("/api/")
+        ):
+            logger.info(
+                "audit_mutation method=%s path=%s status=%s actor_id=%s "
+                "correlation_id=%s operation_id=%s reason_present=%s",
+                request.method,
+                request.url.path,
+                500,
+                active_context.actor_id or "-",
+                active_context.correlation_id,
+                active_context.operation_id or "-",
+                bool(active_context.reason),
+            )
+        raise
     finally:
         reset_context(token)
     response.headers["X-Correlation-ID"] = context.correlation_id

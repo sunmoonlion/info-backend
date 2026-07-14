@@ -198,7 +198,7 @@ async def test_reviewer_is_derived_from_principal_not_payload(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_request_audit_headers_reach_mutation_service(monkeypatch) -> None:
+async def test_request_audit_headers_reach_mutation_service(monkeypatch, caplog) -> None:
     captured = {}
 
     async def fake_review(_, **kwargs):
@@ -236,6 +236,13 @@ async def test_request_audit_headers_reach_mutation_service(monkeypatch) -> None
     assert context.operation_id == "op-mutation-001"
     assert context.reason == "verify audit propagation"
     assert context.actor_id == str(_session("info:admin").principal.actor_id)
+    audit_records = [
+        record.getMessage()
+        for record in caplog.records
+        if "audit_mutation" in record.getMessage()
+    ]
+    assert any("path=/api/documents/" in message for message in audit_records)
+    assert all("verify audit propagation" not in message for message in audit_records)
 
 
 def test_every_non_auth_api_route_has_admin_auth_dependency() -> None:

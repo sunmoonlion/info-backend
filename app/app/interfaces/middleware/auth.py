@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Cookie, Depends, Header, Request
 
+from app.application.audit_context import set_actor
 from app.application.errors.exceptions import UnauthorizedError
 from app.application.services.auth_service import ADMIN_SCOPE, SESSION_COOKIE, AuthService
 from app.domain.security import BrowserSession, Principal
@@ -25,6 +26,7 @@ async def get_current_browser_session(
         origin=request.headers.get("origin"),
         csrf_token=csrf_token,
     )
+    set_actor(str(session.principal.actor_id))
     return session
 
 
@@ -54,6 +56,7 @@ def require_scopes(*required: str) -> Callable[..., Awaitable[Principal]]:
             csrf_token=csrf_token,
         )
         _auth_service.require_scopes(session.principal, required_set)
+        set_actor(str(session.principal.actor_id))
         return session.principal
 
     return dependency

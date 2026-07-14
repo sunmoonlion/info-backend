@@ -9,12 +9,13 @@ from fastapi.routing import APIRoute
 
 import app.interfaces.endpoints.auth_routes as auth_routes
 import app.interfaces.middleware.auth as auth_middleware
+from app.application.audit_context import get_context
 from app.application.services import info_crawl_service
 from app.domain.security import BrowserSession, Principal
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.endpoints.info_routes import review_document
 from app.interfaces.schemas.info import DocumentReviewRequest
-from app.main import app
+from app.main import app, settings
 
 
 class FakeAuthService:
@@ -135,11 +136,41 @@ async def test_authorized_admin_read_is_allowed(monkeypatch) -> None:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             client.cookies.set("sunmoonai_info_admin_sid", "admin")
-            response = await client.get("/api/admin/sources")
+            response = await client.get(
+                "/api/admin/sources",
+                headers={
+                    "X-Correlation-ID": "corr-http-001",
+                    "X-Operation-ID": "op-http-001",
+                    "X-Audit-Reason": "read fixture",
+                },
+            )
             assert response.status_code == 200
             assert response.json() == []
+            assert response.headers["x-correlation-id"] == "corr-http-001"
+            assert response.headers["x-operation-id"] == "op-http-001"
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_cors_allows_audited_mutation_headers() -> None:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.options(
+            "/api/documents/00000000-0000-0000-0000-000000000001/review",
+            headers={
+                "Origin": settings.frontend_origin_list[0],
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": (
+                    "x-csrf-token,x-correlation-id,x-operation-id,x-audit-reason"
+                ),
+            },
+        )
+
+    assert response.status_code == 200
+    allow_headers = response.headers["access-control-allow-headers"].lower()
+    assert "x-operation-id" in allow_headers
+    assert "x-audit-reason" in allow_headers
 
 
 @pytest.mark.asyncio
@@ -164,6 +195,47 @@ async def test_reviewer_is_derived_from_principal_not_payload(monkeypatch) -> No
     )
     assert captured["reviewer"] == str(principal.actor_id)
     assert captured["reviewer"] != "attacker-controlled-reviewer"
+
+
+@pytest.mark.asyncio
+async def test_request_audit_headers_reach_mutation_service(monkeypatch) -> None:
+    captured = {}
+
+    async def fake_review(_, **kwargs):
+        captured["context"] = get_context()
+        raise RuntimeError("stop after capture")
+
+    fake = FakeAuthService({"admin": _session("info:admin")})
+    monkeypatch.setattr(auth_middleware, "_auth_service", fake)
+    monkeypatch.setattr(info_crawl_service, "review_document", fake_review)
+    async def fake_session():
+        yield object()
+
+    app.dependency_overrides[get_db_session] = fake_session
+    try:
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            client.cookies.set("sunmoonai_info_admin_sid", "admin")
+            response = await client.post(
+                f"/api/documents/{uuid.uuid4()}/review",
+                headers={
+                    "Origin": "http://localhost:5173",
+                    "X-CSRF-Token": "csrf-token-with-at-least-thirty-two-characters",
+                    "X-Correlation-ID": "corr-mutation-001",
+                    "X-Operation-ID": "op-mutation-001",
+                    "X-Audit-Reason": "verify audit propagation",
+                },
+                json={"status": "reviewed", "reason": "verify audit propagation"},
+            )
+            assert response.status_code == 500
+    finally:
+        app.dependency_overrides.clear()
+
+    context = captured["context"]
+    assert context.correlation_id == "corr-mutation-001"
+    assert context.operation_id == "op-mutation-001"
+    assert context.reason == "verify audit propagation"
+    assert context.actor_id == str(_session("info:admin").principal.actor_id)
 
 
 def test_every_non_auth_api_route_has_admin_auth_dependency() -> None:

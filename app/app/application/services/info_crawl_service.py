@@ -26,6 +26,7 @@ from app.infrastructure.models.info import (
     InfoSource,
     RawArtifact,
 )
+from app.application.audit_context import get_context
 from app.infrastructure.external.knowledge_app import (
     KnowledgeAppNotConfiguredError,
     get_knowledge_app_client,
@@ -532,6 +533,15 @@ def _append_audit_log(
         "payload": payload,
         "created_at": at or _now().isoformat(),
     }
+    context = get_context()
+    if context is not None:
+        entry["correlation_id"] = context.correlation_id
+        if context.operation_id:
+            entry["operation_id"] = context.operation_id
+        if context.reason:
+            entry["request_reason"] = context.reason
+        if actor is None and context.actor_id:
+            entry["actor"] = context.actor_id
     audit_log = list(metadata.get("audit_log") or [])
     audit_log.append(entry)
     metadata["audit_log"] = audit_log
@@ -865,6 +875,11 @@ async def create_knowledge_distribution(
         artifact=artifact,
         dataset_key=dataset_key,
     )
+    _append_distribution_audit(
+        payload,
+        action="distribution_create",
+        details={"target_dataset": dataset_key},
+    )
     record = DistributionRecord(
         id=distribution_id,
         document_id=document.id,
@@ -1003,7 +1018,37 @@ def _distribution_status_payload(
     )
     payload["status_history"] = history
     payload["last_status_update"] = history[-1]
+    _append_distribution_audit(
+        payload,
+        action="distribution_status",
+        details={"status": status, "last_error": last_error},
+    )
     return payload
+
+
+def _append_distribution_audit(
+    payload: dict,
+    *,
+    action: str,
+    details: dict,
+) -> None:
+    context = get_context()
+    if context is None:
+        return
+    entry = {
+        "action": action,
+        "actor": context.actor_id,
+        "reason": context.reason,
+        "payload": details,
+        "created_at": _now().isoformat(),
+        "correlation_id": context.correlation_id,
+    }
+    if context.operation_id:
+        entry["operation_id"] = context.operation_id
+    audit_log = list(payload.get("audit_log") or [])
+    audit_log.append(entry)
+    payload["audit_log"] = audit_log
+    payload["last_audit"] = entry
 
 
 def _knowledge_ingestion_payload(record: DistributionRecord) -> dict:
@@ -1012,6 +1057,8 @@ def _knowledge_ingestion_payload(record: DistributionRecord) -> dict:
         "last_status_update",
         "retry_history",
         "last_retry",
+        "audit_log",
+        "last_audit",
     }
     payload = {
         key: value
@@ -1117,6 +1164,11 @@ def _distribution_retry_payload(existing: dict | None, *, previous_error: str | 
     )
     payload["retry_history"] = history
     payload["last_retry"] = history[-1]
+    _append_distribution_audit(
+        payload,
+        action="distribution_retry",
+        details={"previous_error": previous_error},
+    )
     return payload
 
 

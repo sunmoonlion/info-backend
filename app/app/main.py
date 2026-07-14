@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.application.audit_context import from_request, reset_context, set_context
 from app.infrastructure.logging.logging import setup_logging
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_postgres
@@ -54,13 +55,36 @@ app = FastAPI(
     openapi_url=None if settings.env == "production" else "/openapi.json",
 )
 
+
+@app.middleware("http")
+async def audit_context_middleware(request, call_next):
+    context = from_request(request)
+    token = set_context(context)
+    request.state.audit_context = context
+    try:
+        response = await call_next(request)
+    finally:
+        reset_context(token)
+    response.headers["X-Correlation-ID"] = context.correlation_id
+    if context.operation_id:
+        response.headers["X-Operation-ID"] = context.operation_id
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.frontend_origin_list),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-CSRF-Token", "X-Correlation-ID"],
-    expose_headers=["X-Correlation-ID"],
+    allow_headers=[
+        "Accept",
+        "Content-Type",
+        "X-CSRF-Token",
+        "X-Correlation-ID",
+        "X-Operation-ID",
+        "X-Audit-Reason",
+    ],
+    expose_headers=["X-Correlation-ID", "X-Operation-ID"],
 )
 
 register_exception_handlers(app)

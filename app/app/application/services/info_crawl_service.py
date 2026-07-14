@@ -28,6 +28,7 @@ from app.infrastructure.models.info import (
     RawArtifact,
 )
 from app.application.audit_context import get_context
+from app.application.services.delivery_outbox import ensure_distribution_dispatch_outbox
 from app.infrastructure.external.knowledge_app import (
     KnowledgeAppNotConfiguredError,
     get_knowledge_app_client,
@@ -894,6 +895,7 @@ async def create_knowledge_distribution(
     *,
     document_version_id: uuid.UUID,
     target_dataset: str | None = None,
+    dispatch: bool = False,
 ) -> DistributionRecord:
     version = await session.get(InfoDocumentVersion, document_version_id)
     if version is None:
@@ -929,6 +931,13 @@ async def create_knowledge_distribution(
         payload=payload,
     )
     session.add(record)
+    if dispatch:
+        # This is intentionally before the one commit below: a successful
+        # DistributionRecord without its requested durable delivery operation
+        # would recreate the DB-commit-then-enqueue loss window.
+        await ensure_distribution_dispatch_outbox(
+            session, distribution_id=record.id
+        )
     await session.commit()
     await session.refresh(record)
     return record
@@ -1223,6 +1232,22 @@ async def retry_distribution(
     )
     record.status = "pending"
     record.last_error = None
+    await ensure_distribution_dispatch_outbox(session, distribution_id=record.id)
+    await session.commit()
+    await session.refresh(record)
+    return record
+
+
+async def request_distribution_dispatch(
+    session: AsyncSession, *, distribution_id: uuid.UUID
+) -> DistributionRecord:
+    """Durably request delivery without treating immediate broker publish as truth."""
+    record = await session.get(DistributionRecord, distribution_id)
+    if record is None:
+        raise ValueError(f"distribution not found: {distribution_id}")
+    if record.status == "succeeded":
+        return record
+    await ensure_distribution_dispatch_outbox(session, distribution_id=record.id)
     await session.commit()
     await session.refresh(record)
     return record

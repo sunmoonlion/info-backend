@@ -177,3 +177,43 @@ class DistributionRecord(UUIDMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class DeliveryOutboxMessage(UUIDMixin, TimestampMixin, Base):
+    """A durable request to deliver one Info domain operation asynchronously.
+
+    The row is the local source of truth until the downstream worker confirms
+    completion.  RabbitMQ/Celery only transports an at-least-once notification;
+    it is deliberately not used as the recovery store.
+    """
+
+    __tablename__ = "delivery_outbox_message"
+
+    topic: Mapped[str] = mapped_column(String(120), nullable=False)
+    aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    aggregate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("distribution_record.id"),
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    state: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    broker_message_id: Mapped[str | None] = mapped_column(String(255))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "topic", "idempotency_key", name="uq_delivery_outbox_topic_idempotency"
+        ),
+        Index("ix_delivery_outbox_due", "state", "available_at"),
+        Index("ix_delivery_outbox_aggregate", "aggregate_type", "aggregate_id"),
+    )

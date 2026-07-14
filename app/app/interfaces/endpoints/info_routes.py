@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import info_crawl_service
+from app.application.services.delivery_outbox import dispatch_due_delivery_outbox
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_db_session
 from app.domain.security import Principal
@@ -34,6 +36,22 @@ from app.interfaces.schemas.info import (
 )
 
 router = APIRouter(tags=["资讯采集"])
+logger = logging.getLogger(__name__)
+
+
+async def _best_effort_kick_delivery_outbox(session: AsyncSession) -> None:
+    """Wake the durable dispatcher without making broker availability an API dependency."""
+    try:
+        producer = get_celery_producer()
+        if not producer.enabled:
+            logger.info("delivery outbox queued; broker dispatcher is not configured")
+            return
+        await dispatch_due_delivery_outbox(session, publisher=producer)
+    except Exception:
+        # The row was already committed with the domain change.  A scheduled
+        # scanner will recover it; surfacing a 5xx here would incorrectly tell
+        # the caller that the durable request was not recorded.
+        logger.exception("delivery outbox immediate kick failed; scanner will retry")
 
 
 @router.post("/admin/sources", response_model=SourceRead, status_code=status.HTTP_201_CREATED)
@@ -331,15 +349,10 @@ async def create_knowledge_distribution(
             session,
             document_version_id=payload.document_version_id,
             target_dataset=payload.target_dataset,
+            dispatch=payload.dispatch,
         )
         if payload.dispatch:
-            producer = get_celery_producer()
-            if producer.enabled:
-                producer.dispatch_distribution(record.id)
-            else:
-                record = await info_crawl_service.dispatch_distribution(
-                    session, distribution_id=record.id
-                )
+            await _best_effort_kick_delivery_outbox(session)
         return record
     except info_crawl_service.ArtifactNotDistributableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -399,9 +412,11 @@ async def retry_distribution(
     distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
     try:
-        return await info_crawl_service.retry_distribution(
+        record = await info_crawl_service.retry_distribution(
             session, distribution_id=distribution_id
         )
+        await _best_effort_kick_delivery_outbox(session)
+        return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -411,16 +426,11 @@ async def dispatch_distribution(
     distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
     try:
-        producer = get_celery_producer()
-        if producer.enabled:
-            producer.dispatch_distribution(distribution_id)
-            record = await info_crawl_service.get_distribution(session, distribution_id)
-            if record is None:
-                raise ValueError(f"distribution not found: {distribution_id}")
-            return record
-        return await info_crawl_service.dispatch_distribution(
+        record = await info_crawl_service.request_distribution_dispatch(
             session, distribution_id=distribution_id
         )
+        await _best_effort_kick_delivery_outbox(session)
+        return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

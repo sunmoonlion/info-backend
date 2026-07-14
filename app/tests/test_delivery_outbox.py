@@ -169,7 +169,7 @@ async def test_dispatch_batch_records_broker_failure_for_scanner_recovery(
     assert summary.published == 0
     assert summary.broker_failures == 1
     assert released[0]["message_id"] == claim.id
-    assert "rabbitmq unavailable" in released[0]["error"]
+    assert released[0]["error"] == "broker_publish_failed:RuntimeError"
 
 
 class _CreateDistributionSession:

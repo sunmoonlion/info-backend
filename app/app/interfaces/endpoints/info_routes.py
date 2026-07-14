@@ -47,11 +47,14 @@ async def _best_effort_kick_delivery_outbox(session: AsyncSession) -> None:
             logger.info("delivery outbox queued; broker dispatcher is not configured")
             return
         await dispatch_due_delivery_outbox(session, publisher=producer)
-    except Exception:
+    except Exception as exc:
         # The row was already committed with the domain change.  A scheduled
         # scanner will recover it; surfacing a 5xx here would incorrectly tell
         # the caller that the durable request was not recorded.
-        logger.exception("delivery outbox immediate kick failed; scanner will retry")
+        logger.error(
+            "delivery outbox immediate kick failed; scanner will retry",
+            extra={"error_code": type(exc).__name__},
+        )
 
 
 @router.post("/admin/sources", response_model=SourceRead, status_code=status.HTTP_201_CREATED)

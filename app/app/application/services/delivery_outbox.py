@@ -309,20 +309,21 @@ async def dispatch_due_delivery_outbox(
             )
         except Exception as exc:
             broker_failures += 1
+            error_code = type(exc).__name__
             logger.warning(
                 "outbox broker publish failed",
                 extra={
                     "outbox_message_id": str(claim.id),
                     "distribution_id": str(claim.distribution_id),
                     "attempt_count": claim.attempt_count,
-                    "error": str(exc),
+                    "error_code": error_code,
                 },
             )
             await release_delivery_outbox(
                 session,
                 message_id=claim.id,
                 lease_token=claim.lease_token,
-                error=f"broker publish failed: {exc}",
+                error=f"broker_publish_failed:{error_code}",
             )
             continue
 

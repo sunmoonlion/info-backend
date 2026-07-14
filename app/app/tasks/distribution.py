@@ -35,6 +35,6 @@ async def _run(distribution_id: uuid.UUID, outbox_message_id: uuid.UUID) -> str:
                 session,
                 message_id=outbox_message_id,
                 lease_token=None,
-                error=record.last_error or f"distribution ended as {record.status}",
+                error=f"distribution_{record.status}",
             )
         return str(record.id)

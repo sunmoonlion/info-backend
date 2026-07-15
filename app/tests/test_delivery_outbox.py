@@ -60,6 +60,47 @@ def test_distribution_outbox_uses_one_stable_operation_key() -> None:
 
 
 @pytest.mark.asyncio
+async def test_redispatch_rearms_the_same_stable_operation() -> None:
+    distribution_id = UUID("00000000-0000-0000-0000-000000000001")
+    message = delivery_outbox.new_distribution_dispatch_outbox(
+        distribution_id,
+        now=datetime(2026, 7, 14, tzinfo=UTC),
+    )
+    message.id = UUID("00000000-0000-0000-0000-000000000010")
+    message.state = delivery_outbox.STATE_COMPLETED
+    message.attempt_count = 3
+    message.lease_token = UUID("00000000-0000-0000-0000-000000000020")
+    message.lease_expires_at = datetime(2026, 7, 14, 12, 1, tzinfo=UTC)
+    message.published_at = datetime(2026, 7, 14, 12, 2, tzinfo=UTC)
+    message.completed_at = datetime(2026, 7, 14, 12, 3, tzinfo=UTC)
+    message.last_error = "previous failure"
+    original_id = message.id
+    original_key = message.idempotency_key
+    original_payload = dict(message.payload)
+    session = _ClaimSession(message)
+    rearmed_at = datetime(2026, 7, 15, tzinfo=UTC)
+
+    rearmed = await delivery_outbox.ensure_distribution_dispatch_outbox(
+        cast(Any, session),
+        distribution_id=distribution_id,
+        now=rearmed_at,
+    )
+
+    assert rearmed is message
+    assert rearmed.id == original_id
+    assert rearmed.idempotency_key == original_key
+    assert rearmed.payload == original_payload
+    assert rearmed.state == delivery_outbox.STATE_PENDING
+    assert rearmed.available_at == rearmed_at
+    assert rearmed.attempt_count == 3
+    assert rearmed.lease_token is None
+    assert rearmed.lease_expires_at is None
+    assert rearmed.published_at is None
+    assert rearmed.completed_at is None
+    assert rearmed.last_error is None
+
+
+@pytest.mark.asyncio
 async def test_claim_uses_one_lease_per_message_and_increments_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

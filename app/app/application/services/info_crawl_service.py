@@ -932,9 +932,11 @@ async def create_knowledge_distribution(
     )
     session.add(record)
     if dispatch:
-        # This is intentionally before the one commit below: a successful
-        # DistributionRecord without its requested durable delivery operation
-        # would recreate the DB-commit-then-enqueue loss window.
+        # Sessions use autoflush=False. Persist the parent row inside this
+        # transaction before the outbox helper queries/adds a row whose
+        # aggregate_id has a foreign key to DistributionRecord. This is a
+        # flush, not a commit: both rows still succeed or roll back together.
+        await session.flush()
         await ensure_distribution_dispatch_outbox(
             session, distribution_id=record.id
         )

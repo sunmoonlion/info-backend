@@ -183,6 +183,9 @@ class _CreateDistributionSession:
     def add(self, _value: Any) -> None:
         self.events.append("add")
 
+    async def flush(self) -> None:
+        self.events.append("flush")
+
     async def commit(self) -> None:
         self.events.append("commit")
 
@@ -233,6 +236,7 @@ async def test_requested_distribution_writes_outbox_before_commit(
 
     async def fake_ensure(_session: Any, *, distribution_id: UUID) -> Any:
         assert distribution_id
+        assert session.events == ["add", "flush"]
         session.events.append("outbox")
         return SimpleNamespace()
 
@@ -241,7 +245,7 @@ async def test_requested_distribution_writes_outbox_before_commit(
         cast(Any, session), document_version_id=version_id, dispatch=True
     )
 
-    assert session.events == ["add", "outbox", "commit", "refresh"]
+    assert session.events == ["add", "flush", "outbox", "commit", "refresh"]
 
 
 @pytest.mark.asyncio

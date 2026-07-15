@@ -300,6 +300,44 @@ async def test_create_only_distribution_does_not_silently_enqueue(
     assert session.events == ["add", "commit", "refresh"]
 
 
+@pytest.mark.asyncio
+async def test_best_effort_kick_uses_isolated_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.interfaces.endpoints import info_routes
+
+    dispatch_session = object()
+    dispatched_with: list[Any] = []
+
+    class _DispatchSessionContext:
+        async def __aenter__(self) -> Any:
+            return dispatch_session
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+    class _DispatchSessionFactory:
+        def __call__(self) -> _DispatchSessionContext:
+            return _DispatchSessionContext()
+
+    async def fake_dispatch(session: Any, *, publisher: Any) -> Any:
+        dispatched_with.append((session, publisher))
+        return SimpleNamespace()
+
+    producer = SimpleNamespace(enabled=True)
+    monkeypatch.setattr(info_routes, "get_celery_producer", lambda: producer)
+    monkeypatch.setattr(
+        info_routes,
+        "get_postgres",
+        lambda: SimpleNamespace(session_factory=_DispatchSessionFactory()),
+    )
+    monkeypatch.setattr(info_routes, "dispatch_due_delivery_outbox", fake_dispatch)
+
+    await info_routes._best_effort_kick_delivery_outbox()
+
+    assert dispatched_with == [(dispatch_session, producer)]
+
+
 class _WorkerSessionContext:
     async def __aenter__(self) -> Any:
         return SimpleNamespace()

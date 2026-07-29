@@ -3,14 +3,23 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import info_crawl_service
 from app.application.services.delivery_outbox import dispatch_due_delivery_outbox
+from app.domain.security import Principal
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_db_session, get_postgres
-from app.domain.security import Principal
 from app.interfaces.middleware.auth import require_info_admin
 from app.interfaces.schemas.info import (
     CollectorCreate,
@@ -22,9 +31,9 @@ from app.interfaces.schemas.info import (
     DistributionRead,
     DistributionStatusUpdate,
     DocumentEntityLinksRequest,
-    DocumentReviewRequest,
-    DocumentRelationRequest,
     DocumentRead,
+    DocumentRelationRequest,
+    DocumentReviewRequest,
     DocumentSummaryProfileRequest,
     DocumentVersionRead,
     DocumentVersionReviewRequest,

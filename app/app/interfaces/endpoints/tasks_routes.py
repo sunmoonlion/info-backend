@@ -1,12 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.infrastructure.messaging.celery_producer import (
     CeleryNotConfiguredError,
     get_celery_producer,
 )
+from app.interfaces.middleware.auth import require_info_admin
 from core.config import get_settings
 
-router = APIRouter(prefix="/internal/tasks", tags=["内部-异步任务"])
+router = APIRouter(
+    prefix="/internal/tasks",
+    tags=["内部-异步任务"],
+    dependencies=[Depends(require_info_admin)],
+)
 
 
 @router.post("/ping", summary="投递 Celery ping 任务（联调/健康检查）")

@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID
 
-import pytest
 import jsonschema
+import pytest
 
 from app.application.services.info_crawl_service import (
     ArtifactNotDistributableError,

@@ -1,5 +1,5 @@
-from app.application.services.info_crawl_service import _review_metadata
 from app.application.audit_context import AuditContext, reset_context, set_context
+from app.application.services.info_crawl_service import _review_metadata
 
 
 def test_review_metadata_appends_history() -> None:

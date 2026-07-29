@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, Optional, Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -11,9 +11,9 @@ class Response(BaseModel, Generic[T]):
     data: Any = Field(default=None)
 
     @staticmethod
-    def success(data: Optional[T] = None, msg: str = "success") -> "Response[T]":
+    def success(data: T | None = None, msg: str = "success") -> "Response[T]":
         return Response(code=200, msg=msg, data=data if data is not None else {})
 
     @staticmethod
-    def fail(code: int, msg: str, data: Optional[T] = None) -> "Response[T]":
+    def fail(code: int, msg: str, data: T | None = None) -> "Response[T]":
         return Response(code=code, msg=msg, data=data if data is not None else {})

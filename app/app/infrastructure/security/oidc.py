@@ -11,7 +11,10 @@ from joserfc.errors import JoseError
 from joserfc.jwk import KeySet
 from joserfc.jwt import JWTClaimsRegistry
 
-from app.application.errors.exceptions import ServiceUnavailableError, UnauthorizedError
+from app.application.errors.exceptions import (
+    ServiceUnavailableError,
+    UnauthorizedError,
+)
 from core.config import Settings
 
 
@@ -24,6 +27,8 @@ class OidcMetadata:
 
 
 class OidcProviderClient:
+    """Strict OIDC client with optional host-preserving in-cluster transport."""
+
     def __init__(
         self,
         settings: Settings,
@@ -54,15 +59,20 @@ class OidcProviderClient:
             raise ServiceUnavailableError(f"OIDC metadata invalid {field}")
         if parsed.username or parsed.password or parsed.fragment:
             raise ServiceUnavailableError(f"OIDC metadata invalid {field}")
-        if self._settings.env == "production" and parsed.scheme != "https":
+        if self._settings.is_production and parsed.scheme != "https":
             raise ServiceUnavailableError("OIDC metadata requires HTTPS")
-        if not endpoint.hostname or parsed.hostname.lower() != endpoint.hostname.lower():
+        if (
+            not endpoint.hostname
+            or parsed.hostname.lower() != endpoint.hostname.lower()
+        ):
             raise ServiceUnavailableError(f"OIDC metadata cross-origin {field}")
         if parsed.port != endpoint.port:
             raise ServiceUnavailableError(f"OIDC metadata cross-origin {field}")
         return value
 
-    def _backchannel_target(self, public_url: str, field: str) -> tuple[str, dict[str, str]]:
+    def _backchannel_target(
+        self, public_url: str, field: str
+    ) -> tuple[str, dict[str, str]]:
         public_url = self._validate_provider_url(public_url, field)
         configured = self._settings.casdoor_backchannel_endpoint
         if not configured:
@@ -98,7 +108,8 @@ class OidcProviderClient:
         if (
             not force_refresh
             and self._metadata is not None
-            and now - self._metadata_loaded_at < self._settings.auth_discovery_cache_seconds
+            and now - self._metadata_loaded_at
+            < self._settings.auth_discovery_cache_seconds
         ):
             return self._metadata
         discovery_url = self._settings.casdoor_discovery_endpoint
@@ -120,7 +131,9 @@ class OidcProviderClient:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise ServiceUnavailableError("OIDC discovery returned invalid JSON") from exc
+            raise ServiceUnavailableError(
+                "OIDC discovery returned invalid JSON"
+            ) from exc
         if not isinstance(payload, dict):
             raise ServiceUnavailableError("OIDC discovery returned invalid document")
         metadata = OidcMetadata(
@@ -137,7 +150,9 @@ class OidcProviderClient:
         self._metadata_loaded_at = now
         return metadata
 
-    async def _get_key_set(self, metadata: OidcMetadata, *, force_refresh: bool = False) -> KeySet:
+    async def _get_key_set(
+        self, metadata: OidcMetadata, *, force_refresh: bool = False
+    ) -> KeySet:
         now = time.monotonic()
         if (
             not force_refresh
@@ -180,7 +195,10 @@ class OidcProviderClient:
                 "response_type": "code",
                 "client_id": self._settings.casdoor_client_id,
                 "redirect_uri": self._settings.casdoor_redirect_uri,
-                "scope": "openid profile email",
+                "scope": (
+                    f"openid profile email "
+                    f"{self._settings.required_admin_scope}"
+                ),
                 "state": state,
                 "nonce": nonce,
                 "code_challenge": code_challenge,
@@ -230,13 +248,7 @@ class OidcProviderClient:
         return await self.verify_id_token(id_token, nonce=nonce, metadata=metadata)
 
     async def exchange_client_credentials(self, *, scope: str) -> dict[str, Any]:
-        """Request a service token through the same validated OIDC transport.
-
-        Discovery remains authoritative for the public issuer and token URL,
-        while ``_backchannel_target`` may replace only the network
-        destination.  This prevents service calls from bypassing the provider
-        origin checks or losing the public Host header inside Kubernetes.
-        """
+        """Request a service token using the validated Provider transport."""
 
         metadata = await self.get_metadata()
         try:
@@ -302,7 +314,8 @@ class OidcProviderClient:
                     self._settings.casdoor_client_id
                 ]:
                     raise UnauthorizedError("OIDC audience mismatch")
-                if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
+                subject = claims.get("sub")
+                if not isinstance(subject, str) or not subject.strip():
                     raise UnauthorizedError("OIDC subject invalid")
                 return claims
             except UnauthorizedError:

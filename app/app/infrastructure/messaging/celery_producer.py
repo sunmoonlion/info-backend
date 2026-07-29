@@ -87,7 +87,8 @@ class CeleryProducer:
             task_id=str(outbox_message_id),
         )
         logger.info(
-            "已投递 dispatch_distribution outbox task_id=%s distribution_id=%s outbox_message_id=%s queue=%s",
+            "已投递 dispatch_distribution outbox task_id=%s distribution_id=%s "
+            "outbox_message_id=%s queue=%s",
             async_result.id,
             distribution_id,
             outbox_message_id,

@@ -6,7 +6,11 @@ from fastapi import Cookie, Depends, Header, Request
 
 from app.application.audit_context import set_actor
 from app.application.errors.exceptions import UnauthorizedError
-from app.application.services.auth_service import ADMIN_SCOPE, SESSION_COOKIE, AuthService
+from app.application.services.auth_service import (
+    ADMIN_SCOPE,
+    SESSION_COOKIE,
+    AuthService,
+)
 from app.domain.security import BrowserSession, Principal
 
 _auth_service = AuthService()

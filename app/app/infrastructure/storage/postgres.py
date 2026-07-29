@@ -1,8 +1,12 @@
 import logging
 from functools import lru_cache
-from typing import Optional
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from core.config import get_settings
 
@@ -11,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class Postgres:
     def __init__(self):
-        self._engine: Optional[AsyncEngine] = None
-        self._session_factory: Optional[async_sessionmaker] = None
+        self._engine: AsyncEngine | None = None
+        self._session_factory: async_sessionmaker | None = None
         self._settings = get_settings()
 
     async def init(self) -> None:
@@ -32,8 +36,8 @@ class Postgres:
                 bind=self._engine,
             )
             logger.info("Postgres初始化成功")
-        except Exception as e:
-            logger.error(f"Postgres初始化失败: {e}")
+        except Exception as exc:
+            logger.error("postgres_initialization_failed type=%s", type(exc).__name__)
             raise
 
     async def shutdown(self) -> None:
@@ -51,7 +55,7 @@ class Postgres:
         return self._session_factory
 
 
-@lru_cache()
+@lru_cache
 def get_postgres() -> Postgres:
     return Postgres()
 

@@ -15,8 +15,14 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.audit_context import get_context
 from app.application.collectors import get_collector_adapter
 from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.services.delivery_outbox import ensure_distribution_dispatch_outbox
+from app.infrastructure.external.knowledge_app import (
+    KnowledgeAppNotConfiguredError,
+    get_knowledge_app_client,
+)
 from app.infrastructure.models.info import (
     CrawlJob,
     DistributionRecord,
@@ -27,18 +33,12 @@ from app.infrastructure.models.info import (
     InfoSource,
     RawArtifact,
 )
-from app.application.audit_context import get_context
-from app.application.services.delivery_outbox import ensure_distribution_dispatch_outbox
-from app.infrastructure.external.knowledge_app import (
-    KnowledgeAppNotConfiguredError,
-    get_knowledge_app_client,
-)
+from app.infrastructure.search import build_info_index_document, get_info_search_index
 from app.infrastructure.storage.object_storage import (
     StoredObject,
     get_object_storage,
     make_artifact_key,
 )
-from app.infrastructure.search import build_info_index_document, get_info_search_index
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)

@@ -12,16 +12,42 @@ logger = logging.getLogger(__name__)
 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
-    async def app_exception_handler(req: Request, e: AppException) -> JSONResponse:
-        logger.error(f"AppException: {e.msg}")
-        return JSONResponse(status_code=e.status_code, content=Response.fail(e.code, e.msg).model_dump())
+    async def app_exception_handler(
+        request: Request, error: AppException
+    ) -> JSONResponse:
+        logger.warning(
+            "application_error status=%s code=%s path=%s",
+            error.status_code,
+            error.code,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=error.status_code,
+            content=Response.fail(error.code, error.msg).model_dump(),
+        )
 
     @app.exception_handler(HTTPException)
-    async def http_exception_handler(req: Request, e: HTTPException) -> JSONResponse:
-        logger.error(f"HTTPException: {e.detail}")
-        return JSONResponse(status_code=e.status_code, content=Response.fail(e.status_code, e.detail).model_dump())
+    async def http_exception_handler(
+        request: Request, error: HTTPException
+    ) -> JSONResponse:
+        logger.warning(
+            "http_error status=%s path=%s",
+            error.status_code,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=error.status_code,
+            content=Response.fail(error.status_code, str(error.detail)).model_dump(),
+        )
 
     @app.exception_handler(Exception)
-    async def exception_handler(req: Request, e: Exception) -> JSONResponse:
-        logger.error(f"Exception: {e}")
-        return JSONResponse(status_code=500, content=Response.fail(500, "服务器内部错误").model_dump())
+    async def exception_handler(request: Request, error: Exception) -> JSONResponse:
+        logger.exception(
+            "unhandled_exception path=%s type=%s",
+            request.url.path,
+            type(error).__name__,
+        )
+        return JSONResponse(
+            status_code=500,
+            content=Response.fail(500, "服务器内部错误").model_dump(),
+        )

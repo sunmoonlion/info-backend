@@ -1,10 +1,10 @@
 from app.application.collectors.api import ApiCollectorAdapter
 from app.application.collectors.base import CollectedLink, CollectorAdapter
 from app.application.collectors.changedetection import ChangeDetectionCollectorAdapter
+from app.application.collectors.playwright import PlaywrightCollectorAdapter
 from app.application.collectors.registry import get_collector_adapter
 from app.application.collectors.rss import RssCollectorAdapter
 from app.application.collectors.scrapy import ScrapyCollectorAdapter
-from app.application.collectors.playwright import PlaywrightCollectorAdapter
 
 __all__ = [
     "CollectedLink",

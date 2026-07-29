@@ -79,7 +79,7 @@ class CrawlJob(UUIDMixin, TimestampMixin, Base):
     request: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     response_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
-    artifacts: Mapped[list["RawArtifact"]] = relationship(back_populates="crawl_job")
+    artifacts: Mapped[list[RawArtifact]] = relationship(back_populates="crawl_job")
 
 
 class RawArtifact(UUIDMixin, TimestampMixin, Base):

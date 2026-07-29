@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from app.application.services.info_crawl_service import (
-    dispatch_distribution as dispatch_distribution_service,
-)
 from app.application.services.delivery_outbox import (
     complete_delivery_outbox,
     release_delivery_outbox,
+)
+from app.application.services.info_crawl_service import (
+    dispatch_distribution as dispatch_distribution_service,
 )
 from app.infrastructure.storage.postgres import get_postgres
 from app.worker import celery_app

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import time
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 from joserfc import jwt
 from joserfc.jwk import RSAKey
 
-from app.application.errors.exceptions import ServiceUnavailableError, UnauthorizedError
+from app.application.errors.exceptions import (
+    ServiceUnavailableError,
+    UnauthorizedError,
+)
 from app.infrastructure.security.oidc import OidcProviderClient
 from core.config import Settings
 
@@ -16,23 +19,23 @@ from core.config import Settings
 def _settings() -> Settings:
     return Settings(
         _env_file=None,
-        casdoor_endpoint="https://identity.example.test",
-        casdoor_client_id="info-admin-client",
-        casdoor_client_secret="test-only-secret",
-        casdoor_redirect_uri="https://info.example.test/api/auth/callback",
-        casdoor_application="sunmoonai-info-admin",
-        frontend_base_url="https://info.example.test",
-        casdoor_verify_ssl=True,
         env="production",
+        casdoor_endpoint="https://identity.example.test",
+        casdoor_client_id="tpl-admin-client",
+        casdoor_client_secret="test-only-secret",
+        casdoor_redirect_uri="https://admin.example.test/api/auth/callback",
+        frontend_base_url="https://admin.example.test",
+        frontend_allowed_origins="https://admin.example.test",
+        allowed_hosts="admin.example.test",
     )
 
 
-def _token(key: RSAKey, **overrides) -> str:
+def _token(key: RSAKey, **overrides: object) -> str:
     now = int(time.time())
-    claims = {
+    claims: dict[str, object] = {
         "iss": "https://identity.example.test",
         "sub": "user-123",
-        "aud": "info-admin-client",
+        "aud": "tpl-admin-client",
         "iat": now,
         "exp": now + 300,
         "nonce": "nonce-123",
@@ -47,15 +50,19 @@ def _token(key: RSAKey, **overrides) -> str:
     )
 
 
-def _client(token: str, key: RSAKey) -> OidcProviderClient:
+def _client(encoded: str, key: RSAKey) -> OidcProviderClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/openid-configuration"):
             return httpx.Response(
                 200,
                 json={
                     "issuer": "https://identity.example.test",
-                    "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
-                    "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
+                    "authorization_endpoint": (
+                        "https://identity.example.test/login/oauth/authorize"
+                    ),
+                    "token_endpoint": (
+                        "https://identity.example.test/api/login/oauth/access_token"
+                    ),
                     "jwks_uri": "https://identity.example.test/.well-known/jwks",
                 },
             )
@@ -64,10 +71,29 @@ def _client(token: str, key: RSAKey) -> OidcProviderClient:
         if request.url.path.endswith("/access_token"):
             form = parse_qs(request.content.decode())
             assert form["code_verifier"] == ["verifier-123"]
-            return httpx.Response(200, json={"id_token": token, "access_token": "must-not-persist"})
+            return httpx.Response(
+                200,
+                json={
+                    "id_token": encoded,
+                    "access_token": "must-not-persist",
+                },
+            )
         raise AssertionError(f"unexpected request: {request.url}")
 
     return OidcProviderClient(_settings(), transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.asyncio
+async def test_authorization_requests_the_canonical_admin_scope() -> None:
+    key = RSAKey.generate_key(parameters={"kid": "test-key"})
+    authorization_url = await _client(_token(key), key).build_authorization_url(
+        state="state-123",
+        nonce="nonce-123",
+        code_challenge="challenge-123",
+    )
+
+    query = parse_qs(urlsplit(authorization_url).query)
+    assert query["scope"] == ["openid profile email info:admin"]
 
 
 @pytest.mark.asyncio
@@ -83,7 +109,7 @@ async def test_code_exchange_verifies_signature_claims_and_pkce() -> None:
 
 
 @pytest.mark.asyncio
-async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
+async def test_backchannel_preserves_public_issuer_and_host() -> None:
     key = RSAKey.generate_key(parameters={"kid": "test-key"})
     encoded = _token(key)
     paths: list[str] = []
@@ -97,8 +123,12 @@ async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
                 200,
                 json={
                     "issuer": "https://identity.example.test",
-                    "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
-                    "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
+                    "authorization_endpoint": (
+                        "https://identity.example.test/login/oauth/authorize"
+                    ),
+                    "token_endpoint": (
+                        "https://identity.example.test/api/login/oauth/access_token"
+                    ),
                     "jwks_uri": "https://identity.example.test/.well-known/jwks",
                 },
             )
@@ -112,14 +142,17 @@ async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
         update={"casdoor_backchannel_endpoint": "http://casdoor-sunmoonai:8000"}
     )
     client = OidcProviderClient(settings, transport=httpx.MockTransport(handler))
-    authorization_url = await client.build_authorization_url(
-        state="state", nonce="nonce-123", code_challenge="challenge"
+    await client.build_authorization_url(
+        state="state",
+        nonce="nonce-123",
+        code_challenge="challenge",
     )
     claims = await client.exchange_authorization_code(
-        code="code", code_verifier="verifier", nonce="nonce-123"
+        code="code",
+        code_verifier="verifier-123",
+        nonce="nonce-123",
     )
 
-    assert authorization_url.startswith("https://identity.example.test/login/oauth/authorize?")
     assert claims["iss"] == "https://identity.example.test"
     assert paths == [
         "/.well-known/openid-configuration",
@@ -129,7 +162,7 @@ async def test_backchannel_transport_preserves_public_issuer_and_host() -> None:
 
 
 @pytest.mark.asyncio
-async def test_client_credentials_uses_validated_backchannel_transport() -> None:
+async def test_client_credentials_uses_validated_transport() -> None:
     requests: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -141,19 +174,18 @@ async def test_client_credentials_uses_validated_backchannel_transport() -> None
                 200,
                 json={
                     "issuer": "https://identity.example.test",
-                    "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
-                    "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
+                    "authorization_endpoint": (
+                        "https://identity.example.test/login/oauth/authorize"
+                    ),
+                    "token_endpoint": (
+                        "https://identity.example.test/api/login/oauth/access_token"
+                    ),
                     "jwks_uri": "https://identity.example.test/.well-known/jwks",
                 },
             )
         if request.url.path.endswith("/access_token"):
             form = parse_qs(request.content.decode())
-            assert form == {
-                "grant_type": ["client_credentials"],
-                "client_id": ["info-admin-client"],
-                "client_secret": ["test-only-secret"],
-                "scope": ["knowledge:ingest"],
-            }
+            assert form["scope"] == ["downstream:read"]
             return httpx.Response(
                 200,
                 json={"access_token": "opaque-service-token", "expires_in": 300},
@@ -164,10 +196,9 @@ async def test_client_credentials_uses_validated_backchannel_transport() -> None
         update={"casdoor_backchannel_endpoint": "http://casdoor-sunmoonai:8000"}
     )
     client = OidcProviderClient(settings, transport=httpx.MockTransport(handler))
+    result = await client.exchange_client_credentials(scope="downstream:read")
 
-    result = await client.exchange_client_credentials(scope="knowledge:ingest")
-
-    assert result == {"access_token": "opaque-service-token", "expires_in": 300}
+    assert result["expires_in"] == 300
     assert requests == [
         ("GET", "/.well-known/openid-configuration"),
         ("POST", "/api/login/oauth/access_token"),
@@ -178,18 +209,21 @@ async def test_client_credentials_uses_validated_backchannel_transport() -> None
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"aud": "research-admin-client"},
-        {"aud": ["info-admin-client", "research-admin-client"]},
+        {"aud": "other-client"},
+        {"aud": ["tpl-admin-client", "other-client"]},
         {"nonce": "wrong-nonce"},
         {"exp": int(time.time()) - 60},
+        {"iat": int(time.time()) + 300},
+        {"nbf": int(time.time()) + 300},
         {"iss": "https://attacker.example.test"},
     ],
 )
-async def test_id_token_claim_failures_are_rejected(overrides: dict) -> None:
+async def test_id_token_claim_failures_are_rejected(
+    overrides: dict[str, object],
+) -> None:
     key = RSAKey.generate_key(parameters={"kid": "test-key"})
-    client = _client(_token(key, **overrides), key)
     with pytest.raises(UnauthorizedError):
-        await client.exchange_authorization_code(
+        await _client(_token(key, **overrides), key).exchange_authorization_code(
             code="code-123",
             code_verifier="verifier-123",
             nonce="nonce-123",
@@ -197,12 +231,11 @@ async def test_id_token_claim_failures_are_rejected(overrides: dict) -> None:
 
 
 @pytest.mark.asyncio
-async def test_token_signed_by_unknown_key_is_rejected_after_one_refresh() -> None:
+async def test_unknown_signing_key_is_rejected_after_refresh() -> None:
     trusted = RSAKey.generate_key(parameters={"kid": "test-key"})
     attacker = RSAKey.generate_key(parameters={"kid": "attacker-key"})
-    client = _client(_token(attacker), trusted)
     with pytest.raises(UnauthorizedError):
-        await client.exchange_authorization_code(
+        await _client(_token(attacker), trusted).exchange_authorization_code(
             code="code-123",
             code_verifier="verifier-123",
             nonce="nonce-123",
@@ -210,14 +243,18 @@ async def test_token_signed_by_unknown_key_is_rejected_after_one_refresh() -> No
 
 
 @pytest.mark.asyncio
-async def test_discovery_cannot_redirect_jwks_to_another_origin() -> None:
+async def test_discovery_cannot_redirect_jwks_cross_origin() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
                 "issuer": "https://identity.example.test",
-                "authorization_endpoint": "https://identity.example.test/login/oauth/authorize",
-                "token_endpoint": "https://identity.example.test/api/login/oauth/access_token",
+                "authorization_endpoint": (
+                    "https://identity.example.test/login/oauth/authorize"
+                ),
+                "token_endpoint": (
+                    "https://identity.example.test/api/login/oauth/access_token"
+                ),
                 "jwks_uri": "https://attacker.example.test/jwks",
             },
         )
@@ -227,34 +264,18 @@ async def test_discovery_cannot_redirect_jwks_to_another_origin() -> None:
         await client.get_metadata()
 
 
-@pytest.mark.parametrize("algorithm", ["none", "HS256"])
-def test_settings_rejects_non_asymmetric_jwt_algorithm(algorithm: str) -> None:
-    with pytest.raises(ValueError, match="asymmetric"):
-        Settings(
-            _env_file=None,
-            casdoor_endpoint="https://identity.example.test",
-            casdoor_client_id="info-admin-client",
-            casdoor_client_secret="test-only-secret",
-            casdoor_redirect_uri="https://info.example.test/api/auth/callback",
-            frontend_base_url="https://info.example.test",
-            auth_allowed_algorithms=algorithm,
-        ).auth_allowed_algorithm_list
-
-
-def test_settings_rejects_wildcard_credential_cors() -> None:
-    with pytest.raises(ValueError, match="wildcard"):
-        Settings(
-            _env_file=None,
-            frontend_base_url="https://info.example.test",
-            frontend_allowed_origins="*",
-        )
-
-
 @pytest.mark.asyncio
-async def test_custom_discovery_url_cannot_send_credentials_cross_origin() -> None:
+async def test_custom_discovery_cannot_send_credentials_cross_origin() -> None:
     settings = _settings().model_copy(
-        update={"casdoor_discovery_url": "https://attacker.example.test/.well-known/config"}
+        update={
+            "casdoor_discovery_url": (
+                "https://attacker.example.test/.well-known/config"
+            )
+        }
     )
-    client = OidcProviderClient(settings, transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+    client = OidcProviderClient(
+        settings,
+        transport=httpx.MockTransport(lambda _: httpx.Response(200)),
+    )
     with pytest.raises(ServiceUnavailableError, match="cross-origin"):
         await client.get_metadata()

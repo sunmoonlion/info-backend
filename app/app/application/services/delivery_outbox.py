@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.models.info import DeliveryOutboxMessage
 from core.config import get_settings
 
-
 logger = logging.getLogger(__name__)
 
 TOPIC_DISTRIBUTION_DISPATCH_V1 = "info.distribution.dispatch.v1"

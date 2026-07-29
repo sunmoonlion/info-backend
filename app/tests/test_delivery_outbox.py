@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID
@@ -10,7 +10,6 @@ from sqlalchemy.dialects import postgresql
 
 from app.application.services import delivery_outbox
 from app.application.services.info_crawl_service import create_knowledge_distribution
-from app.infrastructure.models.info import DeliveryOutboxMessage
 
 
 class _Result:
@@ -239,7 +238,11 @@ async def test_requested_distribution_writes_outbox_before_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.application.services import info_crawl_service
-    from app.infrastructure.models.info import InfoDocument, InfoDocumentVersion, RawArtifact
+    from app.infrastructure.models.info import (
+        InfoDocument,
+        InfoDocumentVersion,
+        RawArtifact,
+    )
 
     document_id = UUID(int=10)
     version_id = UUID(int=11)
@@ -294,7 +297,11 @@ async def test_create_only_distribution_does_not_silently_enqueue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.application.services import info_crawl_service
-    from app.infrastructure.models.info import InfoDocument, InfoDocumentVersion, RawArtifact
+    from app.infrastructure.models.info import (
+        InfoDocument,
+        InfoDocumentVersion,
+        RawArtifact,
+    )
 
     document_id = UUID(int=20)
     version_id = UUID(int=21)

@@ -27,6 +27,7 @@ dev = [
     "httpx>=0.28.0",
     "pyright>=1.1.400",
     "jsonschema>=4.26.0",
+    "ruff",
 ]
 
 [tool.pytest.ini_options]
@@ -48,3 +49,15 @@ reportOptionalMemberAccess = true
 reportAttributeAccessIssue = true
 include = ["app", "core", "app/tasks"]
 exclude = ["alembic"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# Domain routes keep FastAPI Depends() defaults; long lines are pre-existing Info domain debt.
+ignore = ["E501", "B008", "UP046"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/interfaces/endpoints/**" = ["B008"]

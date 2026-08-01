@@ -7,7 +7,7 @@ class AppException(RuntimeError):
         self.status_code = status_code
         self.msg = msg
         self.data = data
-        super().__init__()
+        super().__init__(msg)
 
 
 class BadRequestError(AppException):
@@ -38,3 +38,13 @@ class ValidationError(AppException):
 class ServerError(AppException):
     def __init__(self, msg: str = "服务器内部错误"):
         super().__init__(status_code=500, code=500, msg=msg)
+
+
+class ServiceUnavailableError(AppException):
+    def __init__(self, msg: str = "服务暂时不可用"):
+        super().__init__(status_code=503, code=503, msg=msg)
+
+
+class ConcurrencyConflictError(AppException):
+    def __init__(self, msg: str = "资源已被其他操作更新，请刷新后重试"):
+        super().__init__(status_code=409, code=409, msg=msg)

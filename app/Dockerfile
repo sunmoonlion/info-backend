@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PYPI_INDEX_URL} \
+    UV_DEFAULT_INDEX=${PYPI_INDEX_URL}
+
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./

@@ -1,64 +1,119 @@
-import logging
+from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Response
+import logging
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Cookie, Depends, Query, Response
 from fastapi.responses import RedirectResponse
 
-from app.application.services.auth_service import AuthService
+from app.application.errors.exceptions import AppException
+from app.application.services.auth_service import (
+    SESSION_COOKIE,
+    TRANSACTION_COOKIE,
+    AuthService,
+)
+from app.domain.security import BrowserSession
+from app.interfaces.middleware.auth import get_current_browser_session
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["认证模块"])
-
-SESSION_COOKIE = "session_id"
 _auth_service = AuthService()
 
 
-@router.get("/login", summary="发起 OIDC 登录")
-async def login():
-    """跳转到 Casdoor 登录页"""
-    auth_url = _auth_service.build_auth_url()
-    return RedirectResponse(url=auth_url)
+def _frontend_redirect(path: str) -> str:
+    return f"{get_settings().frontend_base_url.rstrip('/')}{path}"
 
 
-@router.get("/callback", summary="OIDC 回调")
-async def callback(code: str, response: Response):
-    """用 code 换 token，存 session，下发 HTTP-only cookie"""
+def _set_cookie(response: Response, *, key: str, value: str, max_age: int) -> None:
     settings = get_settings()
-    try:
-        session_id = await _auth_service.exchange_code_for_session(code)
-        redirect = RedirectResponse(url=f"{settings.frontend_base_url}/#/")
-        redirect.set_cookie(
-            key=SESSION_COOKIE,
-            value=session_id,
-            httponly=True,
-            secure=settings.env == "production",
-            samesite="lax",
-            max_age=settings.session_ttl_seconds,
-        )
-        return redirect
-    except Exception as e:
-        logger.error(f"OIDC callback 失败: {e}")
-        return RedirectResponse(url=f"{settings.frontend_base_url}/#/login?error=auth_failed")
+    response.set_cookie(
+        key=key,
+        value=value,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        max_age=max_age,
+        path="/",
+    )
 
 
-@router.get("/logout", summary="退出登录")
-async def logout(session_id: str | None = Cookie(default=None)):
-    """清除 session，跳转登录页"""
-    if session_id:
-        await _auth_service.delete_session(session_id)
-    redirect = RedirectResponse(url=f"{get_settings().frontend_base_url}/#/login")
-    redirect.delete_cookie(SESSION_COOKIE)
+@router.get("/login", summary="发起 OIDC 登录")
+async def login(return_to: str | None = Query(default=None)) -> RedirectResponse:
+    start = await _auth_service.begin_login(return_to)
+    redirect = RedirectResponse(url=start.authorization_url, status_code=302)
+    _set_cookie(
+        redirect,
+        key=TRANSACTION_COOKIE,
+        value=start.transaction_id,
+        max_age=get_settings().auth_transaction_ttl_seconds,
+    )
+    redirect.headers["Cache-Control"] = "no-store"
     return redirect
 
 
+@router.get("/callback", summary="OIDC 回调")
+async def callback(
+    code: str,
+    state: str,
+    transaction_id: str | None = Cookie(default=None, alias=TRANSACTION_COOKIE),
+) -> RedirectResponse:
+    try:
+        session, return_to = await _auth_service.complete_login(
+            code=code,
+            state=state,
+            transaction_id=transaction_id,
+        )
+    except AppException as exc:
+        logger.warning("OIDC callback rejected: status=%s", exc.status_code)
+        redirect = RedirectResponse(
+            url=_frontend_redirect("/login?error=auth_failed"),
+            status_code=302,
+        )
+        redirect.delete_cookie(TRANSACTION_COOKIE, path="/")
+        redirect.headers["Cache-Control"] = "no-store"
+        return redirect
+    redirect = RedirectResponse(url=_frontend_redirect(return_to), status_code=302)
+    max_age = max(
+        1,
+        int((session.expires_at - datetime.now(UTC)).total_seconds()),
+    )
+    _set_cookie(redirect, key=SESSION_COOKIE, value=session.session_id, max_age=max_age)
+    redirect.delete_cookie(TRANSACTION_COOKIE, path="/")
+    redirect.headers["Cache-Control"] = "no-store"
+    return redirect
+
+
+@router.post("/logout", status_code=204, summary="退出登录")
+async def logout(
+    response: Response,
+    _: Annotated[BrowserSession, Depends(get_current_browser_session)],
+    session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> None:
+    await _auth_service.delete_session(session_id)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.headers["Cache-Control"] = "no-store"
+
+
 @router.get("/me", summary="获取当前用户")
-async def me(session_id: str | None = Cookie(default=None)):
-    """从 session 获取当前登录用户信息"""
-    if not session_id:
-        return {"user": None}
-    session = await _auth_service.get_session(session_id)
-    return {"user": session}
-
-
-
+async def me(
+    session: Annotated[BrowserSession, Depends(get_current_browser_session)],
+) -> dict[str, object]:
+    principal = session.principal
+    return {
+        "contract_version": 1,
+        "authenticated": True,
+        "user": {
+            "actor_id": str(principal.actor_id),
+            "app": principal.app,
+            "surface": principal.surface,
+            "display_name": principal.display_name,
+            "email": principal.email,
+            "roles": list(principal.roles),
+            "scopes": sorted(principal.scopes),
+            "expires_at": principal.expires_at.isoformat(),
+        },
+        "csrf_token": session.csrf_token,
+    }

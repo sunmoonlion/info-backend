@@ -1,0 +1,12 @@
+.venv
+.pytest_cache
+.mypy_cache
+.pyright
+__pycache__
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.env
+.env.*
+!.env.example
+!.env.k8s.example

@@ -1,4 +1,8 @@
 app/.venv
+app/.env
+app/.env.*
+app/tests
+db-access-bootstrap/.env.local.*
 **/__pycache__
 **/*.pyc
 **/*.pyo

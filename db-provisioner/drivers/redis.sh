@@ -142,6 +142,7 @@ if [[ -n "\${channel_spec}" ]]; then
 fi
 REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' PING >/dev/null
 REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL SETUSER '${APP_DB_USER}' on '>${APP_DB_PASSWORD}' "\${key_args[@]}" "\${channel_args[@]}" \${category} -@dangerous >/dev/null
+REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL SAVE >/dev/null
 echo '[redis-client] ACL user upserted: ${APP_DB_USER}'
 EOF
     APP_DB_URI="redis://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${REDIS_DB_INDEX}"
@@ -188,6 +189,8 @@ EOF
   fi
   # shellcheck disable=SC2086
   redis-cli -h "${DB_HOST}" -p "${DB_PORT}" ${auth_args} ACL SETUSER "${APP_DB_USER}" on ">${APP_DB_PASSWORD}" "${key_args[@]}" "${channel_args[@]}" ${category} -@dangerous >/dev/null
+  # shellcheck disable=SC2086
+  redis-cli -h "${DB_HOST}" -p "${DB_PORT}" ${auth_args} ACL SAVE >/dev/null
   log "[redis] ACL user upserted: ${APP_DB_USER}"
 
   APP_DB_URI="redis://${APP_DB_USER}:${APP_DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${REDIS_DB_INDEX}"

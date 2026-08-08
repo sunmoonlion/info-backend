@@ -20,7 +20,7 @@ from app.application.services.delivery_outbox import dispatch_due_delivery_outbo
 from app.domain.security import Principal
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_db_session, get_postgres
-from app.interfaces.middleware.auth import require_info_admin
+from app.interfaces.http.middleware.auth import require_info_admin
 from app.interfaces.schemas.info import (
     CollectorCreate,
     CollectorDiscoverRequest,

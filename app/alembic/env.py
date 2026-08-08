@@ -4,7 +4,7 @@ from logging.config import fileConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from app.infrastructure.models import Base  # imports model modules for metadata
+from app.infrastructure.models import Base
 from core.config import get_settings
 
 config = context.config
@@ -15,8 +15,7 @@ target_metadata = Base.metadata
 
 
 def get_migration_url() -> str:
-    settings = get_settings()
-    return settings.migration_database_url or settings.database_url
+    return get_settings().migration_url
 
 
 def run_migrations_offline() -> None:

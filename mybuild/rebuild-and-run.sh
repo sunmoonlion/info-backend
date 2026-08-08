@@ -3,8 +3,8 @@
 
 set -e
 
-IMAGE_NAME="info-admin-backend:1.0.0"
-CONTAINER_NAME="info-admin-backend"
+IMAGE_NAME="info-backend:1.0.0"
+CONTAINER_NAME="info-backend"
 
 echo "停止并删除旧容器..."
 docker stop $CONTAINER_NAME 2>/dev/null || true

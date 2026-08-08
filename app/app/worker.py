@@ -7,7 +7,7 @@ import os
 from celery import Celery
 from kombu import Exchange, Queue
 
-celery_app = Celery("admin-backend")
+celery_app = Celery("backend")
 _configured = False
 
 

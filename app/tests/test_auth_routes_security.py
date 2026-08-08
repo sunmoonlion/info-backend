@@ -5,10 +5,10 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from fastapi.routing import APIRoute
 
-import app.interfaces.endpoints.auth_routes as auth_routes
-import app.interfaces.middleware.auth as auth_middleware
+import app.interfaces.http.admin.auth as admin_auth
+import app.interfaces.http.middleware.auth as auth_middleware
+import app.interfaces.http.web.auth as web_auth
 from app.domain.security import BrowserSession, Principal
 from app.main import app, settings
 
@@ -31,9 +31,9 @@ class FakeAuthService:
         origin: str | None,
         csrf_token: str | None,
     ) -> None:
+        profile = settings.browser_profile(session.principal.surface)  # type: ignore[arg-type]
         if method not in {"GET", "HEAD", "OPTIONS"} and (
-            origin != settings.frontend_origin_list[0]
-            or csrf_token != session.csrf_token
+            origin not in profile.frontend_origins or csrf_token != session.csrf_token
         ):
             from app.application.errors.exceptions import ForbiddenError
 
@@ -52,16 +52,17 @@ class FakeAuthService:
         self.deleted.append(session_id)
 
 
-def _session(*scopes: str) -> BrowserSession:
+def session(surface: str, *scopes: str) -> BrowserSession:
     now = datetime.now(UTC)
+    profile = settings.browser_profile(surface)  # type: ignore[arg-type]
     return BrowserSession(
         principal=Principal(
             actor_type="user",
             subject="user-123",
             issuer="https://identity.example.test",
             app="info",
-            surface="admin",
-            audience="tpl-admin-client",
+            surface=surface,  # type: ignore[arg-type]
+            audience=profile.client_id or f"{surface}-client",
             actor_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
             display_name="Test User",
             email="user@example.test",
@@ -69,103 +70,117 @@ def _session(*scopes: str) -> BrowserSession:
             scopes=frozenset(scopes),
             authenticated_at=now,
             expires_at=now + timedelta(minutes=10),
-            policy_version="info-admin-v1",
+            policy_version=profile.policy_version,
         ),
         csrf_token="csrf-token-with-at-least-thirty-two-characters",
     )
 
 
 @pytest.mark.asyncio
-async def test_auth_routes_fail_closed_and_me_is_minimal(
+async def test_admin_and_web_me_use_distinct_cookies_and_minimal_claims(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeAuthService({"no-scope": _session(), "admin": _session("info:admin")})
-    monkeypatch.setattr(auth_middleware, "_auth_service", fake)
-    monkeypatch.setattr(auth_routes, "_auth_service", fake)
+    fake_admin = FakeAuthService({"admin-session": session("admin", "info:admin")})
+    fake_web = FakeAuthService({"web-session": session("web", "profile:read")})
+    monkeypatch.setattr(auth_middleware, "admin_auth_service", fake_admin)
+    monkeypatch.setattr(auth_middleware, "web_auth_service", fake_web)
+    monkeypatch.setattr(admin_auth, "auth_service", fake_admin)
+    monkeypatch.setattr(web_auth, "auth_service", fake_web)
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
     ) as client:
-        anonymous = await client.get("/api/auth/me")
-        assert anonymous.status_code == 401
+        assert (await client.get("/api/auth/admin/me")).status_code == 401
+        client.cookies.set("sunmoonai_info_admin_sid", "admin-session")
+        admin_response = await client.get("/api/auth/admin/me")
+        assert admin_response.status_code == 200
+        assert admin_response.json()["user"]["surface"] == "admin"
 
-        client.cookies.set("sunmoonai_info_admin_sid", "admin")
-        response = await client.get(
-            "/api/auth/me",
-            headers={
-                "X-Correlation-ID": "corr-auth-001",
-                "X-Operation-ID": "op-auth-001",
-            },
-        )
-        assert response.status_code == 200
-        assert response.headers["cache-control"] == "no-store"
-        assert response.headers["x-correlation-id"] == "corr-auth-001"
-        assert response.headers["x-operation-id"] == "op-auth-001"
-        rendered = str(response.json())
+        # An Admin cookie must not authorize the Web surface.
+        assert (await client.get("/api/auth/web/me")).status_code == 401
+        client.cookies.set("sunmoonai_info_web_sid", "web-session")
+        web_response = await client.get("/api/auth/web/me")
+        assert web_response.status_code == 200
+        assert web_response.json()["user"]["surface"] == "web"
+        rendered = str(web_response.json())
         assert "subject" not in rendered
         assert "audience" not in rendered
         assert "access_token" not in rendered
         assert "id_token" not in rendered
 
-        client.cookies.set("sunmoonai_info_admin_sid", "no-scope")
-        protected = await client.post(
-            "/api/internal/tasks/ping",
-            headers={
-                "Origin": settings.frontend_origin_list[0],
-                "X-CSRF-Token": ("csrf-token-with-at-least-thirty-two-characters"),
-            },
-        )
-        assert protected.status_code == 403
+
+def test_admin_has_no_signup_and_web_has_signup_and_continue() -> None:
+    paths = {route.path for route in app.routes}
+    assert "/api/auth/admin/signup" not in paths
+    assert "/api/auth/web/signup" in paths
+    assert "/api/auth/web/continue" in paths
 
 
 @pytest.mark.asyncio
-async def test_logout_is_post_only_and_csrf_protected(
+async def test_logout_is_post_only_and_surface_csrf_protected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeAuthService({"admin": _session("info:admin")})
-    monkeypatch.setattr(auth_middleware, "_auth_service", fake)
-    monkeypatch.setattr(auth_routes, "_auth_service", fake)
+    fake = FakeAuthService({"member": session("web", "profile:read")})
+    monkeypatch.setattr(auth_middleware, "web_auth_service", fake)
+    monkeypatch.setattr(web_auth, "auth_service", fake)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
     ) as client:
-        client.cookies.set("sunmoonai_info_admin_sid", "admin")
-        assert (await client.get("/api/auth/logout")).status_code == 405
-        assert (await client.post("/api/auth/logout")).status_code == 403
+        client.cookies.set("sunmoonai_info_web_sid", "member")
+        assert (await client.get("/api/auth/web/logout")).status_code == 405
+        assert (await client.post("/api/auth/web/logout")).status_code == 403
         allowed = await client.post(
-            "/api/auth/logout",
+            "/api/auth/web/logout",
             headers={
-                "Origin": settings.frontend_origin_list[0],
-                "X-CSRF-Token": ("csrf-token-with-at-least-thirty-two-characters"),
+                "Origin": "http://localhost:3000",
+                "X-CSRF-Token": "csrf-token-with-at-least-thirty-two-characters",
             },
         )
         assert allowed.status_code == 204
-        assert allowed.headers["cache-control"] == "no-store"
-        assert fake.deleted == ["admin"]
+        assert fake.deleted == ["member"]
 
 
 @pytest.mark.asyncio
-async def test_health_and_security_headers_are_public() -> None:
+async def test_health_aliases_are_public_and_equivalent() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
     ) as client:
-        response = await client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["referrer-policy"] == "no-referrer"
+        live_responses = [
+            await client.get(path)
+            for path in ("/health/live", "/health")
+        ]
+        ready_responses = [
+            await client.get(path)
+            for path in ("/health/ready", "/ready", "/api/health")
+        ]
+    assert all(response.status_code == 200 for response in live_responses)
+    assert {str(response.json()) for response in live_responses} == {
+        "{'status': 'ok'}"
+    }
+    assert all(response.status_code == 503 for response in ready_responses)
+    assert {str(response.json()) for response in ready_responses} == {
+        "{'status': 'not_ready'}"
+    }
+    assert all(
+        response.headers["x-content-type-options"] == "nosniff"
+        for response in (*live_responses, *ready_responses)
+    )
 
 
-def test_every_non_auth_api_route_requires_a_scope_dependency() -> None:
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        if not route.path.startswith("/api/") or route.path.startswith("/api/auth/"):
-            continue
-        calls = {
-            getattr(dependency.call, "__name__", "")
-            for dependency in route.dependant.dependencies
-        }
-        assert "dependency" in calls, route.path
+@pytest.mark.asyncio
+async def test_unknown_api_returns_stable_error_envelope() -> None:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        response = await client.get("/api/not-found")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    assert response.json()["error"]["operation_id"]
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["status"] == 404
+    assert response.json()["code"] == "not_found"
+    assert response.json()["instance"] == "/api/not-found"

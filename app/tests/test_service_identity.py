@@ -1,87 +1,81 @@
 from __future__ import annotations
 
-import httpx
+import time
+
 import pytest
 
-import app.infrastructure.external.knowledge_app as knowledge_app
-from app.infrastructure.external.knowledge_app import (
-    KnowledgeAppClient,
-    KnowledgeAppNotConfiguredError,
-    ServiceTokenProvider,
-)
+from app.application.errors.exceptions import ForbiddenError
+from app.infrastructure.security.service_identity import ServiceIdentityVerifier
 from core.config import Settings
 
 
-class FakeTokenProvider:
-    def __init__(self, token: str = "service-token") -> None:
-        self.token = token
-        self.calls = 0
+class FakeOidcClient:
+    def __init__(self, claims: dict[str, object]) -> None:
+        self.claims = claims
+        self.audience: str | None = None
 
-    async def get_token(self) -> str:
-        self.calls += 1
-        return self.token
-
-
-@pytest.mark.asyncio
-async def test_knowledge_client_sends_relation_scoped_bearer_token(monkeypatch) -> None:
-    provider = FakeTokenProvider()
-    seen: dict[str, str] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["authorization"] = request.headers["authorization"]
-        assert "api-key" not in {key.lower() for key in request.headers}
-        return httpx.Response(202, json={"status": "accepted"})
-
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(
-        knowledge_app.httpx,
-        "AsyncClient",
-        lambda *args, **kwargs: real_client(
-            *args, transport=httpx.MockTransport(handler), **kwargs
-        ),
-    )
-    client = KnowledgeAppClient(
-        ingest_url="https://knowledge.example.test/api/internal/v1/knowledge/ingestions",
-        token_provider=provider,
-        timeout_seconds=1.0,
-    )
-
-    result = await client.ingest_document({"contract_version": 1})
-
-    assert result["status_code"] == 202
-    assert seen["authorization"] == "Bearer service-token"
-    assert provider.calls == 1
+    async def verify_access_token(
+        self, _encoded: str, *, audience: str
+    ) -> dict[str, object]:
+        self.audience = audience
+        return self.claims
 
 
-@pytest.mark.asyncio
-async def test_knowledge_client_fails_closed_without_service_credentials() -> None:
-    client = KnowledgeAppClient(ingest_url="https://knowledge.example.test/ingest", token_provider=None, timeout_seconds=1.0)
-
-    with pytest.raises(KnowledgeAppNotConfiguredError):
-        await client.ingest_document({"contract_version": 1})
-
-
-def test_service_token_provider_uses_dedicated_discovery_and_backchannel() -> None:
-    settings = Settings(
+def settings() -> Settings:
+    return Settings(
         _env_file=None,
-        casdoor_endpoint="https://browser-identity.example.test",
-        casdoor_backchannel_endpoint="http://browser-casdoor:8000",
-        KNOWLEDGE_APP_SERVICE_DISCOVERY_URL=(
-            "https://service-identity.example.test/.well-known/openid-configuration"
+        casdoor_endpoint="https://identity.example.test",
+        service_auth_audience="knowledge-internal",
+        service_auth_subject_bindings_json=(
+            '{"research-agent-worker":["knowledge:retrieve","profile:read"]}'
         ),
-        KNOWLEDGE_APP_SERVICE_BACKCHANNEL_ENDPOINT="http://service-casdoor:8000",
-        KNOWLEDGE_APP_SERVICE_CLIENT_ID="service-client",
-        KNOWLEDGE_APP_SERVICE_CLIENT_SECRET="service-secret",
     )
 
-    provider = ServiceTokenProvider(settings)
 
-    assert provider._oidc._settings.casdoor_endpoint == (
-        "https://service-identity.example.test"
+def claims(**overrides: object) -> dict[str, object]:
+    now = int(time.time())
+    result: dict[str, object] = {
+        "iss": "https://identity.example.test",
+        "sub": "research-agent-worker",
+        "aud": "knowledge-internal",
+        "iat": now,
+        "exp": now + 300,
+        "scope": "knowledge:retrieve",
+    }
+    result.update(overrides)
+    return result
+
+
+@pytest.mark.asyncio
+async def test_service_identity_enforces_subject_and_scope_binding() -> None:
+    fake = FakeOidcClient(claims())
+    verifier = ServiceIdentityVerifier(settings(), oidc_client=fake)  # type: ignore[arg-type]
+    principal = await verifier.verify(
+        "signed-token", required_scopes=frozenset({"knowledge:retrieve"})
     )
-    assert provider._oidc._settings.casdoor_discovery_url == (
-        "https://service-identity.example.test/.well-known/openid-configuration"
+    assert principal.actor_type == "service"
+    assert principal.surface == "internal"
+    assert principal.subject == "research-agent-worker"
+    assert fake.audience == "knowledge-internal"
+
+
+@pytest.mark.asyncio
+async def test_service_identity_rejects_unbound_or_escalated_scope() -> None:
+    unbound = ServiceIdentityVerifier(  # type: ignore[arg-type]
+        settings(), oidc_client=FakeOidcClient(claims(sub="unknown-worker"))
     )
-    assert provider._oidc._settings.casdoor_backchannel_endpoint == (
-        "http://service-casdoor:8000"
+    with pytest.raises(ForbiddenError) as error:
+        await unbound.verify("signed-token", required_scopes=frozenset())
+    assert error.value.code == "service_subject_unbound"
+
+    escalated = ServiceIdentityVerifier(  # type: ignore[arg-type]
+        settings(),
+        oidc_client=FakeOidcClient(
+            claims(scope="knowledge:retrieve knowledge:admin")
+        ),
     )
+    with pytest.raises(ForbiddenError) as error:
+        await escalated.verify(
+            "signed-token", required_scopes=frozenset({"knowledge:retrieve"})
+        )
+    assert error.value.code == "service_scope_denied"

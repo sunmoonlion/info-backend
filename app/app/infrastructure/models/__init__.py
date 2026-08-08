@@ -11,17 +11,20 @@ from app.infrastructure.models.info import (
     InfoSource,
     RawArtifact,
 )
+from app.infrastructure.models.outbox import InboxMessage, OutboxMessage
 
 __all__ = [
-    "Base",
     "AuthUser",
+    "Base",
     "CrawlJob",
     "DeliveryOutboxMessage",
     "DistributionRecord",
     "ExtractedContent",
+    "InboxMessage",
     "InfoCollector",
     "InfoDocument",
     "InfoDocumentVersion",
     "InfoSource",
+    "OutboxMessage",
     "RawArtifact",
 ]

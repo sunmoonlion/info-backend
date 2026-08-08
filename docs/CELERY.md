@@ -41,7 +41,7 @@ vhost、用户、队列定义见 `messaging-platform/rabbitmq` 的 app definitio
 本地开发可在 `.env` 中设置：
 
 ```bash
-CELERY_BROKER_URL=amqp://tpl-admin-backend-producer:pass@localhost:5672/tpl-development
+CELERY_BROKER_URL=amqp://info-backend-producer:pass@localhost:5672/tpl-development
 CELERY_QUEUE=tpl.admin.default
 ```
 
@@ -220,8 +220,8 @@ A: 任务模块需被 import；投递时使用 `get_settings().celery_queue`；R
 
 | 说明 | 模板 / 实例 |
 |------|-------------|
-| 应用代码 | `tpl-app/tpl-admin-backend/app/` |
-| celeryworker 模板 | `tpl-app/celeryworker-tpl-admin-backend/` |
+| 应用代码 | `tpl-app/info-backend/app/` |
+| celeryworker 模板 | `tpl-app/celeryworker-info-backend/` |
 | k8s 实例 | `k8s/.../llm-app/`、`investment-app/`、`tools-app/` |
 
 实例化后 `tpl` 替换为 `llm`、`investment`、`tools` 等应用名。

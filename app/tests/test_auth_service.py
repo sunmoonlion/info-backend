@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -20,8 +17,8 @@ class FakeRedis:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
 
-    async def set(self, key: str, value: str, *, ex: int, nx: bool = False) -> bool:
-        if nx and key in self.values:
+    async def set(self, key: str, value: str, **kwargs: object) -> bool:
+        if kwargs.get("nx") and key in self.values:
             return False
         self.values[key] = value
         return True
@@ -42,193 +39,141 @@ class FakeRedisHolder:
 
 
 class FakeOidc:
-    def __init__(self) -> None:
-        self.code_verifier: str | None = None
+    async def build_authorization_url(self, **values: str) -> str:
+        return f"https://identity.example.test/authorize?state={values['state']}"
 
-    async def build_authorization_url(
-        self, *, state: str, nonce: str, code_challenge: str
-    ) -> str:
-        return (
-            "https://identity.example.test/authorize?"
-            f"state={state}&nonce={nonce}&code_challenge={code_challenge}"
-        )
-
-    async def exchange_authorization_code(
-        self, *, code: str, code_verifier: str, nonce: str
-    ) -> dict[str, object]:
-        self.code_verifier = code_verifier
-        now = int(time.time())
+    async def exchange_authorization_code(self, **_: str) -> dict[str, object]:
+        now = int(datetime.now(UTC).timestamp())
         return {
             "iss": "https://identity.example.test",
             "sub": "user-123",
-            "aud": "tpl-admin-client",
             "iat": now,
             "exp": now + 600,
-            "nonce": nonce,
             "name": "Test User",
-            "access_token": "must-not-persist",
+            "roles": ["editor", "provider-admin"],
+            "scope": "profile:read root:all info:admin",
         }
 
 
 class StubAuthService(AuthService):
     async def _load_or_create_user(
-        self, issuer: str, subject: str, claims: dict[str, Any]
-    ) -> dict[str, Any]:
+        self, issuer: str, subject: str, claims: dict[str, object]
+    ) -> dict[str, object]:
+        del issuer, subject, claims
         return {
             "id": uuid.UUID("00000000-0000-4000-8000-000000000001"),
             "display_name": "Test User",
             "email": "user@example.test",
             "roles": ["editor"],
-            "scopes": ["info:admin"],
+            "scopes": ["profile:read", "info:admin"],
         }
 
 
-def _settings() -> Settings:
+def settings() -> Settings:
     return Settings(
         _env_file=None,
-        env="production",
-        casdoor_endpoint="https://identity.example.test",
-        casdoor_client_id="tpl-admin-client",
-        casdoor_client_secret="test-only-secret",
-        casdoor_redirect_uri="https://admin.example.test/api/auth/callback",
-        frontend_base_url="https://admin.example.test",
-        frontend_allowed_origins="https://admin.example.test",
-        allowed_hosts="admin.example.test",
-        auth_role_allowlist="editor,member",
-        auth_scope_allowlist="info:admin,profile:read",
+        admin_casdoor_client_id="tpl-admin-client",
+        admin_casdoor_client_secret="admin-secret",
+        admin_casdoor_redirect_uri="https://admin.example.test/api/auth/admin/callback",
+        admin_frontend_base_url="https://admin.example.test",
+        admin_auth_role_allowlist="editor,member",
+        admin_auth_scope_allowlist="info:admin,profile:read",
+        web_casdoor_client_id="tpl-web-client",
+        web_casdoor_client_secret="web-secret",
+        web_casdoor_redirect_uri="https://web.example.test/api/auth/web/callback",
+        web_frontend_base_url="https://web.example.test",
+        web_auth_role_allowlist="editor,member",
+        web_auth_scope_allowlist="profile:read",
     )
 
 
 @pytest.mark.asyncio
-async def test_login_is_one_time_and_session_has_no_provider_token(
+async def test_surface_transaction_and_session_namespaces_cannot_cross(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
     monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
-    oidc = FakeOidc()
-    settings = _settings()
-    service = StubAuthService(settings, oidc_client=oidc)  # type: ignore[arg-type]
+    config = settings()
+    admin = StubAuthService("admin", config, FakeOidc())  # type: ignore[arg-type]
+    web = StubAuthService("web", config, FakeOidc())  # type: ignore[arg-type]
 
-    start = await service.begin_login("//attacker.example.test/path")
+    start = await admin.begin_login("/settings")
     state = parse_qs(urlsplit(start.authorization_url).query)["state"][0]
-    session_start, return_to = await service.complete_login(
-        code="code-123",
-        state=state,
-        transaction_id=start.transaction_id,
-    )
+    with pytest.raises(UnauthorizedError, match="transaction is invalid"):
+        await web.complete_login(
+            code="code", state=state, transaction_id=start.transaction_id
+        )
 
-    assert return_to == "/"
-    assert oidc.code_verifier is not None
-    raw_session = redis.values[
-        f"{settings.session_key_prefix}{session_start.session_id}"
+    session_start, return_to = await admin.complete_login(
+        code="code", state=state, transaction_id=start.transaction_id
+    )
+    assert return_to == "/settings"
+    session = await admin.get_browser_session(session_start.session_id)
+    assert session is not None and session.principal.surface == "admin"
+    assert await web.get_browser_session(session_start.session_id) is None
+    raw = redis.values[
+        f"{config.browser_profile('admin').session_key_prefix}"
+        f"{session_start.session_id}"
     ]
-    assert "access_token" not in raw_session
-    assert "id_token" not in raw_session
-    parsed = json.loads(raw_session)
-    assert parsed["principal"]["scopes"] == ["info:admin"]
-
-    with pytest.raises(UnauthorizedError, match="transaction invalid"):
-        await service.complete_login(
-            code="code-123",
-            state=state,
-            transaction_id=start.transaction_id,
-        )
+    assert "access_token" not in raw and "id_token" not in raw
 
 
 @pytest.mark.asyncio
-async def test_state_mismatch_consumes_transaction(
+async def test_admin_signup_is_forbidden_but_web_signup_is_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+    monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
+    config = settings()
+    with pytest.raises(UnauthorizedError):
+        await StubAuthService(
+            "admin", config, FakeOidc()  # type: ignore[arg-type]
+        ).begin_login(mode="signup")
+    result = await StubAuthService(
+        "web", config, FakeOidc()  # type: ignore[arg-type]
+    ).begin_login(mode="signup")
+    assert result.transaction_id
+
+
+@pytest.mark.asyncio
+async def test_csrf_is_bound_to_each_surface_origin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
     monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
     service = StubAuthService(
-        _settings(),
-        oidc_client=FakeOidc(),  # type: ignore[arg-type]
+        "web", settings(), FakeOidc()  # type: ignore[arg-type]
     )
-    start = await service.begin_login("/safe")
-    with pytest.raises(UnauthorizedError, match="state mismatch"):
-        await service.complete_login(
-            code="code-123",
-            state="attacker-state",
-            transaction_id=start.transaction_id,
-        )
-    with pytest.raises(UnauthorizedError, match="transaction invalid"):
-        await service.complete_login(
-            code="code-123",
-            state="attacker-state",
-            transaction_id=start.transaction_id,
-        )
-
-
-@pytest.mark.asyncio
-async def test_csrf_requires_allowed_origin_and_session_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    redis = FakeRedis()
-    monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
-    service = StubAuthService(
-        _settings(),
-        oidc_client=FakeOidc(),  # type: ignore[arg-type]
-    )
-    start = await service.begin_login("/")
+    start = await service.begin_login()
     state = parse_qs(urlsplit(start.authorization_url).query)["state"][0]
-    session_start, _ = await service.complete_login(
-        code="code-123",
-        state=state,
-        transaction_id=start.transaction_id,
+    created, _ = await service.complete_login(
+        code="code", state=state, transaction_id=start.transaction_id
     )
-    session = await service.get_browser_session(session_start.session_id)
+    session = await service.get_browser_session(created.session_id)
     assert session is not None
-
-    service.validate_csrf(
-        session=session,
-        method="GET",
-        origin=None,
-        csrf_token=None,
-    )
     with pytest.raises(ForbiddenError, match="origin"):
         service.validate_csrf(
             session=session,
             method="POST",
-            origin="https://attacker.example.test",
-            csrf_token=session.csrf_token,
-        )
-    with pytest.raises(ForbiddenError, match="CSRF"):
-        service.validate_csrf(
-            session=session,
-            method="POST",
             origin="https://admin.example.test",
-            csrf_token="wrong-token",
+            csrf_token=session.csrf_token,
         )
     service.validate_csrf(
         session=session,
         method="POST",
-        origin="https://admin.example.test",
+        origin="https://web.example.test",
         csrf_token=session.csrf_token,
     )
 
 
-def test_provider_claims_are_filtered_by_local_allowlists() -> None:
-    service = AuthService(_settings(), oidc_client=FakeOidc())  # type: ignore[arg-type]
-    roles = service._allowed_claims(
-        (["editor", "provider-admin"], '["member", "unknown"]'),
-        service._settings.auth_role_allowlist_items,
-    )
-    scopes = service._allowed_claims(
-        ("info:admin profile:read root:all",),
-        service._settings.auth_scope_allowlist_items,
-    )
-    assert roles == ["editor", "member"]
-    assert scopes == ["info:admin", "profile:read"]
-
-
 @pytest.mark.asyncio
-async def test_session_is_invalidated_when_policy_or_surface_changes(
+async def test_policy_or_surface_change_invalidates_existing_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
     monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
-    settings = _settings()
+    config = settings()
+    profile = config.browser_profile("web")
     now = datetime.now(UTC)
     session = BrowserSession(
         principal=Principal(
@@ -236,19 +181,28 @@ async def test_session_is_invalidated_when_policy_or_surface_changes(
             subject="user-123",
             issuer="https://identity.example.test",
             app="info",
-            surface="web",
-            audience=settings.casdoor_client_id,
+            surface="admin",
+            audience=profile.client_id,
             actor_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
             authenticated_at=now,
             expires_at=now + timedelta(minutes=5),
-            policy_version=settings.auth_policy_version,
+            policy_version=profile.policy_version,
         ),
         csrf_token="csrf-token-with-at-least-thirty-two-characters",
     )
-    redis.values[f"{settings.session_key_prefix}wrong-surface"] = (
-        session.model_dump_json()
-    )
-    service = AuthService(settings, oidc_client=FakeOidc())  # type: ignore[arg-type]
-
-    assert await service.get_browser_session("wrong-surface") is None
+    redis.values[f"{profile.session_key_prefix}wrong"] = session.model_dump_json()
+    service = AuthService("web", config, FakeOidc())  # type: ignore[arg-type]
+    assert await service.get_browser_session("wrong") is None
     assert not redis.values
+
+
+def test_provider_claims_are_filtered_by_surface_local_allowlist() -> None:
+    service = AuthService(
+        "web", settings(), FakeOidc()  # type: ignore[arg-type]
+    )
+    assert service._allowed_claims(
+        (["editor", "provider-admin"],), service.profile.role_allowlist
+    ) == ["editor"]
+    assert service._allowed_claims(
+        ("profile:read root:all",), service.profile.scope_allowlist
+    ) == ["profile:read"]

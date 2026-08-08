@@ -4,23 +4,23 @@ from app.infrastructure.messaging.celery_producer import (
     CeleryNotConfiguredError,
     get_celery_producer,
 )
-from app.interfaces.middleware.auth import require_info_admin
+from app.interfaces.http.middleware.auth import require_info_admin
 from core.config import get_settings
 
 router = APIRouter(
-    prefix="/internal/tasks",
-    tags=["内部-异步任务"],
+    prefix="/admin/v1/diagnostics/tasks",
+    tags=["Admin diagnostics"],
     dependencies=[Depends(require_info_admin)],
 )
 
 
-@router.post("/ping", summary="投递 Celery ping 任务（联调/健康检查）")
-async def enqueue_ping():
+@router.post("/ping", summary="Enqueue a diagnostic Celery ping")
+async def enqueue_ping() -> dict[str, str]:
     producer = get_celery_producer()
     if not producer.enabled:
-        raise HTTPException(status_code=503, detail="Celery producer 未配置")
+        raise HTTPException(status_code=503, detail="Celery producer not configured")
     try:
         task_id = producer.dispatch_ping()
-    except CeleryNotConfiguredError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+    except CeleryNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"task_id": task_id, "queue": get_settings().celery_queue}

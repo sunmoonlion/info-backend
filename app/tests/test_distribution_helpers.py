@@ -34,7 +34,13 @@ def _provider_contract_path() -> Path:
 
 
 def _consumer_contract_lock() -> dict[str, Any]:
-    lock_path = Path(__file__).resolve().parents[3] / "contracts/knowledge-provider-lock.json"
+    configured = os.environ.get("KNOWLEDGE_PROVIDER_LOCK_PATH")
+    lock_path = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[3]
+        / "contracts/knowledge-provider-lock.json"
+    )
     return json.loads(lock_path.read_text())
 
 

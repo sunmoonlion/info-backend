@@ -8,10 +8,12 @@ ARG REGISTRY=harbor.sunmoonai.com:30443/k8s-images
 FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS type-check
 
 ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG UV_VERSION=0.11.32
 ARG DEBIAN_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
 ARG DEBIAN_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
 ENV PIP_INDEX_URL=${PYPI_INDEX_URL} \
-    UV_DEFAULT_INDEX=${PYPI_INDEX_URL}
+    UV_DEFAULT_INDEX=${PYPI_INDEX_URL} \
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
@@ -22,16 +24,20 @@ RUN sed -i \
     && apt-get update \
     && apt-get install -y --no-install-recommends libatomic1 nodejs \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install uv --no-cache-dir
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install "uv==${UV_VERSION}"
 
 COPY app/pyproject.toml app/uv.lock ./
 # 安装全量依赖（含 dev），确保 pyright 与业务依赖均可用
-RUN uv sync --frozen
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen
 
 COPY app/ .
 
-# 运行 pyright 类型检查；失败则 Docker build 中断
-RUN uv run pyright
+# 运行 lint、format 与 pyright；任一失败则 Docker build 中断
+RUN uv run ruff check app core \
+    && uv run ruff format --check app core \
+    && uv run pyright
 
 # ============================================================================
 # Stage 2: Builder — 在 type-check 基础上裁剪 dev 依赖，生成精简 .venv
@@ -39,7 +45,8 @@ RUN uv run pyright
 # ============================================================================
 FROM type-check AS builder
 
-RUN uv sync --no-dev --frozen
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --frozen
 
 # ============================================================================
 # Stage 3: Runtime — 最小化运行镜像
@@ -48,13 +55,19 @@ ARG PYTHON_VERSION=3.12
 ARG REGISTRY=harbor.sunmoonai.com:30443/k8s-images
 FROM ${REGISTRY}/python:${PYTHON_VERSION}-slim AS run
 
+RUN groupadd --system --gid 1001 appgroup \
+    && useradd --system --uid 1001 --gid appgroup \
+       --home-dir /app --shell /usr/sbin/nologin appuser
+
 WORKDIR /app
 
-COPY app/ ./
-COPY --from=builder /app/.venv ./.venv
+COPY --chown=appuser:appgroup app/ ./
+COPY --from=builder --chown=appuser:appgroup /app/.venv ./.venv
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
+USER appuser
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

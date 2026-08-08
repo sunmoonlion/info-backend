@@ -1,4 +1,4 @@
-"""Celery producer — admin-backend API 向 RabbitMQ 投递异步任务。"""
+"""Celery producer — Backend API 向 RabbitMQ 投递异步任务。"""
 
 from __future__ import annotations
 
@@ -66,7 +66,8 @@ class CeleryProducer:
             args=[str(document_version_id)], queue=queue
         )
         logger.info(
-            "已投递 index_document_version 任务 task_id=%s document_version_id=%s queue=%s",
+            "已投递 index_document_version 任务 task_id=%s "
+            "document_version_id=%s queue=%s",
             async_result.id,
             document_version_id,
             queue,

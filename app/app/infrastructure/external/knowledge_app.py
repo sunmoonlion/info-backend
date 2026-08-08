@@ -36,17 +36,16 @@ class ServiceTokenProvider:
         service_settings = settings.model_copy(
             update={
                 "casdoor_endpoint": service_endpoint,
-                "casdoor_application": settings.knowledge_app_service_application,
                 "casdoor_discovery_url": service_discovery_url,
                 "casdoor_backchannel_endpoint": (
                     settings.knowledge_app_service_backchannel_endpoint
                 ),
-                "casdoor_client_id": settings.knowledge_app_service_client_id or "",
-                "casdoor_client_secret": settings.knowledge_app_service_client_secret or "",
-                "casdoor_redirect_uri": "",
             }
         )
-        self._oidc = OidcProviderClient(service_settings)
+        self._oidc = OidcProviderClient(
+            service_settings,
+            service_settings.browser_profile("admin"),
+        )
         self._access_token: str | None = None
         self._expires_at = 0.0
         self._lock = asyncio.Lock()
@@ -67,7 +66,9 @@ class ServiceTokenProvider:
             if self._access_token and self._expires_at > now + 30:
                 return self._access_token
             body = await self._oidc.exchange_client_credentials(
-                scope=self._settings.knowledge_app_service_scope
+                scope=self._settings.knowledge_app_service_scope,
+                client_id=client_id,
+                client_secret=client_secret,
             )
             access_token = body.get("access_token") if isinstance(body, dict) else None
             if not isinstance(access_token, str) or not access_token:

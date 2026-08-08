@@ -15,7 +15,7 @@ from app.application.errors.exceptions import (
     ServiceUnavailableError,
     UnauthorizedError,
 )
-from core.config import Settings
+from core.config import BrowserSurfaceProfile, Settings
 
 
 @dataclass(frozen=True)
@@ -32,10 +32,12 @@ class OidcProviderClient:
     def __init__(
         self,
         settings: Settings,
+        profile: BrowserSurfaceProfile,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._settings = settings
+        self._profile = profile
         self._transport = transport
         self._metadata: OidcMetadata | None = None
         self._metadata_loaded_at = 0.0
@@ -188,16 +190,16 @@ class OidcProviderClient:
         state: str,
         nonce: str,
         code_challenge: str,
+        mode: str = "login",
     ) -> str:
         metadata = await self.get_metadata()
         params = urlencode(
             {
                 "response_type": "code",
-                "client_id": self._settings.casdoor_client_id,
-                "redirect_uri": self._settings.casdoor_redirect_uri,
-                "scope": (
-                    f"openid profile email "
-                    f"{self._settings.required_admin_scope}"
+                "client_id": self._profile.client_id,
+                "redirect_uri": self._profile.redirect_uri,
+                "scope": " ".join(
+                    ("openid", "profile", "email", *self._profile.required_scopes)
                 ),
                 "state": state,
                 "nonce": nonce,
@@ -205,7 +207,18 @@ class OidcProviderClient:
                 "code_challenge_method": "S256",
             }
         )
-        return f"{metadata.authorization_endpoint}?{params}"
+        endpoint = metadata.authorization_endpoint
+        if mode == "signup":
+            if self._profile.surface != "web":
+                raise UnauthorizedError(
+                    "The login transaction is invalid",
+                    code="oidc_transaction_invalid",
+                )
+            endpoint = self._validate_provider_url(
+                f"{self._settings.casdoor_endpoint.rstrip('/')}/signup/oauth/authorize",
+                "signup_endpoint",
+            )
+        return f"{endpoint}?{params}"
 
     async def exchange_authorization_code(
         self,
@@ -224,10 +237,10 @@ class OidcProviderClient:
                     token_url,
                     data={
                         "grant_type": "authorization_code",
-                        "client_id": self._settings.casdoor_client_id,
-                        "client_secret": self._settings.casdoor_client_secret,
+                        "client_id": self._profile.client_id,
+                        "client_secret": self._profile.client_secret,
                         "code": code,
-                        "redirect_uri": self._settings.casdoor_redirect_uri,
+                        "redirect_uri": self._profile.redirect_uri,
                         "code_verifier": code_verifier,
                     },
                     headers={"Accept": "application/json", **routing_headers},
@@ -235,19 +248,33 @@ class OidcProviderClient:
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("OIDC token endpoint unavailable") from exc
         if response.status_code != 200:
-            raise UnauthorizedError("OIDC code exchange failed")
+            raise UnauthorizedError(
+                "The identity token is invalid", code="token_invalid"
+            )
         try:
             token_response = response.json()
         except ValueError as exc:
-            raise UnauthorizedError("OIDC token response invalid") from exc
+            raise UnauthorizedError(
+                "The identity token is invalid", code="token_invalid"
+            ) from exc
         if not isinstance(token_response, dict):
-            raise UnauthorizedError("OIDC token response invalid")
+            raise UnauthorizedError(
+                "The identity token is invalid", code="token_invalid"
+            )
         id_token = token_response.get("id_token")
         if not isinstance(id_token, str) or not id_token:
-            raise UnauthorizedError("OIDC ID token missing")
+            raise UnauthorizedError(
+                "The identity token is invalid", code="token_invalid"
+            )
         return await self.verify_id_token(id_token, nonce=nonce, metadata=metadata)
 
-    async def exchange_client_credentials(self, *, scope: str) -> dict[str, Any]:
+    async def exchange_client_credentials(
+        self,
+        *,
+        scope: str,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> dict[str, Any]:
         """Request a service token using the validated Provider transport."""
 
         metadata = await self.get_metadata()
@@ -260,8 +287,8 @@ class OidcProviderClient:
                     token_url,
                     data={
                         "grant_type": "client_credentials",
-                        "client_id": self._settings.casdoor_client_id,
-                        "client_secret": self._settings.casdoor_client_secret,
+                        "client_id": client_id or self._profile.client_id,
+                        "client_secret": client_secret or self._profile.client_secret,
                         "scope": scope,
                     },
                     headers={"Accept": "application/json", **routing_headers},
@@ -269,16 +296,24 @@ class OidcProviderClient:
         except httpx.HTTPError as exc:
             raise ServiceUnavailableError("OIDC token endpoint unavailable") from exc
         if response.status_code != 200:
-            raise UnauthorizedError("OIDC client credentials rejected")
+            raise UnauthorizedError(
+                "The service identity was rejected", code="token_invalid"
+            )
         try:
             token_response = response.json()
         except ValueError as exc:
-            raise UnauthorizedError("OIDC token response invalid") from exc
+            raise UnauthorizedError(
+                "The service identity token is invalid", code="token_invalid"
+            ) from exc
         if not isinstance(token_response, dict):
-            raise UnauthorizedError("OIDC token response invalid")
+            raise UnauthorizedError(
+                "The service identity token is invalid", code="token_invalid"
+            )
         access_token = token_response.get("access_token")
         if not isinstance(access_token, str) or not access_token:
-            raise UnauthorizedError("OIDC access token missing")
+            raise UnauthorizedError(
+                "The service identity token is invalid", code="token_invalid"
+            )
         return token_response
 
     async def verify_id_token(
@@ -289,6 +324,89 @@ class OidcProviderClient:
         metadata: OidcMetadata | None = None,
     ) -> dict[str, Any]:
         metadata = metadata or await self.get_metadata()
+        claims = await self._decode_signed_token(encoded, metadata=metadata)
+        if claims.get("iss") != metadata.issuer:
+            raise UnauthorizedError(
+                "The identity token issuer is invalid",
+                code="issuer_mismatch",
+            )
+        audience = claims.get("aud")
+        if audience != self._profile.client_id and audience != [
+            self._profile.client_id
+        ]:
+            raise UnauthorizedError(
+                "The identity token audience is invalid",
+                code="audience_mismatch",
+            )
+        try:
+            registry = JWTClaimsRegistry(
+                leeway=self._settings.auth_clock_skew_seconds,
+                iss={"essential": True, "value": metadata.issuer},
+                sub={"essential": True},
+                aud={"essential": True},
+                exp={"essential": True},
+                iat={"essential": True},
+                nonce={"essential": True, "value": nonce},
+            )
+            registry.validate(claims)
+        except (JoseError, ValueError, TypeError) as exc:
+            raise UnauthorizedError(
+                "The identity token is invalid", code="token_invalid"
+            ) from exc
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject.strip():
+            raise UnauthorizedError(
+                "The identity token is invalid", code="token_invalid"
+            )
+        return claims
+
+    async def verify_access_token(
+        self,
+        encoded: str,
+        *,
+        audience: str,
+        metadata: OidcMetadata | None = None,
+    ) -> dict[str, Any]:
+        """Verify a Provider-signed workload JWT without browser assumptions."""
+
+        metadata = metadata or await self.get_metadata()
+        claims = await self._decode_signed_token(encoded, metadata=metadata)
+        token_audience = claims.get("aud")
+        audiences = (
+            {token_audience}
+            if isinstance(token_audience, str)
+            else set(token_audience)
+            if isinstance(token_audience, list)
+            and all(isinstance(item, str) for item in token_audience)
+            else set()
+        )
+        if audience not in audiences:
+            raise UnauthorizedError(
+                "The service identity audience is invalid",
+                code="audience_mismatch",
+            )
+        try:
+            registry = JWTClaimsRegistry(
+                leeway=self._settings.auth_clock_skew_seconds,
+                iss={"essential": True, "value": metadata.issuer},
+                sub={"essential": True},
+                aud={"essential": True},
+                exp={"essential": True},
+                iat={"essential": True},
+            )
+            registry.validate(claims)
+        except (JoseError, ValueError, TypeError) as exc:
+            raise UnauthorizedError(
+                "The service identity token is invalid", code="token_invalid"
+            ) from exc
+        return claims
+
+    async def _decode_signed_token(
+        self,
+        encoded: str,
+        *,
+        metadata: OidcMetadata,
+    ) -> dict[str, Any]:
         last_error: Exception | None = None
         for refresh in (False, True):
             try:
@@ -298,28 +416,13 @@ class OidcProviderClient:
                     key_set,
                     algorithms=self._settings.auth_allowed_algorithm_list,
                 )
-                claims = token.claims
-                registry = JWTClaimsRegistry(
-                    leeway=self._settings.auth_clock_skew_seconds,
-                    iss={"essential": True, "value": metadata.issuer},
-                    sub={"essential": True},
-                    aud={"essential": True},
-                    exp={"essential": True},
-                    iat={"essential": True},
-                    nonce={"essential": True, "value": nonce},
-                )
-                registry.validate(claims)
-                audience = claims.get("aud")
-                if audience != self._settings.casdoor_client_id and audience != [
-                    self._settings.casdoor_client_id
-                ]:
-                    raise UnauthorizedError("OIDC audience mismatch")
-                subject = claims.get("sub")
-                if not isinstance(subject, str) or not subject.strip():
-                    raise UnauthorizedError("OIDC subject invalid")
-                return claims
+                if not isinstance(token.claims, dict):
+                    raise TypeError("JWT claims must be an object")
+                return token.claims
             except UnauthorizedError:
                 raise
             except (JoseError, ValueError, TypeError) as exc:
                 last_error = exc
-        raise UnauthorizedError("OIDC ID token invalid") from last_error
+        raise UnauthorizedError(
+            "The identity token is invalid", code="token_invalid"
+        ) from last_error

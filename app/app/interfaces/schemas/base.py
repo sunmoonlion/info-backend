@@ -1,11 +1,9 @@
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-T = TypeVar("T")
 
-
-class Response(BaseModel, Generic[T]):
+class Response[T](BaseModel):
     code: int = 200
     msg: str = "success"
     data: Any = Field(default=None)

@@ -1,13 +1,58 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
+from app.application.audit_context import get_context
 from app.application.errors.exceptions import AppException
-from app.interfaces.schemas.base import Response
 
 logger = logging.getLogger(__name__)
+
+
+def _operation_id(request: Request) -> str:
+    context = get_context() or getattr(request.state, "audit_context", None)
+    if context is not None and context.operation_id:
+        return context.operation_id
+    return "operation-unavailable"
+
+
+def _body(
+    request: Request,
+    *,
+    status: int,
+    code: str,
+    message: str,
+) -> dict[str, object]:
+    normalized_code = code[:128] or "internal_error"
+    normalized_message = message[:1000] or "Request rejected"
+    operation_id = _operation_id(request)
+    return {
+        "type": f"urn:sunmoonai:problem:{normalized_code}",
+        "title": normalized_message,
+        "status": status,
+        "detail": normalized_message,
+        "instance": request.url.path,
+        "code": normalized_code,
+        "operation_id": operation_id,
+        # Compatibility extension for the published browser error contract.
+        "error": {
+            "code": normalized_code,
+            "message": normalized_message,
+            "operation_id": operation_id,
+        }
+    }
+
+
+def _response(
+    request: Request, *, status: int, code: str, message: str
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content=_body(request, status=status, code=code, message=message),
+        media_type="application/problem+json",
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -21,9 +66,27 @@ def register_exception_handlers(app: FastAPI) -> None:
             error.code,
             request.url.path,
         )
-        return JSONResponse(
-            status_code=error.status_code,
-            content=Response.fail(error.code, error.msg).model_dump(),
+        return _response(
+            request,
+            status=error.status_code,
+            code=error.code,
+            message=error.msg,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        logger.warning(
+            "request_validation_error path=%s count=%s",
+            request.url.path,
+            len(error.errors()),
+        )
+        return _response(
+            request,
+            status=422,
+            code="invalid_request",
+            message="The request payload is invalid",
         )
 
     @app.exception_handler(HTTPException)
@@ -31,13 +94,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, error: HTTPException
     ) -> JSONResponse:
         logger.warning(
-            "http_error status=%s path=%s",
-            error.status_code,
-            request.url.path,
+            "http_error status=%s path=%s", error.status_code, request.url.path
         )
-        return JSONResponse(
-            status_code=error.status_code,
-            content=Response.fail(error.status_code, str(error.detail)).model_dump(),
+        return _response(
+            request,
+            status=error.status_code,
+            code="not_found" if error.status_code == 404 else "request_invalid",
+            message=(
+                "Resource not found"
+                if error.status_code == 404
+                else "Request rejected"
+            ),
         )
 
     @app.exception_handler(Exception)
@@ -47,7 +114,9 @@ def register_exception_handlers(app: FastAPI) -> None:
             request.url.path,
             type(error).__name__,
         )
-        return JSONResponse(
-            status_code=500,
-            content=Response.fail(500, "服务器内部错误").model_dump(),
+        return _response(
+            request,
+            status=500,
+            code="internal_error",
+            message="The service could not complete the request",
         )

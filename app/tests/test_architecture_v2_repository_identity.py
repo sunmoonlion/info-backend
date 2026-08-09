@@ -33,3 +33,10 @@ def test_database_bootstrap_has_no_legacy_identity_or_committed_password() -> No
                 continue
             _, value = line.split("=", maxsplit=1)
             assert value in {"", "change_me_via_secret_manager"}
+
+
+def test_build_uses_unified_backend_identity() -> None:
+    build_conf = (BACKEND_ROOT / "mybuild" / "build.conf").read_text()
+    assert 'BACKEND_IMAGE="info-backend"' in build_conf
+    assert 'BACKEND_TAG="architecture-v2-dev"' in build_conf
+    assert "ADMIN_BACKEND_IMAGE" not in build_conf

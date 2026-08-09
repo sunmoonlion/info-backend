@@ -49,9 +49,12 @@ _NEAR_DUPLICATE_THRESHOLD = 0.84
 class ArtifactNotDistributableError(ValueError):
     """The document version has no immutable artifact safe for cross-app use."""
 
+
 try:
     import trafilatura
-except ImportError:  # pragma: no cover - allows code import before optional deps install
+except (
+    ImportError
+):  # pragma: no cover - allows code import before optional deps install
     trafilatura = None
 
 
@@ -65,9 +68,7 @@ async def _get_document_for_mutation(
     expected_updated_at: datetime | None,
 ) -> InfoDocument:
     result = await session.execute(
-        select(InfoDocument)
-        .where(InfoDocument.id == document_id)
-        .with_for_update()
+        select(InfoDocument).where(InfoDocument.id == document_id).with_for_update()
     )
     document = result.scalar_one_or_none()
     if document is None:
@@ -141,11 +142,7 @@ def _content_fingerprint(text: str) -> dict:
 
 
 def _fingerprint_tokens(text: str) -> list[str]:
-    return [
-        token
-        for token in re.findall(r"[\w]+", text.lower())
-        if len(token) >= 3
-    ]
+    return [token for token in re.findall(r"[\w]+", text.lower()) if len(token) >= 3]
 
 
 def _simhash_similarity(left: str, right: str) -> float:
@@ -228,7 +225,9 @@ async def create_source(
 
 
 async def list_sources(session: AsyncSession) -> list[InfoSource]:
-    result = await session.execute(select(InfoSource).order_by(InfoSource.created_at.desc()))
+    result = await session.execute(
+        select(InfoSource).order_by(InfoSource.created_at.desc())
+    )
     return list(result.scalars())
 
 
@@ -377,7 +376,11 @@ async def ingest_uploaded_file(
         await session.refresh(version)
         return version
 
-    markdown = text if content_type in ("text/markdown", "text/x-markdown") else f"# {display_title}\n\n{text}"
+    markdown = (
+        text
+        if content_type in ("text/markdown", "text/x-markdown")
+        else f"# {display_title}\n\n{text}"
+    )
     content_hash = _hash_text(text)
     document = await _find_or_create_document(
         session=session,
@@ -488,7 +491,9 @@ async def get_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJob | 
     return await session.get(CrawlJob, job_id)
 
 
-async def list_documents(session: AsyncSession, limit: int, offset: int) -> list[InfoDocument]:
+async def list_documents(
+    session: AsyncSession, limit: int, offset: int
+) -> list[InfoDocument]:
     result = await session.execute(
         select(InfoDocument)
         .order_by(InfoDocument.updated_at.desc())
@@ -524,7 +529,9 @@ async def search_documents(
     return list(result.scalars())
 
 
-async def get_document(session: AsyncSession, document_id: uuid.UUID) -> InfoDocument | None:
+async def get_document(
+    session: AsyncSession, document_id: uuid.UUID
+) -> InfoDocument | None:
     return await session.get(InfoDocument, document_id)
 
 
@@ -736,7 +743,9 @@ async def review_document(
     reason: str | None,
     expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
-    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
+    document = await _get_document_for_mutation(
+        session, document_id, expected_updated_at
+    )
     document.status = status
     document.metadata_json = _review_metadata(
         existing=document.metadata_json,
@@ -761,7 +770,9 @@ async def update_document_summary_profile(
     reason: str | None,
     expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
-    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
+    document = await _get_document_for_mutation(
+        session, document_id, expected_updated_at
+    )
     document.metadata_json = _document_summary_metadata(
         existing=document.metadata_json,
         summary=summary,
@@ -788,7 +799,9 @@ async def update_document_entity_links(
     reason: str | None,
     expected_updated_at: datetime | None = None,
 ) -> InfoDocument:
-    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
+    document = await _get_document_for_mutation(
+        session, document_id, expected_updated_at
+    )
     document.metadata_json = _document_entity_metadata(
         existing=document.metadata_json,
         companies=companies,
@@ -815,7 +828,9 @@ async def mark_document_relation(
 ) -> InfoDocument:
     if document_id == target_document_id:
         raise ValueError("document relation target must be different")
-    document = await _get_document_for_mutation(session, document_id, expected_updated_at)
+    document = await _get_document_for_mutation(
+        session, document_id, expected_updated_at
+    )
     target_document = await session.get(InfoDocument, target_document_id)
     if target_document is None:
         raise ValueError(f"target document not found: {target_document_id}")
@@ -868,7 +883,9 @@ async def review_document_version(
     return version
 
 
-async def get_artifact(session: AsyncSession, artifact_id: uuid.UUID) -> RawArtifact | None:
+async def get_artifact(
+    session: AsyncSession, artifact_id: uuid.UUID
+) -> RawArtifact | None:
     return await session.get(RawArtifact, artifact_id)
 
 
@@ -937,9 +954,7 @@ async def create_knowledge_distribution(
         # aggregate_id has a foreign key to DistributionRecord. This is a
         # flush, not a commit: both rows still succeed or roll back together.
         await session.flush()
-        await ensure_distribution_dispatch_outbox(
-            session, distribution_id=record.id
-        )
+        await ensure_distribution_dispatch_outbox(session, distribution_id=record.id)
     await session.commit()
     await session.refresh(record)
     return record
@@ -999,17 +1014,25 @@ async def _select_distribution_artifact(
             "document version artifact lineage is missing or inconsistent"
         )
     if artifact.storage_state != "available":
-        raise ArtifactNotDistributableError("document version artifact is not available")
+        raise ArtifactNotDistributableError(
+            "document version artifact is not available"
+        )
     if not artifact.version_id or artifact.version_id.lower() == "null":
         raise ArtifactNotDistributableError(
             "document version artifact is not backed by versioned S3 storage"
         )
     if artifact.artifact_type not in {"clean_markdown", "text_plain"}:
-        raise ArtifactNotDistributableError("document version artifact type is not distributable")
+        raise ArtifactNotDistributableError(
+            "document version artifact type is not distributable"
+        )
     if artifact.size_bytes < 1 or artifact.size_bytes > 52_428_800:
-        raise ArtifactNotDistributableError("document version artifact size is outside contract")
+        raise ArtifactNotDistributableError(
+            "document version artifact size is outside contract"
+        )
     if not re.fullmatch(r"[a-f0-9]{64}", artifact.sha256):
-        raise ArtifactNotDistributableError("document version artifact sha256 is invalid")
+        raise ArtifactNotDistributableError(
+            "document version artifact sha256 is invalid"
+        )
     if artifact.content_type.split(";", 1)[0].strip().lower() not in {
         "text/markdown",
         "text/plain",
@@ -1031,7 +1054,9 @@ async def list_distributions(
 ) -> list[DistributionRecord]:
     query = select(DistributionRecord)
     if document_version_id:
-        query = query.where(DistributionRecord.document_version_id == document_version_id)
+        query = query.where(
+            DistributionRecord.document_version_id == document_version_id
+        )
     if target_app:
         query = query.where(DistributionRecord.target_app == target_app)
     if status:
@@ -1202,7 +1227,9 @@ async def dispatch_distribution(
     return record
 
 
-def _distribution_retry_payload(existing: dict | None, *, previous_error: str | None) -> dict:
+def _distribution_retry_payload(
+    existing: dict | None, *, previous_error: str | None
+) -> dict:
     payload = dict(existing or {})
     history = list(payload.get("retry_history") or [])
     history.append(
@@ -1286,7 +1313,9 @@ async def index_document_version(
 
     artifacts = await list_artifacts(session, document_version_id=version.id)
     extracted_result = await session.execute(
-        select(ExtractedContent).where(ExtractedContent.document_version_id == version.id)
+        select(ExtractedContent).where(
+            ExtractedContent.document_version_id == version.id
+        )
     )
     payload = build_info_index_document(
         document=document,
@@ -1358,9 +1387,7 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
     )
     versions = list(versions_result.scalars())
     for version in versions:
-        indexed = await index_document_version(
-            session, document_version_id=version.id
-        )
+        indexed = await index_document_version(session, document_version_id=version.id)
         result["index_created"] = result["index_created"] or indexed["index_created"]
         result["indexed"] += indexed["indexed"]
         result["skipped"] += indexed["skipped"]
@@ -1438,7 +1465,9 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
             raise ValueError(f"http status {response.status_code}")
 
         html = content.decode(response.encoding or "utf-8", errors="replace")
-        title, markdown, text, published_at = _extract_html(html, job.final_url or job.target_url)
+        title, markdown, text, published_at = _extract_html(
+            html, job.final_url or job.target_url
+        )
         content_hash = _hash_text(text)
         document = await _find_or_create_document(
             session=session,
@@ -1487,7 +1516,9 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
             content_type="text/plain; charset=utf-8",
             metadata={"crawl_job_id": str(job.id), "artifact_type": "text_plain"},
         )
-        clean_artifact = _artifact(job, clean, "clean_markdown", document_id=document.id)
+        clean_artifact = _artifact(
+            job, clean, "clean_markdown", document_id=document.id
+        )
         text_artifact = _artifact(job, text_obj, "text_plain", document_id=document.id)
         session.add_all([clean_artifact, text_artifact])
         await session.flush()
@@ -1503,7 +1534,11 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
             text_artifact_id=text_artifact.id,
             extractor_name="trafilatura" if trafilatura else "fallback-html",
             extractor_version=_trafilatura_version(),
-            metadata_json={"published_at_candidate": published_at.isoformat() if published_at else None},
+            metadata_json={
+                "published_at_candidate": published_at.isoformat()
+                if published_at
+                else None
+            },
         )
         session.add(version)
         await session.flush()
@@ -1648,7 +1683,9 @@ def _decode_upload_text(
     if (
         content_type.startswith("text/")
         or content_type in ("application/json", "application/xml")
-        or lowered.endswith((".txt", ".md", ".markdown", ".html", ".htm", ".json", ".xml"))
+        or lowered.endswith(
+            (".txt", ".md", ".markdown", ".html", ".htm", ".json", ".xml")
+        )
     ):
         return content.decode("utf-8", errors="replace")
     return None
@@ -1685,7 +1722,9 @@ async def _apply_duplicate_metadata(
                 .get("value")
             )
             if current_value and candidate_value:
-                similarity = _simhash_similarity(str(current_value), str(candidate_value))
+                similarity = _simhash_similarity(
+                    str(current_value), str(candidate_value)
+                )
                 if similarity >= _NEAR_DUPLICATE_THRESHOLD:
                     match_type = "simhash64"
         if match_type is None or similarity is None:
@@ -1720,7 +1759,9 @@ async def _find_or_create_document(
     published_at: datetime | None,
     content_hash: str,
 ) -> InfoDocument:
-    result = await session.execute(select(InfoDocument).where(InfoDocument.canonical_url == url))
+    result = await session.execute(
+        select(InfoDocument).where(InfoDocument.canonical_url == url)
+    )
     document = result.scalar_one_or_none()
     if document:
         return document

@@ -11,9 +11,7 @@ from app.application.dto.outbox import ClaimedOutboxEvent, OutboxEvent
 class SqlOutboxRepository:
     """PostgreSQL outbox with SKIP LOCKED leasing and explicit ownership."""
 
-    async def enqueue(
-        self, session: AsyncSession, event: OutboxEvent
-    ) -> uuid.UUID:
+    async def enqueue(self, session: AsyncSession, event: OutboxEvent) -> uuid.UUID:
         message_id = uuid.uuid4()
         result = await session.execute(
             text(

@@ -75,7 +75,9 @@ def _text(parent: ElementTree.Element, name: str) -> str | None:
     return _clean(node.text) if node is not None else None
 
 
-def _children(parent: ElementTree.Element, local_name: str) -> list[ElementTree.Element]:
+def _children(
+    parent: ElementTree.Element, local_name: str
+) -> list[ElementTree.Element]:
     return [child for child in list(parent) if _strip_ns(child.tag) == local_name]
 
 

@@ -91,9 +91,7 @@ async def callback(
             exc.status_code,
             reason,
         )
-        response = RedirectResponse(
-            url=_login_error_redirect(reason), status_code=302
-        )
+        response = RedirectResponse(url=_login_error_redirect(reason), status_code=302)
         response.delete_cookie(profile.transaction_cookie_name, path="/")
         response.headers["Cache-Control"] = "no-store"
         return response

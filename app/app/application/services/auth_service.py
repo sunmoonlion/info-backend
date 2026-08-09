@@ -35,9 +35,7 @@ class AuthService:
     ) -> None:
         self._settings = settings or get_settings()
         self._profile = self._settings.browser_profile(surface)
-        self._oidc = oidc_client or OidcProviderClient(
-            self._settings, self._profile
-        )
+        self._oidc = oidc_client or OidcProviderClient(self._settings, self._profile)
 
     @property
     def surface(self) -> BrowserSurface:

@@ -23,12 +23,8 @@ class OutboxMessage(TimestampMixin, Base):
         String(512), nullable=False, unique=True
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    headers: Mapped[dict[str, str]] = mapped_column(
-        JSONB, nullable=False, default=dict
-    )
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="pending"
-    )
+    headers: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -58,9 +54,7 @@ class InboxMessage(Base):
     __tablename__ = "inbox_message"
 
     consumer: Mapped[str] = mapped_column(String(128), primary_key=True)
-    message_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True
-    )
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     processed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

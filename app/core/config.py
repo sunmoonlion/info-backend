@@ -433,14 +433,10 @@ class Settings(BaseSettings):
             frontend_origins=origins,
             policy_version=str(getattr(self, f"{prefix}_auth_policy_version")),
             role_allowlist=frozenset(
-                self._split_csv(
-                    str(getattr(self, f"{prefix}_auth_role_allowlist"))
-                )
+                self._split_csv(str(getattr(self, f"{prefix}_auth_role_allowlist")))
             ),
             scope_allowlist=frozenset(
-                self._split_csv(
-                    str(getattr(self, f"{prefix}_auth_scope_allowlist"))
-                )
+                self._split_csv(str(getattr(self, f"{prefix}_auth_scope_allowlist")))
             ),
             default_return_to=default_return_to,
             allowed_return_paths=allowed_return_paths,
@@ -583,9 +579,7 @@ class Settings(BaseSettings):
                 "SERVICE_AUTH_SUBJECT_BINDINGS_JSON must be valid JSON"
             ) from exc
         if not isinstance(raw, dict):
-            raise ValueError(
-                "SERVICE_AUTH_SUBJECT_BINDINGS_JSON must be a JSON object"
-            )
+            raise ValueError("SERVICE_AUTH_SUBJECT_BINDINGS_JSON must be a JSON object")
         result: dict[str, frozenset[str]] = {}
         for subject, scopes in raw.items():
             if (

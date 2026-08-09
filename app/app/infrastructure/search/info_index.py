@@ -130,7 +130,9 @@ class InfoSearchIndex:
         if not self.enabled or not self.base_url:
             return False
         async with httpx.AsyncClient(**self._client_kwargs()) as client:
-            response = await client.head(f"{self.base_url.rstrip('/')}/{self.index_name}")
+            response = await client.head(
+                f"{self.base_url.rstrip('/')}/{self.index_name}"
+            )
             if response.status_code == 404:
                 create_response = await client.put(
                     f"{self.base_url.rstrip('/')}/{self.index_name}",
@@ -141,7 +143,9 @@ class InfoSearchIndex:
             response.raise_for_status()
             return False
 
-    async def index_document(self, *, document_id: str, payload: dict[str, Any]) -> bool:
+    async def index_document(
+        self, *, document_id: str, payload: dict[str, Any]
+    ) -> bool:
         if not self.enabled or not self.base_url:
             return False
         async with httpx.AsyncClient(**self._client_kwargs()) as client:

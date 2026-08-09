@@ -24,10 +24,14 @@ class InfoSource(UUIDMixin, TimestampMixin, Base):
 
     code: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="website")
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="website"
+    )
     base_url: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
-    trust_level: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown")
+    trust_level: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="unknown"
+    )
     copyright_status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="unknown"
     )
@@ -45,7 +49,9 @@ class InfoCollector(UUIDMixin, TimestampMixin, Base):
     )
     code: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    collector_type: Mapped[str] = mapped_column(String(50), nullable=False, default="http")
+    collector_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="http"
+    )
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
 
@@ -101,7 +107,9 @@ class RawArtifact(UUIDMixin, TimestampMixin, Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content_type: Mapped[str] = mapped_column(String(255), nullable=False)
-    storage_state: Mapped[str] = mapped_column(String(30), nullable=False, default="available")
+    storage_state: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="available"
+    )
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     crawl_job: Mapped[CrawlJob] = relationship(back_populates="artifacts")
@@ -136,13 +144,17 @@ class InfoDocumentVersion(UUIDMixin, TimestampMixin, Base):
     raw_artifact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     clean_artifact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     text_artifact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    extraction_status: Mapped[str] = mapped_column(String(30), nullable=False, default="succeeded")
+    extraction_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="succeeded"
+    )
     extractor_name: Mapped[str | None] = mapped_column(String(120))
     extractor_version: Mapped[str | None] = mapped_column(String(120))
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     __table_args__ = (
-        UniqueConstraint("document_id", "version_no", name="uq_info_document_version_no"),
+        UniqueConstraint(
+            "document_id", "version_no", name="uq_info_document_version_no"
+        ),
         Index("ix_info_document_version_hash", "content_hash"),
     )
 

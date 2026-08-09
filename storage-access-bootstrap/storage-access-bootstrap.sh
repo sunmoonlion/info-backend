@@ -6,11 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/config/common.env"
 
 log() {
-  printf '[storage-access-bootstrap][admin-backend] %s\n' "$*"
+  printf '[storage-access-bootstrap][backend] %s\n' "$*"
 }
 
 die() {
-  printf '[storage-access-bootstrap][admin-backend][error] %s\n' "$*" >&2
+  printf '[storage-access-bootstrap][backend][error] %s\n' "$*" >&2
   exit 1
 }
 

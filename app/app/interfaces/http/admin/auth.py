@@ -78,9 +78,7 @@ async def callback(
 async def logout(
     response: Response,
     _: Annotated[BrowserSession, Depends(get_admin_browser_session)],
-    session_id: str | None = Cookie(
-        default=None, alias=profile.session_cookie_name
-    ),
+    session_id: str | None = Cookie(default=None, alias=profile.session_cookie_name),
 ) -> None:
     await auth_service.delete_session(session_id)
     response.delete_cookie(profile.session_cookie_name, path="/")

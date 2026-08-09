@@ -24,7 +24,9 @@ async def _run(distribution_id: uuid.UUID, outbox_message_id: uuid.UUID) -> str:
     postgres = get_postgres()
     await postgres.init()
     async with postgres.session_factory() as session:
-        record = await dispatch_distribution_service(session, distribution_id=distribution_id)
+        record = await dispatch_distribution_service(
+            session, distribution_id=distribution_id
+        )
         if record.status == "succeeded":
             await complete_delivery_outbox(session, message_id=outbox_message_id)
         else:

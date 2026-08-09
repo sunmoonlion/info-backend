@@ -74,7 +74,9 @@ async def _best_effort_kick_delivery_outbox() -> None:
         )
 
 
-@router.post("/admin/sources", response_model=SourceRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/admin/sources", response_model=SourceRead, status_code=status.HTTP_201_CREATED
+)
 async def create_source(
     payload: SourceCreate, session: AsyncSession = Depends(get_db_session)
 ):
@@ -139,7 +141,11 @@ async def discover_collector(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/admin/crawl-jobs", response_model=CrawlJobRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/admin/crawl-jobs",
+    response_model=CrawlJobRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_crawl_job(
     payload: CrawlJobCreate, session: AsyncSession = Depends(get_db_session)
 ):
@@ -156,7 +162,9 @@ async def create_crawl_job(
 
 
 @router.get("/admin/crawl-jobs/{job_id}", response_model=CrawlJobRead)
-async def get_crawl_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)):
+async def get_crawl_job(
+    job_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
     job = await info_crawl_service.get_crawl_job(session, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="crawl job not found")
@@ -164,7 +172,9 @@ async def get_crawl_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_d
 
 
 @router.post("/admin/crawl-jobs/{job_id}/run", response_model=CrawlJobRead)
-async def run_crawl_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)):
+async def run_crawl_job(
+    job_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
     job = await info_crawl_service.process_crawl_job(session, job_id)
     return job
 
@@ -191,7 +201,9 @@ async def list_documents(
 
 
 @router.get("/documents/{document_id}", response_model=DocumentRead)
-async def get_document(document_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)):
+async def get_document(
+    document_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
     document = await info_crawl_service.get_document(session, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="document not found")
@@ -285,7 +297,9 @@ async def update_document_summary_profile(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.get("/documents/{document_id}/versions", response_model=list[DocumentVersionRead])
+@router.get(
+    "/documents/{document_id}/versions", response_model=list[DocumentVersionRead]
+)
 async def list_document_versions(
     document_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
@@ -318,14 +332,18 @@ async def review_document_version(
 
 
 @router.get("/artifacts/{artifact_id}", response_model=RawArtifactRead)
-async def get_artifact(artifact_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)):
+async def get_artifact(
+    artifact_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
+):
     artifact = await info_crawl_service.get_artifact(session, artifact_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="artifact not found")
     return artifact
 
 
-@router.get("/admin/crawl-jobs/{job_id}/artifacts", response_model=list[RawArtifactRead])
+@router.get(
+    "/admin/crawl-jobs/{job_id}/artifacts", response_model=list[RawArtifactRead]
+)
 async def list_crawl_job_artifacts(
     job_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
@@ -409,7 +427,9 @@ async def get_distribution(
     return record
 
 
-@router.post("/admin/distributions/{distribution_id}/status", response_model=DistributionRead)
+@router.post(
+    "/admin/distributions/{distribution_id}/status", response_model=DistributionRead
+)
 async def update_distribution_status(
     distribution_id: uuid.UUID,
     payload: DistributionStatusUpdate,
@@ -427,7 +447,9 @@ async def update_distribution_status(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/admin/distributions/{distribution_id}/retry", response_model=DistributionRead)
+@router.post(
+    "/admin/distributions/{distribution_id}/retry", response_model=DistributionRead
+)
 async def retry_distribution(
     distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
@@ -441,7 +463,9 @@ async def retry_distribution(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/admin/distributions/{distribution_id}/dispatch", response_model=DistributionRead)
+@router.post(
+    "/admin/distributions/{distribution_id}/dispatch", response_model=DistributionRead
+)
 async def dispatch_distribution(
     distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):

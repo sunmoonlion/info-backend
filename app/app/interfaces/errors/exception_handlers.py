@@ -41,7 +41,7 @@ def _body(
             "code": normalized_code,
             "message": normalized_message,
             "operation_id": operation_id,
-        }
+        },
     }
 
 
@@ -101,9 +101,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status=error.status_code,
             code="not_found" if error.status_code == 404 else "request_invalid",
             message=(
-                "Resource not found"
-                if error.status_code == 404
-                else "Request rejected"
+                "Resource not found" if error.status_code == 404 else "Request rejected"
             ),
         )
 

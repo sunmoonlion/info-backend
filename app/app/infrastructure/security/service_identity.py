@@ -96,8 +96,10 @@ class ServiceIdentityVerifier:
                 code="token_invalid",
             )
         scopes = frozenset(item.strip() for item in values if item.strip())
-        if len(scopes) != len(values) or len(scopes) > 128 or any(
-            len(item) > 128 for item in scopes
+        if (
+            len(scopes) != len(values)
+            or len(scopes) > 128
+            or any(len(item) > 128 for item in scopes)
         ):
             raise UnauthorizedError(
                 "The service identity token has invalid scopes",

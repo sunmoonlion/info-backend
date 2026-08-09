@@ -119,6 +119,10 @@ def get_knowledge_app_client() -> KnowledgeAppClient:
     settings = get_settings()
     return KnowledgeAppClient(
         ingest_url=settings.knowledge_app_ingest_url,
-        token_provider=(ServiceTokenProvider(settings) if settings.knowledge_app_ingest_enabled else None),
+        token_provider=(
+            ServiceTokenProvider(settings)
+            if settings.knowledge_app_ingest_enabled
+            else None
+        ),
         timeout_seconds=settings.knowledge_app_timeout_seconds,
     )

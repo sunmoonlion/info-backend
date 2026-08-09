@@ -82,9 +82,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code = response.status_code
         finally:
             active_context = get_context() or context
-            if (
-                request.method not in _SAFE_METHODS
-                and request.url.path.startswith("/api/")
+            if request.method not in _SAFE_METHODS and request.url.path.startswith(
+                "/api/"
             ):
                 logger.info(
                     "audit_mutation method=%s path=%s status=%s actor_id=%s "
@@ -149,18 +148,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_api_route(
         "/health/live", live, methods=["GET"], include_in_schema=False
     )
-    application.add_api_route(
-        "/health", live, methods=["GET"], include_in_schema=False
-    )
+    application.add_api_route("/health", live, methods=["GET"], include_in_schema=False)
     application.add_api_route(
         "/api/health", ready, methods=["GET"], include_in_schema=False
     )
     application.add_api_route(
         "/health/ready", ready, methods=["GET"], include_in_schema=False
     )
-    application.add_api_route(
-        "/ready", ready, methods=["GET"], include_in_schema=False
-    )
+    application.add_api_route("/ready", ready, methods=["GET"], include_in_schema=False)
 
     @application.get("/api/version", include_in_schema=False)
     async def api_version() -> dict[str, object]:

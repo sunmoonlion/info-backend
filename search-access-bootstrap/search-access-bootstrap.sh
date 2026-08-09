@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config/common.env"
 
 die() {
-  printf '[search-access-bootstrap][admin-backend][error] %s\n' "$*" >&2
+  printf '[search-access-bootstrap][backend][error] %s\n' "$*" >&2
   exit 1
 }
 

@@ -17,5 +17,7 @@ class ScrapyCollectorAdapter:
             extra_metadata={"spider_name": str(spider_name)},
         )
         if not links:
-            raise ValueError("scrapy collector requires config.results from crawler worker")
+            raise ValueError(
+                "scrapy collector requires config.results from crawler worker"
+            )
         return links

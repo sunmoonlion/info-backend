@@ -75,7 +75,9 @@ class ObjectStorage:
         target.write_bytes(data)
         if metadata:
             meta_path = target.with_suffix(target.suffix + ".metadata.json")
-            meta_path.write_text(json.dumps(dict(metadata), ensure_ascii=False, indent=2))
+            meta_path.write_text(
+                json.dumps(dict(metadata), ensure_ascii=False, indent=2)
+            )
         return StoredObject(
             bucket=self.bucket,
             object_key=object_key,
@@ -140,7 +142,9 @@ def make_artifact_key(
 ) -> str:
     safe_source = "".join(c if c.isalnum() or c in "-_" else "-" for c in source_code)
     safe_name = artifact_name.replace("/", "-").replace("\\", "-")
-    return f"info/original/source={safe_source}/date={date_path}/job={job_id}/{safe_name}"
+    return (
+        f"info/original/source={safe_source}/date={date_path}/job={job_id}/{safe_name}"
+    )
 
 
 def get_object_storage() -> ObjectStorage:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Admin Backend 镜像推送脚本
+# Unified Backend 镜像推送脚本
 # 用法: ./push-image.sh [--tag TAG]
 # 凭证: 优先读取 HARBOR_USER/HARBOR_PASSWORD 或 k8s Harbor 配置，缺失时提示输入
 
@@ -19,10 +19,10 @@ if [ ! -f "$BUILD_CONF" ]; then log_error "build.conf 不存在"; exit 1; fi
 source "$BUILD_CONF"
 source "$SCRIPT_DIR/harbor-cluster.sh"
 
-IMAGE_NAME="${ADMIN_BACKEND_IMAGE:-info-backend}"
-IMAGE_TAG="${ADMIN_BACKEND_TAG:-1.0.0}"
-IMAGE_REGISTRY="$(resolve_harbor_registry_for_push "${ADMIN_BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com}")"
-IMAGE_PROJECT="${ADMIN_BACKEND_IMAGE_PROJECT:-app-images}"
+IMAGE_NAME="${BACKEND_IMAGE:-info-backend}"
+IMAGE_TAG="${BACKEND_TAG:-architecture-v2-dev}"
+IMAGE_REGISTRY="$(resolve_harbor_registry_for_push "${BACKEND_IMAGE_REGISTRY:-harbor.sunmoonai.com}")"
+IMAGE_PROJECT="${BACKEND_IMAGE_PROJECT:-app-images}"
 
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
 if [[ "$CONTAINER_RUNTIME" == "sudo nerdctl" || "$CONTAINER_RUNTIME" == "nerdctl" ]]; then

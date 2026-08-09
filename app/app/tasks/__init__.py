@@ -1,1 +1,1 @@
-"""Celery task modules for admin-backend."""
+"""Celery task modules for the unified backend worker role."""

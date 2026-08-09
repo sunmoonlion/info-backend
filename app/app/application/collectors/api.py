@@ -18,7 +18,9 @@ class ApiCollectorAdapter:
         headers = dict(config.get("headers") or {})
         headers.setdefault("User-Agent", settings.crawl_user_agent)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(url, headers=headers, params=config.get("params"))
+            response = await client.get(
+                url, headers=headers, params=config.get("params")
+            )
             response.raise_for_status()
         return parse_api_payload(response.json(), config=config)
 

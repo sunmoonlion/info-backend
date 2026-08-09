@@ -47,12 +47,31 @@ def test_one_linear_canonical_migration_chain() -> None:
         "20260707_0002_source_governance.py",
         "20260712_0003_auth_identity.py",
         "20260714_0004_delivery_outbox.py",
+        "20260809_0005_outbox_primitives.py",
     ]
     contents = [path.read_text() for path in revisions]
     assert sum("down_revision = None" in content for content in contents) == 1
     assert 'down_revision = "20260706_0001"' in contents[1]
     assert 'down_revision = "20260707_0002"' in contents[2]
     assert 'down_revision = "20260712_0003"' in contents[3]
+    assert 'down_revision = "20260714_0004"' in contents[4]
+
+
+def test_business_and_shared_outboxes_remain_distinct() -> None:
+    from app.infrastructure.models import Base
+
+    assert {
+        "delivery_outbox_message",
+        "outbox_message",
+        "inbox_message",
+    } <= set(Base.metadata.tables)
+
+    delivery = Base.metadata.tables["delivery_outbox_message"]
+    shared = Base.metadata.tables["outbox_message"]
+    assert "aggregate_id" in delivery.c
+    assert "idempotency_key" in delivery.c
+    assert "aggregate_key" in shared.c
+    assert "deduplication_key" in shared.c
 
 
 def test_runtime_image_context_excludes_credentials_and_tests() -> None:

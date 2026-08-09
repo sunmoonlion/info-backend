@@ -1,6 +1,7 @@
 # db-provisioner
 
-> **维护**：本目录位于 **info-admin-backend** 内，为该 backend 配套 **`db-access-bootstrap` 的唯一 `dbctl` 来源**；与独立 `k8s` 仓库无联动。将 admin 仓库单独迁出时请一并带走本目录。
+> **维护**：本目录位于统一 **info-backend** 内，是其
+> **`db-access-bootstrap` 的唯一 `dbctl` 来源**；与独立 `k8s` 仓库无联动。
 
 统一数据库开通工具（`mongodb` / `postgresql` / `redis`），支持：
 
@@ -136,7 +137,9 @@ REDIS_ALLOW_FLUSH_DB=true
 
 - `REDIS_ADMIN_USER`、`REDIS_ADMIN_PASSWORD`
 - `REDIS_DB_INDEX`
-- `REDIS_KEY_PREFIX`（默认 `${SERVICE_NAME}:*`）：**可空格分隔多个 key 模式**，例如 `"session:* info:*"`，须覆盖应用实际写入的 key（Nest BFF 会话为 `session:*`，仅 `info:*` 会导致无法 `SET session:`）。
+- `REDIS_KEY_PREFIX`（默认 `${SERVICE_NAME}:*`）：**可空格分隔多个 key 模式**；
+  必须严格覆盖统一 Backend 实际写入的 key。Info v2 默认使用 `info:*`，新增
+  key 空间时应显式评审并更新 ACL。
 - `REDIS_ACL_CATEGORY`（默认含 `+@read +@write +@connection` 等）：**须含 `+@connection`**，否则 ACL 用户无法执行 `PING`，ioredis 连接会失败；执行机必须使用支持 `--user` 的 `redis-cli`（Redis CLI >= 6）。
 
 ### k8s 输出字段

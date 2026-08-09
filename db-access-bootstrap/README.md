@@ -1,6 +1,7 @@
-# db-access-bootstrap (admin-backend)
+# db-access-bootstrap (unified backend)
 
-用于 `info-admin-backend` 的数据库接入脚手架（与 `info-web-backend/db-access-bootstrap` 结构对齐）。
+用于架构 v2 的统一 `info-backend` 数据库接入脚手架。Admin 与 Web
+应用层共用该 Backend，不再维护第二套 Web Backend 数据库脚手架。
 
 **执行环境**：Git Bash（Windows）或 Linux/macOS 的 `bash`（脚本依赖 `sed`、`grep` 等）。
 
@@ -10,7 +11,7 @@
 
 | 路径 | 作用 |
 |------|------|
-| `../db-provisioner/` | 本 backend 自带的 **`dbctl`**（`DBCTL_BIN` 默认指向此处）；admin/web 各一份，独立维护 |
+| `../db-provisioner/` | 统一 Backend 自带的 **`dbctl`**（`DBCTL_BIN` 默认指向此处） |
 | `config/common.env` | 总开关、`DBCTL_BIN`、`OUT_ENV`、各 engine 的 config 路径 |
 | `config/postgresql.external.env` | 集群**外** PG：`dbctl` 变量（host、库、应用用户、管理员等） |
 | `config/redis.external.env` | 集群**外** Redis：ACL 用户、`REDIS_KEY_PREFIX`、`+@connection` 等 |
@@ -24,7 +25,7 @@
 
 ## 前置条件
 
-1. **`db-provisioner`**：与本目录同级的 **`../db-provisioner/bin/dbctl`** 默认可用（admin 自带副本，与 web 解耦）；首次可 `chmod +x ../db-provisioner/bin/dbctl`。若 `dbctl` 在别处，导出 **`DBCTL_BIN`** 覆盖。
+1. **`db-provisioner`**：与本目录同级的 **`../db-provisioner/bin/dbctl`** 默认可用；首次可 `chmod +x ../db-provisioner/bin/dbctl`。若 `dbctl` 在别处，导出 **`DBCTL_BIN`** 覆盖。
 2. **`external`**：本机可达 PG/Redis；通常需 **`psql`**（脚本内会校验）。
 3. **`k8s`**：本机 **`kubectl`** 可用，`NAMESPACE` 等与集群一致。
 4. **`../app/.env` 已存在**（可从 `../app/.env.example` 复制并补 Casdoor）。
@@ -35,7 +36,7 @@
 
 - **`ENABLE_POSTGRESQL` / `ENABLE_REDIS` / `ENABLE_MONGODB`**：管理端不用 Mongo，一般 **`ENABLE_MONGODB=false`**。
 - **`OUT_ENV`**：默认 **`${SCRIPT_DIR}/.env.local.db`**。
-- **`DBCTL_BIN`**：未设置时解析为 **`info-admin-backend/db-provisioner/bin/dbctl`**（相对 `db-access-bootstrap` 的上一级）；使用仓库外二进制时用环境变量覆盖（Windows 可用 `/c/...`）。
+- **`DBCTL_BIN`**：未设置时解析为 **`info-backend/db-provisioner/bin/dbctl`**（相对 `db-access-bootstrap` 的上一级）；使用仓库外二进制时用环境变量覆盖（Windows 可用 `/c/...`）。
 
 ---
 
@@ -44,7 +45,7 @@
 一条命令：**（可选）provision → 合并 `../app/.env` → 写 `.env.reference`**。
 
 ```bash
-cd info-admin-backend/db-access-bootstrap
+cd info-backend/db-access-bootstrap
 chmod +x merge-and-generate-app-env.sh setup-external-db-access.sh setup-k8s-db-access.sh   # 如需
 
 ./merge-and-generate-app-env.sh              # 默认 = external
@@ -112,4 +113,9 @@ chmod +x merge-and-generate-app-env.sh setup-external-db-access.sh setup-k8s-db-
 3. 检查 `../app/.env`（PG/Redis + Casdoor）。
 4. 重启：`uv run uvicorn app.main:app --host 0.0.0.0 --port 8001`
 
-默认 **PostgreSQL + Redis 开启**，**MongoDB 关闭**。占位规则与 `init.sh` 一致（保留 `info` 锚点）。
+默认 **PostgreSQL + Redis 开启**，**MongoDB 关闭**。仓库内只保存
+`change_me_via_secret_manager` 占位符；真实凭据必须由 Secret/密管注入。
+
+> 架构 v2 的数据库名、用户及 Secret 名只用于 R5 之后的新统一 Backend
+> 引导。不得用这些脚本直接覆盖当前 v1 数据库；正式切换必须经过迁移、备份、
+> 校验和回滚门禁。

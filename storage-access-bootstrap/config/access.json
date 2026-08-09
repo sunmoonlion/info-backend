@@ -2,16 +2,16 @@
   "apiVersion": "storage.sunmoonai.com/v1alpha1",
   "kind": "ObjectStorageAccess",
   "metadata": {
-    "name": "info-admin-backend"
+    "name": "info-backend"
   },
   "spec": {
     "provider": "platform-s3",
     "environment": "development",
     "app": "info-app",
-    "backend": "info-admin-backend",
+    "backend": "info-backend",
     "namespace": "app-platform-dev",
-    "secretName": "info-admin-backend-s3",
-    "configMapName": "info-admin-backend-s3",
+    "secretName": "info-backend-s3",
+    "configMapName": "info-backend-s3",
     "region": "us-east-1",
     "forcePathStyle": true,
     "useTLS": false,

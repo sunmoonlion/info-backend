@@ -406,21 +406,47 @@ async def test_worker_completes_only_after_business_success(
     class FakePostgres:
         session_factory = _WorkerSessionContext
 
+        def __init__(self) -> None:
+            self.shutdown_called = False
+
         async def init(self) -> None:
             return None
 
+        async def shutdown(self) -> None:
+            self.shutdown_called = True
+
+    class ExpiringRecord:
+        def __init__(self) -> None:
+            self.expired = False
+
+        @property
+        def id(self) -> UUID:
+            if self.expired:
+                raise AssertionError("worker read record.id after commit")
+            return UUID(int=30)
+
+        @property
+        def status(self) -> str:
+            if self.expired:
+                raise AssertionError("worker read record.status after commit")
+            return "succeeded"
+
+    record = ExpiringRecord()
+
     async def successful_dispatch(*_args: Any, **_kwargs: Any) -> Any:
-        return SimpleNamespace(id=UUID(int=30), status="succeeded", last_error=None)
+        return record
 
     async def fake_complete(*_args: Any, **kwargs: Any) -> bool:
         completed.append(kwargs["message_id"])
+        record.expired = True
         return True
 
     async def fake_release(*_args: Any, **kwargs: Any) -> bool:
         released.append(kwargs)
         return True
 
-    monkeypatch.setattr(distribution_task, "get_postgres", lambda: FakePostgres())
+    postgres = FakePostgres()
+    monkeypatch.setattr(distribution_task, "get_postgres", lambda: postgres)
     monkeypatch.setattr(distribution_task, "dispatch_distribution_service", successful_dispatch)
     monkeypatch.setattr(distribution_task, "complete_delivery_outbox", fake_complete)
     monkeypatch.setattr(distribution_task, "release_delivery_outbox", fake_release)
@@ -430,3 +456,4 @@ async def test_worker_completes_only_after_business_success(
     assert result == str(UUID(int=30))
     assert completed == [UUID(int=31)]
     assert released == []
+    assert postgres.shutdown_called is True

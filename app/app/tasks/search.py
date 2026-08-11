@@ -19,7 +19,10 @@ def index_document_version(document_version_id: str) -> dict:
 async def _run(document_version_id: uuid.UUID) -> dict:
     postgres = get_postgres()
     await postgres.init()
-    async with postgres.session_factory() as session:
-        return await index_document_version_service(
-            session, document_version_id=document_version_id
-        )
+    try:
+        async with postgres.session_factory() as session:
+            return await index_document_version_service(
+                session, document_version_id=document_version_id
+            )
+    finally:
+        await postgres.shutdown()

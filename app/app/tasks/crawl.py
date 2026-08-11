@@ -17,6 +17,9 @@ def crawl_url(job_id: str) -> str:
 async def _run(job_id: uuid.UUID) -> str:
     postgres = get_postgres()
     await postgres.init()
-    async with postgres.session_factory() as session:
-        job = await process_crawl_job(session, job_id)
-        return str(job.id)
+    try:
+        async with postgres.session_factory() as session:
+            job = await process_crawl_job(session, job_id)
+            return str(job.id)
+    finally:
+        await postgres.shutdown()

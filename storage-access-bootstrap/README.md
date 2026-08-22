@@ -11,7 +11,7 @@ set of object data inside the App domain.
 1. Review `config/access.json`.
 2. Set the target Namespace, Bucket names, permissions and versioning.
 3. Set `ENABLE_OBJECT_STORAGE=true` in `config/common.env`.
-4. Override `SUNMOONAI_K8S_ROOT` if the `k8s` repository is not at `~/k8s`.
+4. Override `SUNMOONAI_K8S_ROOT` if the `k8s` repository is not at `~/master/k8s`.
 
 The declaration contains no credentials. The Data Platform provisioner creates
 an IAM identity and writes these resources to the target Namespace:

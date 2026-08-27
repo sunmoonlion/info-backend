@@ -1,7 +1,7 @@
 # info-backend — 局部编码规则
 
 > 进入本目录时自动叠加。**本文件只约束局部编码。**
-> 项目全貌见 `../../k8s/sunmoonai/docs/overall-architecture.md`；
+> 项目全貌见 `../../k8s/sunmoonai/docs/architecture/overall-architecture.md`；
 > 本仓细节见 `../../k8s/sunmoonai/docs/architecture/repos/info-app.md`。
 > 与代码冲突时以代码为准。
 

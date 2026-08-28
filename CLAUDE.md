@@ -1,8 +1,8 @@
 # info-backend — 局部编码规则
 
 > 进入本目录时自动叠加。**本文件只约束局部编码。**
-> 项目全貌见 `../../k8s/sunmoonai/docs/architecture/overall-architecture.md`；
-> 本仓细节见 `../../k8s/sunmoonai/docs/architecture/repos/info-app.md`。
+> 项目全貌见 `../../k8s/sunmoonai/docs/project-guide/overall-architecture.md`；
+> 本仓细节见 `../../k8s/sunmoonai/docs/project-guide/repos/info-app.md`。
 > 与代码冲突时以代码为准。
 
 ## 技术栈
@@ -75,4 +75,4 @@ uv run pytest -q
 2. 读 `app/infrastructure/models/` 确认数据字段
 3. 改模型必须生成 Alembic 迁移，不手改表结构
 4. 跨 App 契约的 schema 真源在 provider 仓，本仓若是 consumer 只改锁文件，
-   且必须双端测试通过——见 `../../k8s/sunmoonai/docs/architecture/topics/contracts.md`
+   且必须双端测试通过——见 `../../k8s/sunmoonai/docs/project-guide/topics/contracts.md`

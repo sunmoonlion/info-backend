@@ -52,7 +52,7 @@ app/
 | `app/application/` 不得出现 `app.interfaces` 字符串 | `test_kernel_invariants` 失败 |
 | 改迁移必须同步改 `tests/test_kernel_invariants.py` 里的文件名清单 | 测试失败（清单是逐字比对的） |
 | 迁移链必须单链线性，恰好一个 `down_revision = None` | 测试失败 |
-| `pyproject.toml` 的 version 必须保持 `2.0.0.dev0` | 测试主动断言，不得改成 2.0.0 |
+| `pyproject.toml` 与 `uv.lock` 的 version 必须同为 `2.0.0` | 测试主动断言，须与正式发布别名一致 |
 | 凭据一律经 pydantic-settings 从环境变量读 | 生产期配置校验会拒绝 |
 | `.dockerignore` 须排除 `app/.env`、`app/.env.*`、`app/tests` | 测试失败 |
 

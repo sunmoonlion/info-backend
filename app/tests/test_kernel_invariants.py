@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,8 +86,27 @@ def test_runtime_image_context_excludes_credentials_and_tests() -> None:
     assert "app/tests" in dockerignore
 
 
-def test_candidate_does_not_claim_the_formal_release() -> None:
+def test_package_version_matches_the_formal_release() -> None:
+    """源码版本必须等于正式发布版本 2.0.0。
+
+    2026-08-13 的 Architecture v2 正式发布采用 exact-digest-alias 晋升：
+    不重建镜像，给已通过 R7 门禁的 digest 打 `2.0.0` 别名
+    （k8s:sunmoonai/docs/architecture-v2/evidence/R7-release/release-manifest.json）。
+    本测试钉住源码侧的版本字符串，使 `/api/version` 与该别名一致。
+
+    本测试的前身 `test_candidate_does_not_claim_the_formal_release` 禁止源码写
+    `2.0.0`，那是 2026-08-01 重构期的护栏；发布已于 8-13 完成，护栏反向。
+    """
     project = (ROOT / "pyproject.toml").read_text()
-    assert 'version = "2.0.0.dev0"' in project
+    assert 'version = "2.0.0"' in project
+    assert "dev0" not in project
+
+    # uv.lock 与 pyproject 必须同步，否则 Dockerfile 的 `uv sync --frozen` 会失败
+    name = re.search(r'^name = "(.+?)"', project, re.M).group(1)
+    lock = (ROOT / "uv.lock").read_text()
+    assert re.search(rf'name = "{re.escape(name)}"\nversion = "2\.0\.0"\n', lock)
+
+    # 版本只能来自包元数据，不得在代码里硬写
     api = (ROOT / "app/bootstrap/api.py").read_text()
     assert 'version="2.0.0"' not in api
+    assert f'version("{name}")' in api

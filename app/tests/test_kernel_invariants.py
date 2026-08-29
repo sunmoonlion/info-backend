@@ -31,8 +31,7 @@ def test_interface_partition_and_dependency_direction_are_explicit() -> None:
     assert (ROOT / "app/infrastructure/security/service_identity.py").is_file()
 
     application_sources = "\n".join(
-        path.read_text()
-        for path in (ROOT / "app/application").rglob("*.py")
+        path.read_text() for path in (ROOT / "app/application").rglob("*.py")
     )
     assert "app.interfaces" not in application_sources
 

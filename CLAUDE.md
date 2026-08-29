@@ -3,7 +3,7 @@
 > 进入本目录时自动叠加。**本文件只约束局部编码。**
 > 项目全貌见 `../../k8s/sunmoonai/docs/project-guide/overall-architecture.md`；
 > 本仓细节见 `../../k8s/sunmoonai/docs/project-guide/repos/info-app.md`。
-> **改代码前先读 `../../k8s/sunmoonai/docs/dev-plan/constraints.md`**（18 条约束 + 19 条不变量）。
+> **改代码前先读 `../../k8s/sunmoonai/docs/dev-plan/constraints.md`**（39 条，按主题分组）。
 > 与代码冲突时以代码为准。
 
 ## 技术栈

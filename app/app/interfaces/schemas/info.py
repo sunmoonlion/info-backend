@@ -220,6 +220,7 @@ class SearchIndexRebuildRead(BaseModel):
     index_name: str
     index_created: bool = False
     indexed: int = 0
+    queued: int = 0
     skipped: int = 0
     failed: int = 0
     errors: list[str] = Field(default_factory=list)

@@ -17,6 +17,10 @@ log_error()   { echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') $1"; }
 BUILD_CONF="${SCRIPT_DIR}/build.conf"
 if [ ! -f "$BUILD_CONF" ]; then log_error "build.conf 不存在"; exit 1; fi
 source "$BUILD_CONF"
+source "$SCRIPT_DIR/release-tag.sh"
+candidate_tag="${BACKEND_TAG:-architecture-v2-dev}"
+if [[ "${1:-}" == "--tag" && -n "${2:-}" ]]; then candidate_tag="$2"; fi
+require_development_tag "$candidate_tag" || exit 1
 source "$SCRIPT_DIR/harbor-cluster.sh"
 
 IMAGE_NAME="${BACKEND_IMAGE:-info-backend}"

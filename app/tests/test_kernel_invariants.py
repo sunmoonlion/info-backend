@@ -49,6 +49,7 @@ def test_one_linear_canonical_migration_chain() -> None:
         "20260714_0004_delivery_outbox.py",
         "20260809_0005_outbox_primitives.py",
         "20260811_0006_delivery_outbox_uuid_default.py",
+        "20260911_0007_durable_delivery.py",
     ]
     contents = [path.read_text() for path in revisions]
     assert sum("down_revision = None" in content for content in contents) == 1
@@ -59,16 +60,16 @@ def test_one_linear_canonical_migration_chain() -> None:
     assert 'down_revision = "20260809_0005"' in contents[5]
 
 
-def test_business_and_shared_outboxes_remain_distinct() -> None:
+def test_legacy_delivery_is_archived_and_shared_outbox_is_authoritative() -> None:
     from app.infrastructure.models import Base
 
     assert {
-        "delivery_outbox_message",
+        "delivery_outbox_message_legacy",
         "outbox_message",
         "inbox_message",
     } <= set(Base.metadata.tables)
 
-    delivery = Base.metadata.tables["delivery_outbox_message"]
+    delivery = Base.metadata.tables["delivery_outbox_message_legacy"]
     shared = Base.metadata.tables["outbox_message"]
     assert "aggregate_id" in delivery.c
     assert "idempotency_key" in delivery.c

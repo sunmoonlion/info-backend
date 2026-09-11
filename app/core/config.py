@@ -125,23 +125,6 @@ class Settings(BaseSettings):
         default=None, validation_alias="CELERY_RESULT_BACKEND"
     )
 
-    # Info domain: durable distribution outbox.
-    delivery_outbox_batch_size: int = Field(
-        default=50, ge=1, le=1000, validation_alias="DELIVERY_OUTBOX_BATCH_SIZE"
-    )
-    delivery_outbox_lease_seconds: int = Field(
-        default=30, ge=1, validation_alias="DELIVERY_OUTBOX_LEASE_SECONDS"
-    )
-    delivery_outbox_ack_timeout_seconds: int = Field(
-        default=300, ge=1, validation_alias="DELIVERY_OUTBOX_ACK_TIMEOUT_SECONDS"
-    )
-    delivery_outbox_retry_base_seconds: int = Field(
-        default=5, ge=1, validation_alias="DELIVERY_OUTBOX_RETRY_BASE_SECONDS"
-    )
-    delivery_outbox_retry_max_seconds: int = Field(
-        default=300, ge=1, validation_alias="DELIVERY_OUTBOX_RETRY_MAX_SECONDS"
-    )
-
     # Info domain: original-document object storage.
     storage_backend: str = Field(default="local", validation_alias="STORAGE_BACKEND")
     storage_local_root: str = Field(

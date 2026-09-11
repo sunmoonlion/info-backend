@@ -91,6 +91,7 @@ EOF
   # +@connection：PING/CLIENT 等，ioredis 连接就绪检查需要；勿省略
   # +@pubsub：Bull/NodeBull worker 需要 subscribe/psubscribe；须配合 channel 前缀（见 REDIS_CHANNEL_PREFIX）
   local category="${REDIS_ACL_CATEGORY:-+@read +@write +@connection +@hash +@string +@list +@set +@sortedset}"
+  category="${category//resetchannels/}"
   local channel_spec="${REDIS_CHANNEL_PREFIX:-}"
   if [[ -z "${channel_spec}" && "${category}" == *"+@pubsub"* ]]; then
     channel_spec="${key_spec}"
@@ -141,7 +142,7 @@ if [[ -n "\${channel_spec}" ]]; then
   done
 fi
 REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' PING >/dev/null
-REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL SETUSER '${APP_DB_USER}' on '>${APP_DB_PASSWORD}' "\${key_args[@]}" "\${channel_args[@]}" \${category} -@dangerous >/dev/null
+REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL SETUSER '${APP_DB_USER}' on '>${APP_DB_PASSWORD}' "\${key_args[@]}" resetchannels "\${channel_args[@]}" \${category} -@dangerous >/dev/null
 REDISCLI_AUTH='${REDIS_ADMIN_PASSWORD}' redis-cli -h '${DB_HOST}' -p '${DB_PORT}' --user '${REDIS_ADMIN_USER}' ACL SAVE >/dev/null
 echo '[redis-client] ACL user upserted: ${APP_DB_USER}'
 EOF
@@ -188,7 +189,7 @@ EOF
     done
   fi
   # shellcheck disable=SC2086
-  redis-cli -h "${DB_HOST}" -p "${DB_PORT}" ${auth_args} ACL SETUSER "${APP_DB_USER}" on ">${APP_DB_PASSWORD}" "${key_args[@]}" "${channel_args[@]}" ${category} -@dangerous >/dev/null
+  redis-cli -h "${DB_HOST}" -p "${DB_PORT}" ${auth_args} ACL SETUSER "${APP_DB_USER}" on ">${APP_DB_PASSWORD}" "${key_args[@]}" resetchannels "${channel_args[@]}" ${category} -@dangerous >/dev/null
   # shellcheck disable=SC2086
   redis-cli -h "${DB_HOST}" -p "${DB_PORT}" ${auth_args} ACL SAVE >/dev/null
   log "[redis] ACL user upserted: ${APP_DB_USER}"

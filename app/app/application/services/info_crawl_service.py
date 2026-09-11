@@ -19,10 +19,15 @@ from app.application.audit_context import get_context
 from app.application.collectors import get_collector_adapter
 from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.services.delivery_outbox import ensure_distribution_dispatch_outbox
+from app.application.services.durable_tasks import (
+    assert_execution_current,
+    enqueue_task,
+)
 from app.infrastructure.external.knowledge_app import (
     KnowledgeAppNotConfiguredError,
     get_knowledge_app_client,
 )
+from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
 from app.infrastructure.models.info import (
     CrawlJob,
     DistributionRecord,
@@ -371,8 +376,8 @@ async def ingest_uploaded_file(
         job.document_id = document.id
         job.document_version_id = version.id
         version_to_index_id = version.id
+        await _enqueue_index_document_version(session, version_to_index_id)
         await session.commit()
-        await _enqueue_or_index_document_version(session, version_to_index_id)
         await session.refresh(version)
         return version
 
@@ -468,8 +473,8 @@ async def ingest_uploaded_file(
     job.document_id = document.id
     job.document_version_id = version.id
     version_to_index_id = version.id
+    await _enqueue_index_document_version(session, version_to_index_id)
     await session.commit()
-    await _enqueue_or_index_document_version(session, version_to_index_id)
     await session.refresh(version)
     return version
 
@@ -478,10 +483,53 @@ async def create_crawl_job(
     session: AsyncSession,
     *,
     target_url: str,
-    source_id: uuid.UUID | None = None,
+    source_id: uuid.UUID | None,
+    enqueue: bool = False,
 ) -> CrawlJob:
-    job = CrawlJob(source_id=source_id, target_url=target_url, status="pending")
+    job = CrawlJob(
+        target_url=target_url,
+        source_id=source_id,
+        status="pending",
+        request={"enqueue": enqueue},
+    )
     session.add(job)
+    await session.flush()
+    if enqueue:
+        await _enqueue_crawl(session, job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
+async def _enqueue_crawl(session: AsyncSession, job: CrawlJob) -> None:
+    generation = int((job.request or {}).get("delivery_generation", 0))
+    await enqueue_task(
+        session,
+        topic="info.crawl.v1",
+        key=str(job.id),
+        payload={"job_id": str(job.id)},
+        deduplication_key=f"info.crawl:{job.id}:v1:{generation}",
+    )
+
+
+async def request_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJob:
+    job = (
+        await session.execute(
+            select(CrawlJob).where(CrawlJob.id == job_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise ValueError(f"crawl job not found: {job_id}")
+    if job.status == "succeeded":
+        return job
+    request = dict(job.request or {})
+    if job.status == "failed":
+        request["delivery_generation"] = int(request.get("delivery_generation", 0)) + 1
+    request["enqueue"] = True
+    job.request = request
+    if job.status != "running":
+        job.status = "pending"
+    await _enqueue_crawl(session, job)
     await session.commit()
     await session.refresh(job)
     return job
@@ -1150,7 +1198,13 @@ async def update_distribution_status(
     last_error: str | None,
     metadata: dict | None = None,
 ) -> DistributionRecord:
-    record = await session.get(DistributionRecord, distribution_id)
+    record = (
+        await session.execute(
+            select(DistributionRecord)
+            .where(DistributionRecord.id == distribution_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if record is None:
         raise ValueError(f"distribution not found: {distribution_id}")
     record.status = status
@@ -1171,7 +1225,13 @@ async def dispatch_distribution(
     *,
     distribution_id: uuid.UUID,
 ) -> DistributionRecord:
-    record = await session.get(DistributionRecord, distribution_id)
+    record = (
+        await session.execute(
+            select(DistributionRecord)
+            .where(DistributionRecord.id == distribution_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if record is None:
         raise ValueError(f"distribution not found: {distribution_id}")
     if record.target_app != "knowledge-app":
@@ -1190,6 +1250,7 @@ async def dispatch_distribution(
     await session.commit()
     await session.refresh(record)
 
+    await assert_execution_current(session)
     try:
         response = await get_knowledge_app_client().ingest_document(
             _knowledge_ingestion_payload(record)
@@ -1251,7 +1312,13 @@ def _distribution_retry_payload(
 async def retry_distribution(
     session: AsyncSession, *, distribution_id: uuid.UUID
 ) -> DistributionRecord:
-    record = await session.get(DistributionRecord, distribution_id)
+    record = (
+        await session.execute(
+            select(DistributionRecord)
+            .where(DistributionRecord.id == distribution_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if record is None:
         raise ValueError(f"distribution not found: {distribution_id}")
     if record.status != "failed":
@@ -1271,7 +1338,13 @@ async def request_distribution_dispatch(
     session: AsyncSession, *, distribution_id: uuid.UUID
 ) -> DistributionRecord:
     """Durably request delivery without treating immediate broker publish as truth."""
-    record = await session.get(DistributionRecord, distribution_id)
+    record = (
+        await session.execute(
+            select(DistributionRecord)
+            .where(DistributionRecord.id == distribution_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if record is None:
         raise ValueError(f"distribution not found: {distribution_id}")
     if record.status == "succeeded":
@@ -1333,36 +1406,16 @@ async def index_document_version(
     return result
 
 
-async def _enqueue_or_index_document_version(
+async def _enqueue_index_document_version(
     session: AsyncSession, document_version_id: uuid.UUID
 ) -> None:
-    try:
-        from app.infrastructure.messaging.celery_producer import get_celery_producer
-
-        producer = get_celery_producer()
-        if producer.enabled:
-            producer.dispatch_index_document_version(document_version_id)
-            return
-    except Exception as exc:
-        logger.warning(
-            "document_version search indexing task dispatch failed; falling back inline",
-            extra={
-                "document_version_id": str(document_version_id),
-                "error": str(exc),
-            },
-        )
-
-    result = await index_document_version(
-        session, document_version_id=document_version_id
+    await enqueue_task(
+        session,
+        topic="info.index.v1",
+        key=str(document_version_id),
+        payload={"document_version_id": str(document_version_id)},
+        deduplication_key=f"info.index:{document_version_id}:v1",
     )
-    if result["failed"]:
-        logger.warning(
-            "document_version search indexing failed",
-            extra={
-                "document_version_id": str(document_version_id),
-                "errors": result["errors"],
-            },
-        )
 
 
 async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
@@ -1372,6 +1425,7 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
         "index_name": search_index.index_name,
         "index_created": False,
         "indexed": 0,
+        "queued": 0,
         "skipped": 0,
         "failed": 0,
         "errors": [],
@@ -1379,20 +1433,28 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
     if not search_index.enabled:
         result["skipped"] = limit
         return result
-
-    versions_result = await session.execute(
-        select(InfoDocumentVersion)
-        .order_by(InfoDocumentVersion.updated_at.desc())
-        .limit(limit)
+    version_ids = (
+        (
+            await session.execute(
+                select(InfoDocumentVersion.id)
+                .order_by(InfoDocumentVersion.created_at.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
     )
-    versions = list(versions_result.scalars())
-    for version in versions:
-        indexed = await index_document_version(session, document_version_id=version.id)
-        result["index_created"] = result["index_created"] or indexed["index_created"]
-        result["indexed"] += indexed["indexed"]
-        result["skipped"] += indexed["skipped"]
-        result["failed"] += indexed["failed"]
-        result["errors"].extend(indexed["errors"])
+    request_id = uuid.uuid4()
+    for version_id in version_ids:
+        await enqueue_task(
+            session,
+            topic="info.index.v1",
+            key=str(version_id),
+            payload={"document_version_id": str(version_id)},
+            deduplication_key=f"info.reindex:{request_id}:{version_id}",
+        )
+    await session.commit()
+    result["queued"] = len(version_ids)
     return result
 
 
@@ -1402,6 +1464,10 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
     job = await session.get(CrawlJob, job_id)
     if job is None:
         raise ValueError(f"crawl job not found: {job_id}")
+
+    if job.status in {"succeeded", "failed"}:
+        return job
+    await assert_execution_current(session)
 
     source = await session.get(InfoSource, job.source_id) if job.source_id else None
     source_code = _source_code(source)
@@ -1581,6 +1647,10 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
         job.document_id = document.id
         job.document_version_id = version.id
         version_to_index_id = version.id
+    except DeliveryLeaseLost:
+        # The new execution owner decides the result. Do not turn lost ownership
+        # into a terminal crawl failure or acknowledge the interrupted command.
+        raise
     except Exception as exc:
         if raw_artifact is not None and job.http_status and job.http_status < 400:
             failed_document, failed_version = await _record_extraction_failure(
@@ -1598,13 +1668,13 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
         job.status = "failed"
         job.error_code = exc.__class__.__name__
         job.error_message = str(exc)
-    finally:
-        job.finished_at = _now()
-        job.duration_ms = int((time.perf_counter() - started) * 1000)
-        await session.commit()
-        await session.refresh(job)
-        if version_to_index_id is not None:
-            await _enqueue_or_index_document_version(session, version_to_index_id)
+    # Cancellation and lost leases must escape without a final progress commit.
+    job.finished_at = _now()
+    job.duration_ms = int((time.perf_counter() - started) * 1000)
+    if version_to_index_id is not None:
+        await _enqueue_index_document_version(session, version_to_index_id)
+    await session.commit()
+    await session.refresh(job)
     return job
 
 

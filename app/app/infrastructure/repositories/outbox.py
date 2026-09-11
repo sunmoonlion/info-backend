@@ -24,6 +24,10 @@ class SqlOutboxRepository:
                 )
                 ON CONFLICT (deduplication_key) DO UPDATE SET
                     deduplication_key = EXCLUDED.deduplication_key
+                WHERE outbox_message.topic=EXCLUDED.topic
+                  AND outbox_message.aggregate_key=EXCLUDED.aggregate_key
+                  AND outbox_message.payload=EXCLUDED.payload
+                  AND outbox_message.headers=EXCLUDED.headers
                 RETURNING id
                 """
             ),
@@ -36,7 +40,10 @@ class SqlOutboxRepository:
                 "headers": self._json(event.headers),
             },
         )
-        return result.scalar_one()
+        message_id = result.scalar_one_or_none()
+        if message_id is None:
+            raise ValueError("outbox deduplication key reused with different intent")
+        return message_id
 
     async def claim_batch(
         self,
@@ -97,6 +104,7 @@ class SqlOutboxRepository:
                     lease_owner = NULL, lease_expires_at = NULL,
                     last_error = NULL, updated_at = NOW()
                 WHERE id = :id AND status = 'delivering' AND lease_owner = :owner
+                  AND lease_expires_at > clock_timestamp()
                 RETURNING id
                 """
             ),
@@ -125,6 +133,7 @@ class SqlOutboxRepository:
                     lease_owner = NULL, lease_expires_at = NULL,
                     last_error = :error_code, updated_at = NOW()
                 WHERE id = :id AND status = 'delivering' AND lease_owner = :owner
+                  AND lease_expires_at > clock_timestamp()
                 RETURNING id
                 """
             ),

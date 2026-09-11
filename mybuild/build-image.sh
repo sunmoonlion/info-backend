@@ -19,6 +19,10 @@ if [ ! -f "$BUILD_CONF" ]; then
 fi
 log_info "加载构建配置: $BUILD_CONF"
 source "$BUILD_CONF"
+source "$SCRIPT_DIR/release-tag.sh"
+candidate_tag="${BACKEND_TAG:-architecture-v2-dev}"
+if [[ "${1:-}" == "--tag" && -n "${2:-}" ]]; then candidate_tag="$2"; fi
+require_development_tag "$candidate_tag" || exit 1
 source "$SCRIPT_DIR/harbor-cluster.sh"
 REGISTRY="$(resolve_k8s_images_registry)" || exit 1
 export REGISTRY

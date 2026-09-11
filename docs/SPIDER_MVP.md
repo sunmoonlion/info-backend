@@ -8,14 +8,14 @@ URL -> crawl_job -> raw artifact -> extracted content -> info_document -> docume
 
 ## 1. 数据库迁移
 
-在 `info-admin-backend/app` 下执行：
+在 `info-backend/app` 下通过独立迁移进程执行：
 
 ```bash
-uv sync
-uv run alembic upgrade head
+uv sync --frozen
+uv run python -m app.bootstrap.migration upgrade head
 ```
 
-迁移不依赖 `uuid-ossp` 等需要超管权限的扩展；UUID 主键由应用侧生成。
+旧迁移使用 `uuid-ossp`；数据库准备阶段须由 DBA 安装，不能依赖 Worker 启动时补建。
 
 ## 2. 本地对象存储
 
@@ -73,9 +73,9 @@ SEARCH_BACKEND=elasticsearch
 curl -X POST 'http://localhost:8000/api/admin/search-index/rebuild?limit=200'
 ```
 
-当前重建入口会自动创建 `info-information` 索引。创建新的 `document_version`
-并提交成功后，会优先投递 Celery 后台任务写入索引；未配置 Celery broker
-时会在主事务提交后执行一次 best-effort 增量写入，搜索服务故障不会回滚采集结果。
+重建入口持久排队 `info.index.v1`，返回 `queued`（已排队数量）；`indexed=0`
+不表示后台已完成。Worker 执行时才创建索引并写入。新 `document_version` 与索引
+命令在同一数据库事务提交；broker 不可用时命令仍保留，由 Scheduler 恢复投递。
 
 ## 4. API
 
@@ -143,7 +143,7 @@ curl -X POST http://localhost:8000/api/admin/uploads \
   -F 'title=Report'
 ```
 
-直接执行一次采集任务：
+请求持久排队一次采集任务（返回后查询状态）：
 
 ```bash
 curl -X POST http://localhost:8000/api/admin/crawl-jobs/{job_id}/run
@@ -203,8 +203,8 @@ KNOWLEDGE_APP_TIMEOUT_SECONDS=20
 curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dispatch
 ```
 
-也可在创建记录时设置 `"dispatch": true`。Celery broker 可用时会投递后台任务；
-未配置 Celery 时同步执行一次。未配置 `KNOWLEDGE_APP_INGEST_URL` 时记录保持
+也可在创建记录时设置 `"dispatch": true`，与记录同事务写入持久命令，之后由
+Scheduler/Worker 投递执行。未配置 `KNOWLEDGE_APP_INGEST_URL` 时记录保持
 `pending`，并在 `last_error` / `payload.status_history` 里标记跳过原因。
 
 分发请求遵循 Knowledge Provider 的 Artifact Contract v1：仅发送带 S3 对象版本、
@@ -213,11 +213,17 @@ SHA-256、大小和 media type 的不可变 `s3://` 引用。Knowledge 使用自
 
 ## 5. Celery
 
-配置 `CELERY_BROKER_URL` 后，`POST /api/admin/crawl-jobs` 默认投递
-`app.tasks.crawl_url`。未配置 Celery 时，API 只创建 `pending` 任务，可通过
-`POST /api/admin/crawl-jobs/{job_id}/run` 手动同步执行，方便本地验证。
+`POST /api/admin/crawl-jobs` 的 `enqueue=true` 将采集与 `info.crawl.v1`
+命令同事务保存；`enqueue=false` 仅建单。`POST /api/admin/crawl-jobs/{job_id}/run`
+请求持久排队，返回当前作业状态，不在 HTTP 请求内同步采集。失败作业再次请求时
+递增执行代次；成功作业不会重新抓取。
 
-平台 RabbitMQ 已验证默认队列路由：`info.admin.default` 使用同名 direct exchange
+配置 `CELERY_BROKER_URL` 并同时运行 Worker 和 Scheduler。公共 Beat 每 5 秒发布与
+对账，broker 消息仅携带持久消息 UUID。旧 `crawl_url`、`index_document_version`、
+`dispatch_distribution` Celery 入口拒绝绕过公共消费者。运维、迁移与回滚见
+[可靠投递](durable-delivery-luna.md)。
+
+历史版本曾验证平台 RabbitMQ 默认队列路由：`info.admin.default` 使用同名 direct exchange
 和 routing key。验证 job `a14ebe20-2bf1-422a-8637-fc9178ebff9c` 由 API 投递后被
 本地 worker 消费，采集成功，并继续投递/执行 `app.tasks.index_document_version`。
 
@@ -237,10 +243,10 @@ SHA-256、大小和 media type 的不可变 `s3://` 引用。Knowledge 使用自
 - 已实现摘要、标签和重要性评分标注 API：写入 `metadata_json.summary_profile`，并保留 `summary_history`。
 - 已实现统一人工治理审计日志：review、relation、entity-links、summary-profile 都会追加 `metadata_json.audit_log`。
 - 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
-- 已实现 `document_version` 创建成功后的搜索索引增量写入；Celery 可用时后台执行，未配置时主事务提交后 best-effort 执行。
+- 已实现 `document_version` 与索引命令同事务提交，后台可靠消费；搜索关闭时消费记为跳过。
 - 搜索 adapter 已支持平台注入的 `ELASTICSEARCH_USERNAME`、`ELASTICSEARCH_PASSWORD`、`ELASTICSEARCH_CA_CERT_PATH` 和 `ELASTICSEARCH_ALIASES`，会优先写入 `information.write` alias。
 - 已通过平台 Elasticsearch Secret/CA 和 `development-info-app-information-write` alias 验证真实写入权限；验证文档写入后已删除。
-- 已通过平台 RabbitMQ 队列验证 `crawl_url -> document_version -> index_document_version` 后台任务链路。
+- 历史版本通过过平台 RabbitMQ 的旧后台任务链；当前公共可靠投递需独立运行证据。
 - 已实现 `knowledge-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已在本机 kind PostgreSQL / Redis 和本地对象存储配置下执行 migration，并通过本机 HTTP 页面验证同步 crawl job 成功路径。

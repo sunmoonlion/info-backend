@@ -141,6 +141,8 @@ REDIS_ALLOW_FLUSH_DB=true
   必须严格覆盖统一 Backend 实际写入的 key。Info v2 默认使用 `info:*`，新增
   key 空间时应显式评审并更新 ACL。
 - `REDIS_ACL_CATEGORY`（默认含 `+@read +@write +@connection` 等）：**须含 `+@connection`**，否则 ACL 用户无法执行 `PING`，ioredis 连接会失败；执行机必须使用支持 `--user` 的 `redis-cli`（Redis CLI >= 6）。
+- `REDIS_CHANNEL_PREFIX`：Pub/Sub 频道模式；未设且包含 `+@pubsub` 时沿用键前缀。驱动在授予频道前固定执行 `resetchannels`，也会从 category 中剥离该词，避免旧的宽泛频道授权残留或误删刚授予的频道。
+- Info 保留既有 `ACL SAVE` 持久化步骤（相对模板的环境兼容差异）；目标 Redis 必须配置可写 ACL 文件。临时无 ACL 文件的 Redis 上验证频道权限，不等于验证了重启持久化。
 
 ### k8s 输出字段
 

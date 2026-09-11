@@ -199,7 +199,7 @@ class DeliveryOutboxMessage(UUIDMixin, TimestampMixin, Base):
     it is deliberately not used as the recovery store.
     """
 
-    __tablename__ = "delivery_outbox_message"
+    __tablename__ = "delivery_outbox_message_legacy"
 
     topic: Mapped[str] = mapped_column(String(120), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)

@@ -16,10 +16,8 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import info_crawl_service
-from app.application.services.delivery_outbox import dispatch_due_delivery_outbox
 from app.domain.security import Principal
-from app.infrastructure.messaging.celery_producer import get_celery_producer
-from app.infrastructure.storage.postgres import get_db_session, get_postgres
+from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.http.middleware.auth import require_info_admin
 from app.interfaces.schemas.info import (
     CollectorCreate,
@@ -46,32 +44,6 @@ from app.interfaces.schemas.info import (
 
 router = APIRouter(tags=["资讯采集"])
 logger = logging.getLogger(__name__)
-
-
-async def _best_effort_kick_delivery_outbox() -> None:
-    """Wake the dispatcher in an isolated unit of work.
-
-    The dispatcher commits while claiming/publishing outbox rows. Reusing the
-    request session would expire the ORM object that the route still needs to
-    serialize, and an unexpected dispatcher error could also poison that
-    session. The durable request is already committed, so the optional wake-up
-    belongs in its own session.
-    """
-    try:
-        producer = get_celery_producer()
-        if not producer.enabled:
-            logger.info("delivery outbox queued; broker dispatcher is not configured")
-            return
-        async with get_postgres().session_factory() as dispatch_session:
-            await dispatch_due_delivery_outbox(dispatch_session, publisher=producer)
-    except Exception as exc:
-        # The row was already committed with the domain change.  A scheduled
-        # scanner will recover it; surfacing a 5xx here would incorrectly tell
-        # the caller that the durable request was not recorded.
-        logger.error(
-            "delivery outbox immediate kick failed; scanner will retry",
-            extra={"error_code": type(exc).__name__},
-        )
 
 
 @router.post(
@@ -153,11 +125,8 @@ async def create_crawl_job(
         session,
         target_url=str(payload.target_url),
         source_id=payload.source_id,
+        enqueue=payload.enqueue,
     )
-    if payload.enqueue:
-        producer = get_celery_producer()
-        if producer.enabled:
-            producer.dispatch_crawl_url(job.id)
     return job
 
 
@@ -175,7 +144,7 @@ async def get_crawl_job(
 async def run_crawl_job(
     job_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
-    job = await info_crawl_service.process_crawl_job(session, job_id)
+    job = await info_crawl_service.request_crawl_job(session, job_id)
     return job
 
 
@@ -389,8 +358,6 @@ async def create_knowledge_distribution(
             target_dataset=payload.target_dataset,
             dispatch=payload.dispatch,
         )
-        if payload.dispatch:
-            await _best_effort_kick_delivery_outbox()
         return record
     except info_crawl_service.ArtifactNotDistributableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -457,7 +424,6 @@ async def retry_distribution(
         record = await info_crawl_service.retry_distribution(
             session, distribution_id=distribution_id
         )
-        await _best_effort_kick_delivery_outbox()
         return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -473,7 +439,6 @@ async def dispatch_distribution(
         record = await info_crawl_service.request_distribution_dispatch(
             session, distribution_id=distribution_id
         )
-        await _best_effort_kick_delivery_outbox()
         return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 
-import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +22,7 @@ from app.application.services.durable_tasks import (
     assert_execution_current,
     enqueue_task,
 )
+from app.infrastructure.external.crawl_http import fetch_crawl_url
 from app.infrastructure.external.knowledge_app import (
     KnowledgeAppNotConfiguredError,
     get_knowledge_app_client,
@@ -1484,15 +1484,13 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
     version_to_index_id: uuid.UUID | None = None
 
     try:
-        async with httpx.AsyncClient(
-            timeout=settings.crawl_timeout_seconds,
-            follow_redirects=True,
+        response = await fetch_crawl_url(
+            job.target_url,
+            timeout_seconds=settings.crawl_timeout_seconds,
+            max_bytes=settings.crawl_max_bytes,
             headers={"User-Agent": settings.crawl_user_agent},
-        ) as client:
-            response = await client.get(job.target_url)
-            content = await response.aread()
-        if len(content) > settings.crawl_max_bytes:
-            raise ValueError(f"response too large: {len(content)} bytes")
+        )
+        content = response.content
 
         job.http_status = response.status_code
         job.final_url = str(response.url)

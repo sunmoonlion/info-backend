@@ -4,9 +4,8 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
 
-import httpx
-
 from app.application.collectors.base import CollectedLink
+from app.infrastructure.external.crawl_http import fetch_crawl_url
 from core.config import get_settings
 
 
@@ -15,13 +14,17 @@ class RssCollectorAdapter:
 
     async def discover(self, *, url: str, config: dict) -> list[CollectedLink]:
         settings = get_settings()
-        timeout = float(config.get("timeout_seconds", settings.crawl_timeout_seconds))
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(
-                url,
-                headers={"User-Agent": settings.crawl_user_agent},
-            )
-            response.raise_for_status()
+        timeout = min(
+            float(config.get("timeout_seconds", settings.crawl_timeout_seconds)),
+            settings.crawl_timeout_seconds,
+        )
+        response = await fetch_crawl_url(
+            url,
+            timeout_seconds=timeout,
+            max_bytes=settings.crawl_max_bytes,
+            headers={"User-Agent": settings.crawl_user_agent},
+        )
+        response.raise_for_status()
         return parse_feed(response.text)
 
 

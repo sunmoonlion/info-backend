@@ -154,11 +154,10 @@ async def test_duplicate_crawl_after_terminal_commit_does_not_fetch_again(
         db, "SELECT id FROM outbox_message WHERE topic='info.crawl.v1'"
     )
 
-    class NoNetwork:
-        def __init__(self, **kwargs):
-            raise AssertionError("terminal crawl must not fetch again")
+    async def no_network(*args, **kwargs):
+        raise AssertionError("terminal crawl must not fetch again")
 
-    monkeypatch.setattr(service.httpx, "AsyncClient", NoNetwork)
+    monkeypatch.setattr(service, "fetch_crawl_url", no_network)
     assert await DurableTasks(db, handlers=get_delivery_handlers()).consume(message_id)
 
 
@@ -184,17 +183,10 @@ async def test_interrupted_crawl_does_not_commit_a_terminal_result(
     )
     error = DeliveryLeaseLost if failure == "lease_lost" else asyncio.CancelledError
 
-    class InterruptedClient:
-        def __init__(self, **kwargs):
-            pass
+    async def interrupted_fetch(*args, **kwargs):
+        raise error("execution interrupted")
 
-        async def __aenter__(self):
-            raise error("execution interrupted")
-
-        async def __aexit__(self, *args):
-            pass
-
-    monkeypatch.setattr(service.httpx, "AsyncClient", InterruptedClient)
+    monkeypatch.setattr(service, "fetch_crawl_url", interrupted_fetch)
     with pytest.raises(error):
         await DurableTasks(db, handlers=get_delivery_handlers()).consume(message_id)
     assert (
@@ -206,6 +198,42 @@ async def test_interrupted_crawl_does_not_commit_a_terminal_result(
         is None
     )
     assert await sql(db, "SELECT count(*) FROM inbox_message") == 0
+
+
+async def test_forbidden_crawl_records_failure_without_network_or_artifact(
+    db, monkeypatch
+):
+    from app.application.services.durable_tasks import DurableTasks
+    from app.infrastructure.external import crawl_http
+    from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+
+    def no_client(**kwargs):
+        raise AssertionError("private target must be rejected before connecting")
+
+    monkeypatch.setattr(crawl_http.httpx, "AsyncClient", no_client)
+    monkeypatch.setattr(service, "get_object_storage", MemoryStorage)
+    async with db() as s:
+        job = await service.create_crawl_job(
+            s,
+            target_url="http://169.254.169.254/latest/meta-data/",
+            source_id=None,
+            enqueue=True,
+        )
+        job_id = job.id
+    message_id = await sql(
+        db, "SELECT id FROM outbox_message WHERE topic='info.crawl.v1'"
+    )
+    assert await DurableTasks(db, handlers=get_delivery_handlers()).consume(message_id)
+    assert (
+        await sql(db, "SELECT status FROM crawl_job WHERE id=:id", id=job_id)
+        == "failed"
+    )
+    assert (
+        await sql(db, "SELECT error_message FROM crawl_job WHERE id=:id", id=job_id)
+        == "crawl_address_forbidden"
+    )
+    assert await sql(db, "SELECT count(*) FROM raw_artifact") == 0
+    assert await sql(db, "SELECT count(*) FROM inbox_message") == 1
 
 
 async def test_rebuild_reports_queued_and_defers_remote_indexing(db, monkeypatch):

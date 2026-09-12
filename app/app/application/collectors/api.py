@@ -3,9 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import UTC, datetime
 
-import httpx
-
 from app.application.collectors.base import CollectedLink
+from app.infrastructure.external.crawl_http import fetch_crawl_url
 from core.config import get_settings
 
 
@@ -14,14 +13,20 @@ class ApiCollectorAdapter:
 
     async def discover(self, *, url: str, config: dict) -> list[CollectedLink]:
         settings = get_settings()
-        timeout = float(config.get("timeout_seconds", settings.crawl_timeout_seconds))
+        timeout = min(
+            float(config.get("timeout_seconds", settings.crawl_timeout_seconds)),
+            settings.crawl_timeout_seconds,
+        )
         headers = dict(config.get("headers") or {})
         headers.setdefault("User-Agent", settings.crawl_user_agent)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(
-                url, headers=headers, params=config.get("params")
-            )
-            response.raise_for_status()
+        response = await fetch_crawl_url(
+            url,
+            timeout_seconds=timeout,
+            max_bytes=settings.crawl_max_bytes,
+            headers=headers,
+            params=config.get("params"),
+        )
+        response.raise_for_status()
         return parse_api_payload(response.json(), config=config)
 
 

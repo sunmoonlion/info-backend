@@ -39,6 +39,7 @@ from app.infrastructure.models.info import (
     RawArtifact,
 )
 from app.infrastructure.search import build_info_index_document, get_info_search_index
+from app.infrastructure.storage.crawl_concurrency import crawl_source_slot
 from app.infrastructure.storage.object_storage import (
     StoredObject,
     get_object_storage,
@@ -278,7 +279,10 @@ async def run_collector_discovery(
     if not target_url:
         raise ValueError("collector discovery requires a url or config.url")
     adapter = get_collector_adapter(collector.collector_type)
-    links = await adapter.discover(url=target_url, config=collector.config)
+    async with crawl_source_slot(
+        session, source_id=collector.source_id, url=target_url
+    ):
+        links = await adapter.discover(url=target_url, config=collector.config)
     jobs = [
         CrawlJob(
             source_id=collector.source_id,
@@ -1459,6 +1463,24 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
 
 
 async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJob:
+    job = await session.get(CrawlJob, job_id)
+    if job is None:
+        raise ValueError(f"crawl job not found: {job_id}")
+    if job.status in {"succeeded", "failed"}:
+        return job
+    # Admission precedes running/attempt_count and the handler's error-to-terminal
+    # mapping. Busy callers leave no Inbox; durable delivery reconciles the same
+    # message with its existing bounded retry/dead-letter/replay policy.
+    async with crawl_source_slot(
+        session, source_id=job.source_id, url=job.target_url
+    ):
+        await session.refresh(job)
+        return await _process_admitted_crawl_job(session, job_id)
+
+
+async def _process_admitted_crawl_job(
+    session: AsyncSession, job_id: uuid.UUID
+) -> CrawlJob:
     settings = get_settings()
     storage = get_object_storage()
     job = await session.get(CrawlJob, job_id)

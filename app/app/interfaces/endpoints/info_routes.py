@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import info_crawl_service
 from app.domain.security import Principal
+from app.infrastructure.storage.crawl_concurrency import CrawlSourceBusy
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.http.middleware.auth import require_info_admin
 from app.interfaces.schemas.info import (
@@ -109,6 +110,10 @@ async def discover_collector(
             collector_id=collector_id,
             url=str(payload.url) if payload.url else None,
         )
+    except CrawlSourceBusy as exc:
+        raise HTTPException(
+            status_code=409, detail="crawl_source_busy", headers={"Retry-After": "5"}
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

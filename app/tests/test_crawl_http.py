@@ -294,9 +294,15 @@ async def test_discovery_collectors_use_same_fetch_boundary(network):
 def test_document_crawler_uses_shared_info_fetch_boundary():
     import inspect
 
-    from app.application.services.info_crawl_service import process_crawl_job
+    from app.application.services.info_crawl_service import (
+        _process_admitted_crawl_job,
+        process_crawl_job,
+    )
 
-    source = inspect.getsource(process_crawl_job)
+    entry = inspect.getsource(process_crawl_job)
+    assert "async with crawl_source_slot(" in entry
+    assert "await _process_admitted_crawl_job(" in entry
+    source = inspect.getsource(_process_admitted_crawl_job)
     assert "await fetch_crawl_url(" in source
     assert "AsyncClient(" not in source
     assert "await response.aread()" not in source

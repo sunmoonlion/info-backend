@@ -96,40 +96,62 @@ class ObjectStorage:
         sha256: str,
         metadata: Mapping[str, str] | None,
     ) -> StoredObject:
+        client = self.s3_client()
+        try:
+            response = client.put_object(
+                Bucket=self.bucket,
+                Key=object_key,
+                Body=data,
+                ContentType=content_type,
+                Metadata=dict(metadata or {}) | {"sha256": sha256},
+            )
+            version_id = response.get("VersionId")
+            if not version_id or version_id.lower() == "null":
+                raise RuntimeError("s3_version_required")
+            # Never inspect latest: another writer can create a newer version
+            # between PUT and HEAD. The returned version is the durable reference.
+            head = client.head_object(
+                Bucket=self.bucket, Key=object_key, VersionId=version_id
+            )
+            if (
+                head.get("VersionId") != version_id
+                or int(head["ContentLength"]) != len(data)
+                or head.get("Metadata", {}).get("sha256") != sha256
+            ):
+                raise RuntimeError("s3_version_metadata_mismatch")
+            return StoredObject(
+                bucket=self.bucket,
+                object_key=object_key,
+                version_id=version_id,
+                sha256=sha256,
+                size_bytes=len(data),
+                content_type=content_type,
+            )
+        finally:
+            client.close()
+
+    def s3_client(self):
+        """Info-domain S3 client; callers close it. No implicit local fallback."""
+        if self._settings.storage_backend.lower() != "s3":
+            raise ValueError("artifact_reconcile_requires_s3")
         import boto3
         from botocore.config import Config
 
         endpoint_url = self._settings.s3_endpoint
         addressing_style = "path" if self._settings.s3_force_path_style else "virtual"
-        client = boto3.client(
+        return boto3.client(
             "s3",
             endpoint_url=endpoint_url,
             region_name=self._settings.s3_region,
             aws_access_key_id=self._settings.s3_access_key_id,
             aws_secret_access_key=self._settings.s3_secret_access_key,
             use_ssl=self._settings.s3_use_tls,
-            config=Config(s3={"addressing_style": addressing_style}),
-        )
-        response = client.put_object(
-            Bucket=self.bucket,
-            Key=object_key,
-            Body=data,
-            ContentType=content_type,
-            Metadata=dict(metadata or {}) | {"sha256": sha256},
-        )
-        head = client.head_object(Bucket=self.bucket, Key=object_key)
-        size = int(head["ContentLength"])
-        if size != len(data):
-            raise RuntimeError(
-                f"S3 object size mismatch for {object_key}: expected {len(data)}, got {size}"
-            )
-        return StoredObject(
-            bucket=self.bucket,
-            object_key=object_key,
-            version_id=response.get("VersionId"),
-            sha256=sha256,
-            size_bytes=size,
-            content_type=content_type,
+            config=Config(
+                s3={"addressing_style": addressing_style},
+                connect_timeout=3,
+                read_timeout=5,
+                retries={"mode": "standard", "total_max_attempts": 2},
+            ),
         )
 
 

@@ -12,6 +12,7 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.audit_context import get_context
@@ -22,6 +23,7 @@ from app.application.services.durable_tasks import (
     assert_execution_current,
     enqueue_task,
 )
+from app.domain.info_identity_v1 import identity_key_v1, normalize_url_v1
 from app.infrastructure.external.crawl_http import fetch_crawl_url
 from app.infrastructure.external.knowledge_app import (
     KnowledgeAppNotConfiguredError,
@@ -1471,9 +1473,7 @@ async def process_crawl_job(session: AsyncSession, job_id: uuid.UUID) -> CrawlJo
     # Admission precedes running/attempt_count and the handler's error-to-terminal
     # mapping. Busy callers leave no Inbox; durable delivery reconciles the same
     # message with its existing bounded retry/dead-letter/replay policy.
-    async with crawl_source_slot(
-        session, source_id=job.source_id, url=job.target_url
-    ):
+    async with crawl_source_slot(session, source_id=job.source_id, url=job.target_url):
         await session.refresh(job)
         return await _process_admitted_crawl_job(session, job_id)
 
@@ -1849,27 +1849,47 @@ async def _find_or_create_document(
     published_at: datetime | None,
     content_hash: str,
 ) -> InfoDocument:
-    result = await session.execute(
-        select(InfoDocument).where(InfoDocument.canonical_url == url)
+    identity = identity_key_v1(url)
+    # The unique key arbitrates creation across sources, uploads and workers.
+    # DO NOTHING never overwrites the winning document or its current version.
+    await session.execute(
+        pg_insert(InfoDocument)
+        .values(
+            source_id=source.id if source else None,
+            canonical_url=url,
+            canonical_identity=identity,
+            title=title,
+            source_name=source.name if source else None,
+            published_at=published_at,
+            content_hash=content_hash,
+            metadata_json={},
+        )
+        .on_conflict_do_nothing(constraint="uq_info_document_canonical_identity")
     )
-    document = result.scalar_one_or_none()
-    if document:
-        return document
-    document = InfoDocument(
-        source_id=source.id if source else None,
-        canonical_url=url,
-        title=title,
-        source_name=source.name if source else None,
-        published_at=published_at,
-        content_hash=content_hash,
-        metadata_json={},
-    )
-    session.add(document)
-    await session.flush()
+    document = (
+        await session.execute(
+            select(InfoDocument)
+            .where(InfoDocument.canonical_identity == identity)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    # A digest collision/corrupted identity must fail, never attach to another URL.
+    if document.canonical_url is None or normalize_url_v1(
+        document.canonical_url
+    ) != normalize_url_v1(url):
+        raise ValueError("canonical_identity_conflict")
     return document
 
 
 async def _next_version_no(session: AsyncSession, document_id: uuid.UUID) -> int:
+    # Hold the parent row until the version, current pointer and index intent
+    # commit together. MAX alone is not a version allocator under concurrency.
+    parent = await session.execute(
+        select(InfoDocument.id).where(InfoDocument.id == document_id).with_for_update()
+    )
+    if parent.scalar_one_or_none() is None:
+        raise ValueError("document_not_found")
     result = await session.execute(
         select(func.max(InfoDocumentVersion.version_no)).where(
             InfoDocumentVersion.document_id == document_id

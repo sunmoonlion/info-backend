@@ -50,6 +50,7 @@ def test_one_linear_canonical_migration_chain() -> None:
         "20260809_0005_outbox_primitives.py",
         "20260811_0006_delivery_outbox_uuid_default.py",
         "20260911_0007_durable_delivery.py",
+        "20260912_0008_canonical_identity.py",
     ]
     contents = [path.read_text() for path in revisions]
     assert sum("down_revision = None" in content for content in contents) == 1
@@ -58,6 +59,8 @@ def test_one_linear_canonical_migration_chain() -> None:
     assert 'down_revision = "20260712_0003"' in contents[3]
     assert 'down_revision = "20260714_0004"' in contents[4]
     assert 'down_revision = "20260809_0005"' in contents[5]
+    assert 'down_revision = "20260811_0006"' in contents[6]
+    assert 'down_revision = "20260911_0007"' in contents[7]
 
 
 def test_legacy_delivery_is_archived_and_shared_outbox_is_authoritative() -> None:

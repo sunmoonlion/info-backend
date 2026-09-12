@@ -5,17 +5,20 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from app.domain.info_identity_v1 import identity_key_v1
 from app.infrastructure.models.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -122,6 +125,7 @@ class InfoDocument(UUIDMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("info_source.id"), nullable=True
     )
     canonical_url: Mapped[str | None] = mapped_column(Text)
+    canonical_identity: Mapped[str | None] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     source_name: Mapped[str | None] = mapped_column(String(255))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -129,6 +133,23 @@ class InfoDocument(UUIDMixin, TimestampMixin, Base):
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     content_hash: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "canonical_identity", name="uq_info_document_canonical_identity"
+        ),
+        CheckConstraint(
+            "(canonical_url IS NULL AND canonical_identity IS NULL) OR "
+            "(canonical_url IS NOT NULL AND canonical_identity IS NOT NULL "
+            "AND canonical_identity ~ '^[0-9a-f]{64}$')",
+            name="ck_info_document_canonical_identity",
+        ),
+    )
+
+    @validates("canonical_url")
+    def derive_identity(self, key: str, value: str | None) -> str | None:
+        self.canonical_identity = identity_key_v1(value)
+        return value
 
 
 class InfoDocumentVersion(UUIDMixin, TimestampMixin, Base):
@@ -138,6 +159,9 @@ class InfoDocumentVersion(UUIDMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("info_document.id"), nullable=False
     )
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    write_protocol_version: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=1
+    )
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -152,6 +176,9 @@ class InfoDocumentVersion(UUIDMixin, TimestampMixin, Base):
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     __table_args__ = (
+        CheckConstraint(
+            "write_protocol_version=1", name="ck_info_version_write_protocol"
+        ),
         UniqueConstraint(
             "document_id", "version_no", name="uq_info_document_version_no"
         ),

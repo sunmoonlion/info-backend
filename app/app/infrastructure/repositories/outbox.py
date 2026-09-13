@@ -6,21 +6,26 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.outbox import ClaimedOutboxEvent, OutboxEvent
+from app.infrastructure.messaging.delivery_schedule import NOT_BEFORE_DUE_SQL
 
 
 class SqlOutboxRepository:
     """PostgreSQL outbox with SKIP LOCKED leasing and explicit ownership."""
 
     async def enqueue(self, session: AsyncSession, event: OutboxEvent) -> uuid.UUID:
+        # Frozen DTOs still contain mutable dicts; revalidate before persistence.
+        event = OutboxEvent.model_validate(event.model_dump())
         message_id = uuid.uuid4()
         result = await session.execute(
             text(
                 """
                 INSERT INTO outbox_message (
-                    id, topic, aggregate_key, deduplication_key, payload, headers
+                    id, topic, aggregate_key, deduplication_key, payload, headers,
+                    available_at
                 ) VALUES (
                     :id, :topic, :aggregate_key, :deduplication_key,
-                    CAST(:payload AS jsonb), CAST(:headers AS jsonb)
+                    CAST(:payload AS jsonb), CAST(:headers AS jsonb),
+                    COALESCE(CAST(:not_before AS timestamptz), clock_timestamp())
                 )
                 ON CONFLICT (deduplication_key) DO UPDATE SET
                     deduplication_key = EXCLUDED.deduplication_key
@@ -37,7 +42,8 @@ class SqlOutboxRepository:
                 "aggregate_key": event.aggregate_key,
                 "deduplication_key": event.deduplication_key,
                 "payload": self._json(event.payload),
-                "headers": self._json(event.headers),
+                "headers": self._json(event.transport_headers()),
+                "not_before": event.not_before,
             },
         )
         message_id = result.scalar_one_or_none()
@@ -59,11 +65,12 @@ class SqlOutboxRepository:
             raise ValueError("invalid outbox lease duration")
         result = await session.execute(
             text(
-                """
+                f"""
                 WITH candidates AS (
                     SELECT id
                     FROM outbox_message
                     WHERE available_at <= NOW()
+                      AND {NOT_BEFORE_DUE_SQL}
                       AND (
                         status = 'pending'
                         OR (

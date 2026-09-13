@@ -7,12 +7,14 @@ import contextlib
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.outbox import OutboxEvent
+from app.infrastructure.messaging.delivery_schedule import NOT_BEFORE_DUE_SQL
 from app.infrastructure.messaging.durable_delivery import (
     DeliveryLeaseLost,
     DurableDelivery,
@@ -29,6 +31,7 @@ async def enqueue_task(
     key: str,
     payload: dict[str, Any],
     deduplication_key: str,
+    not_before: datetime | None = None,
 ) -> uuid.UUID:
     """Caller commits domain state and this intent together; never calls the broker."""
     return await SqlOutboxRepository().enqueue(
@@ -38,6 +41,7 @@ async def enqueue_task(
             aggregate_key=key,
             payload=payload,
             deduplication_key=deduplication_key,
+            not_before=not_before,
         ),
     )
 
@@ -84,8 +88,9 @@ class DurableTasks(DurableDelivery):
             row = (
                 (
                     await s.execute(
-                        text("""
+                        text(f"""
                 SELECT m.* FROM outbox_message m WHERE m.id=:id AND m.topic=ANY(:topics)
+                    AND {NOT_BEFORE_DUE_SQL}
                     AND NOT EXISTS(SELECT 1 FROM inbox_message i
                         WHERE i.consumer=m.topic AND i.message_id=m.id)
                     AND NOT EXISTS(SELECT 1 FROM outbox_dead_letter d

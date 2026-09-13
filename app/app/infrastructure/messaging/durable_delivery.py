@@ -11,6 +11,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.infrastructure.messaging.delivery_schedule import NOT_BEFORE_DUE_SQL
+
 
 class DeliveryLeaseLost(RuntimeError):
     pass
@@ -42,11 +44,12 @@ class DurableDelivery:
             row = (
                 (
                     await s.execute(
-                        text("""
+                        text(f"""
                 WITH candidate AS (
                     SELECT m.id FROM outbox_message m
                     WHERE m.topic = ANY(:topics)
                       AND m.available_at <= clock_timestamp()
+                      AND {NOT_BEFORE_DUE_SQL}
                       AND (m.status='pending' OR (m.status='delivering'
                            AND m.lease_expires_at<=clock_timestamp()))
                       AND NOT EXISTS(SELECT 1 FROM outbox_dead_letter d

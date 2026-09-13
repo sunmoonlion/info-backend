@@ -230,13 +230,15 @@ async def test_read_only_database_transaction_rejects_even_trusted_bad_extension
 
 
 async def test_database_lock_timeout_and_recovery(db, monkeypatch):
-    monkeypatch.setattr(observation, "OBSERVATION_TIMEOUT_SECONDS", 0.05)
-    async with db() as blocker, blocker.begin():
-        await blocker.execute(
-            text("LOCK TABLE outbox_message IN ACCESS EXCLUSIVE MODE")
-        )
-        with pytest.raises(TimeoutError):
-            await collect(db)
+    with monkeypatch.context() as fault:
+        fault.setattr(observation, "OBSERVATION_TIMEOUT_SECONDS", 0.05)
+        async with db() as blocker, blocker.begin():
+            await blocker.execute(
+                text("LOCK TABLE outbox_message IN ACCESS EXCLUSIVE MODE")
+            )
+            with pytest.raises(TimeoutError):
+                await collect(db)
+    # Recovery uses the production budget, not the injected 50 ms fault budget.
     assert (await collect(db))["unregistered_messages"] == 0
 
 

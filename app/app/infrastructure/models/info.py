@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
@@ -216,6 +217,22 @@ class DistributionRecord(UUIDMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     last_error: Mapped[str | None] = mapped_column(Text)
+    write_protocol_version: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=1
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_distribution_logical_delivery_v1",
+            document_version_id,
+            target_app,
+            func.coalesce(func.nullif(target_dataset, ""), "default"),
+            unique=True,
+        ),
+        CheckConstraint(
+            "write_protocol_version=1", name="ck_distribution_write_protocol"
+        ),
+    )
 
 
 class DeliveryOutboxMessage(UUIDMixin, TimestampMixin, Base):

@@ -968,15 +968,49 @@ async def create_knowledge_distribution(
     target_dataset: str | None = None,
     dispatch: bool = False,
 ) -> DistributionRecord:
-    version = await session.get(InfoDocumentVersion, document_version_id)
-    if version is None:
-        raise ValueError(f"document version not found: {document_version_id}")
-    document = await session.get(InfoDocument, version.document_id)
-    if document is None:
-        raise ValueError(f"document not found: {version.document_id}")
     dataset_key = target_dataset or "default"
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,119}", dataset_key):
         raise ValueError("target_dataset must be a lowercase stable dataset key")
+    # Lock the existing parent, not a possibly absent distribution. Concurrent
+    # creators serialize here; the database unique index also fences other writers.
+    version = (
+        await session.execute(
+            select(InfoDocumentVersion)
+            .where(InfoDocumentVersion.id == document_version_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if version is None:
+        raise ValueError(f"document version not found: {document_version_id}")
+    existing = (
+        await session.execute(
+            select(DistributionRecord)
+            .where(
+                DistributionRecord.document_version_id == version.id,
+                DistributionRecord.target_app == "knowledge-app",
+                func.coalesce(
+                    func.nullif(DistributionRecord.target_dataset, ""), "default"
+                )
+                == dataset_key,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        # Creation is not a retry: keep the frozen artifact, identity, history,
+        # receipts and terminal/running state. A manual pending row may be sent.
+        if dispatch and existing.status == "pending":
+            await ensure_distribution_dispatch_outbox(
+                session, distribution_id=existing.id
+            )
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+    document = await session.get(InfoDocument, version.document_id)
+    if document is None:
+        raise ValueError(f"document not found: {version.document_id}")
     artifact = await _select_distribution_artifact(session, version)
     distribution_id = uuid.uuid4()
     payload = _artifact_contract_payload(

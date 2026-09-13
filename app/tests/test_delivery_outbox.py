@@ -17,6 +17,20 @@ class _CreateDistributionSession:
     async def get(self, model: type[Any], identifier: UUID) -> Any:
         return self.values[(model, identifier)]
 
+    async def execute(self, statement: Any) -> Any:
+        from app.infrastructure.models.info import InfoDocumentVersion
+
+        model = statement.column_descriptions[0]["entity"]
+        value = (
+            next(
+                (value for (kind, _), value in self.values.items() if kind is model),
+                None,
+            )
+            if model is InfoDocumentVersion
+            else None
+        )
+        return SimpleNamespace(scalar_one_or_none=lambda: value)
+
     def add(self, _value: Any) -> None:
         self.events.append("add")
 

@@ -1,4 +1,4 @@
-# 只读投递观测（B7d）
+# 只读投递观测（B7d / B7h）
 
 在后端 app 目录运行：
 
@@ -42,13 +42,42 @@ Investment 加入实际 AgentDelivery：使用 agent.executor 回执和 Agent �
 权限、缺表、非法时间字段、超时失败时退出 2，只打印通用错误，不打印半份或假零指标。
 取消向上传播。大账本扫描仍有成本，超时不是性能容量证明，需要按实际规模验收。
 
+## 受保护 HTTP 采集（B7h）
+
+API 新增 `GET /api/internal/v1/delivery/metrics`，返回完整 Prometheus text 0.0.4。
+CLI 保留原行为，HTTP 不调用 CLI 初始化/关闭函数，而使用 API lifespan 管理的连接池。
+复用同一个 collector / domain observer，语义、静态标签边界和只读事务不变；不接收
+SQL、topic 或数据库地址参数。接口不执行投递、重放、删除或其他修改，也不支持写方法。
+
+必须以 `Authorization: Bearer ...` 提交现有 OIDC 验证器可验证的签名服务 JWT：
+issuer、有效期、signature 和本 App `service_auth_audience` 校验不变；subject 精确
+命中 `service_auth_subject_bindings`，令牌实际携带 `delivery:observe`，且全部 scope
+都在该 subject 绑定内。缺身份/无效令牌为 401，未绑定/缺 scope/超配 scope 为 403；
+授权失败前不访问数据库。Cookie 或浏览器 audience 不可替代服务身份。
+本包不默认授权任何现有 subject，不创建客户端/凭据、不改部署 Secret；正式接线需为
+采集器配置专用主体、短期令牌刷新、每 App 的 audience/最小绑定及允许访问的网络路径。
+不要把令牌放 URL、前端、文档或日志，也不把浏览器登录口改成采集入口。
+
+每 API 进程最多一个在途数据库采集，额外请求立即 503
+`delivery_observation_busy`，不在进程里堆积等待队列；这是本进程负载保护，不是集群锁
+或全局限流，多个 API 副本仍可各自扫描。鉴权在准入前，OIDC 请求沿用身份模块自身
+超时；2 秒 collector 预算不包括鉴权，不宣称整个 HTTP 请求只有 2 秒。
+数据库/策略/渲染异常返回 503 `delivery_observation_failed`，只有安全错误码进入日志，
+不输出原 SQL/参数/DSN、不输出半份指标或假零值。取消传播并释放准入；完成后才发响应，
+无服务器快照缓存。成功、401/403、503、405 响应均 `Cache-Control: no-store`。
+
+采集器必须检查 HTTP 状态和快照时间；503/断连不能沿用旧值当本次成功。快照是 DB
+时间，DB 与采集器的时钟偏差也需独立监测，未来时间戳不能直接当“新鲜”；无消息也不
+等于消费健康。接口已有可采集源码不等于已有 Prometheus 作业、告警路由或在线身份。
+
 ## 仍待上线接线
 
-本包不是 Prometheus scrape 服务、textfile collector 定时作业、告警路由或 Pod 健康探针。
-后续须确定采集 principal、调度周期、原子写入/过期清除、受保护 scrape 边界、告警阈值和
+HTTP 已补受保护 scrape 入口；CLI 本身仍不是 textfile collector 定时作业、告警路由或
+Pod 健康探针。后续须确定采集 principal、周期、实际部署/网络边界、告警阈值和
 接收者，再实测断采/凭据撤销/DB 故障/告警到达。可优先观察未注册消息、死信、待对账数量
 及最老未完成年龄；阈值必须考虑长任务/计划延迟，不能默认零容忍并误报运行中任务。
-不得把旧文本保留当本次采集成功；任何消费者必须检查快照新鲜度和命令退出码。
+不得把旧文本保留当本次采集成功；CLI 消费者须检查新鲜度和退出码，若使用 textfile
+仍须原子写入与过期清除；HTTP 消费者须检查新鲜度和状态码。
 
 空积压不证明 Worker 消费队列正确，有效租约不证明业务有进展，旧租约保留行不等于故障。
 未涵盖 RabbitMQ queue 指标、Scheduler heartbeat、retrieval/run/SSE 的产品指标；这些

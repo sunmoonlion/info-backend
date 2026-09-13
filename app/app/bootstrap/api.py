@@ -112,7 +112,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=()"
         )
-        if request.url.path.startswith("/api/auth/"):
+        if request.url.path.startswith("/api/auth/") or request.url.path == (
+            "/api/internal/v1/delivery/metrics"
+        ):
             response.headers["Cache-Control"] = "no-store"
         return response
 

@@ -48,7 +48,13 @@ def configure_celery(*, require_broker: bool = False) -> bool:
         "CELERY_RESULT_BACKEND"
     )
     task_exchange = Exchange(queue, type="direct", durable=True)
-    task_queue = Queue(queue, exchange=task_exchange, routing_key=queue, durable=True)
+    task_queue = Queue(
+        queue,
+        exchange=task_exchange,
+        routing_key=queue,
+        durable=True,
+        no_declare=settings.celery_task_topology_predeclared,
+    )
 
     celery_app.conf.update(
         broker_url=broker,
@@ -58,11 +64,23 @@ def configure_celery(*, require_broker: bool = False) -> bool:
         task_default_exchange_type="direct",
         task_default_routing_key=queue,
         task_queues=(task_queue,),
+        # A typo must not synthesize another queue outside the provisioned topology.
+        task_create_missing_queues=not settings.celery_task_topology_predeclared,
+        broker_transport_options=(
+            {"confirm_publish": True}
+            if settings.celery_task_topology_predeclared
+            else {}
+        ),
         task_routes={
-            "app.tasks.*": {
+            ("*" if settings.celery_task_topology_predeclared else "app.tasks.*"): {
                 "queue": queue,
                 "exchange": queue,
                 "routing_key": queue,
+                **(
+                    {"mandatory": True, "confirm_timeout": 5.0}
+                    if settings.celery_task_topology_predeclared
+                    else {}
+                ),
             }
         },
         task_serializer="json",

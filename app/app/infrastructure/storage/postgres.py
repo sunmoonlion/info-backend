@@ -27,7 +27,8 @@ class Postgres:
             logger.info("正在初始化Postgres连接...")
             self._engine = create_async_engine(
                 self._settings.database_url,
-                echo=self._settings.env == "development",
+                echo=False,
+                hide_parameters=True,
                 pool_pre_ping=True,
             )
             self._session_factory = async_sessionmaker(

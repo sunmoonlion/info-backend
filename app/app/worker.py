@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import os
 
-from celery import Celery
+from celery import Celery, signals
 from kombu import Exchange, Queue
+
+from app.infrastructure.logging.logging import configure_library_logging
+
+signals.after_setup_logger.connect(
+    configure_library_logging,
+    weak=False,
+    dispatch_uid="sunmoonai.library-logging.v1",
+)
 
 celery_app = Celery("backend")
 _configured = False

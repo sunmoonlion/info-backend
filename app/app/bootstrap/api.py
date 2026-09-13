@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
@@ -7,7 +8,6 @@ from importlib.metadata import PackageNotFoundError, version
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.application.audit_context import (
@@ -20,6 +20,10 @@ from app.infrastructure.logging.logging import setup_logging
 from app.infrastructure.messaging.celery_producer import get_celery_producer
 from app.infrastructure.storage.postgres import get_postgres
 from app.infrastructure.storage.redis import get_redis
+from app.infrastructure.storage.schema_readiness import (
+    READINESS_TIMEOUT_SECONDS,
+    verify_schema_revision,
+)
 from app.interfaces.errors.exception_handlers import register_exception_handlers
 from app.interfaces.http.routes import router
 from core.config import Settings, get_settings
@@ -137,9 +141,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     async def ready() -> JSONResponse:
         try:
-            await get_redis().client.ping()  # type: ignore[misc]
-            async with get_postgres().session_factory() as session:
-                await session.execute(text("SELECT 1"))
+            async with asyncio.timeout(READINESS_TIMEOUT_SECONDS):
+                if not await get_redis().client.ping():  # type: ignore[misc]
+                    raise RuntimeError("redis_ping_failed")
+                async with get_postgres().session_factory() as session:
+                    await verify_schema_revision(session)
         except Exception as exc:
             logger.warning("readiness_failed type=%s", type(exc).__name__)
             return JSONResponse(status_code=503, content={"status": "not_ready"})

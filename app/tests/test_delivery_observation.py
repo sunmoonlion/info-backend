@@ -391,11 +391,14 @@ async def test_select_only_role_can_collect_and_revocation_fails(db):
 
 
 async def test_server_statement_timeout_is_independent_of_outer_budget(db, monkeypatch):
-    monkeypatch.setattr(observation, "OBSERVATION_TIMEOUT_SECONDS", 5)
-    async with db() as blocker, blocker.begin():
-        await blocker.execute(
-            text("LOCK TABLE outbox_message IN ACCESS EXCLUSIVE MODE")
-        )
-        with pytest.raises(DBAPIError, match="statement timeout"):
-            await collect(db)
+    production_budget = observation.OBSERVATION_TIMEOUT_SECONDS
+    with monkeypatch.context() as fault:
+        fault.setattr(observation, "OBSERVATION_TIMEOUT_SECONDS", 5)
+        async with db() as blocker, blocker.begin():
+            await blocker.execute(
+                text("LOCK TABLE outbox_message IN ACCESS EXCLUSIVE MODE")
+            )
+            with pytest.raises(DBAPIError, match="statement timeout"):
+                await collect(db)
+    assert observation.OBSERVATION_TIMEOUT_SECONDS == production_budget
     assert (await collect(db))["unregistered_messages"] == 0

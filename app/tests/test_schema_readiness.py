@@ -255,16 +255,35 @@ async def test_slow_redis_is_cancelled_by_probe_budget(client, monkeypatch):
     assert cancelled.is_set()
 
 
+@pytest.mark.parametrize("recovery_delay", [0.0, 0.1])
 async def test_database_lock_timeout_releases_connection_and_recovers(
-    schema_db, client, monkeypatch
+    schema_db, client, monkeypatch, recovery_delay
 ):
-    monkeypatch.setattr(api, "READINESS_TIMEOUT_SECONDS", 0.05)
-    async with schema_db.engine.begin() as blocker:
-        await blocker.execute(
-            text("LOCK TABLE alembic_version IN ACCESS EXCLUSIVE MODE")
+    with monkeypatch.context() as fault:
+        fault.setattr(api, "READINESS_TIMEOUT_SECONDS", 0.05)
+        async with schema_db.engine.begin() as blocker:
+            await blocker.execute(
+                text("LOCK TABLE alembic_version IN ACCESS EXCLUSIVE MODE")
+            )
+            async with asyncio.timeout(2):
+                await assert_status(client, 503)
+    assert api.READINESS_TIMEOUT_SECONDS == readiness.READINESS_TIMEOUT_SECONDS
+    if recovery_delay:
+        original_ping = api.get_redis().client.ping
+
+        async def healthy_but_slow_ping():
+            # Controlled healthy latency: above the 50 ms injected fault budget,
+            # well below the real 2 seconds. Never a wait for a race to turn green.
+            await asyncio.sleep(recovery_delay)
+            return await original_ping()
+
+        monkeypatch.setattr(
+            api,
+            "get_redis",
+            lambda: SimpleNamespace(
+                client=SimpleNamespace(ping=healthy_but_slow_ping)
+            ),
         )
-        async with asyncio.timeout(2):
-            await assert_status(client, 503)
     await assert_status(client, 200)
 
 

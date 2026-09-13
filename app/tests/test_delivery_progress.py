@@ -130,8 +130,9 @@ async def test_retention_and_out_of_order_record_times_are_not_monotonic_counter
     row = await progress(db)
     assert row["retained_receipt_messages"] == 2
     assert row["latest_receipt_recorded_timestamp_seconds"] == 946684800
-    # Only synthetic test data: demonstrate why production retention needs a policy.
-    await sql(db, "DELETE FROM outbox_message WHERE id=:id", id=first)
+    # Only synthetic receipts: no assumption that domain Outbox deletion is permitted.
+    # This is gauge semantics, NOT a production retention/cleanup implementation.
+    await sql(db, "DELETE FROM inbox_message WHERE message_id=:id", id=first)
     row = await progress(db)
     assert row["retained_receipt_messages"] == 1
     assert row["latest_receipt_recorded_timestamp_seconds"] == 915148800

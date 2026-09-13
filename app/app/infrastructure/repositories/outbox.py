@@ -25,7 +25,7 @@ class SqlOutboxRepository:
                 ) VALUES (
                     :id, :topic, :aggregate_key, :deduplication_key,
                     CAST(:payload AS jsonb), CAST(:headers AS jsonb),
-                    COALESCE(CAST(:not_before AS timestamptz), clock_timestamp())
+                    COALESCE(CAST(:not_before AS timestamptz), '-infinity'::timestamptz)
                 )
                 ON CONFLICT (deduplication_key) DO UPDATE SET
                     deduplication_key = EXCLUDED.deduplication_key

@@ -140,7 +140,7 @@ class DurableTasks(DurableDelivery):
             if done:
                 await s.execute(
                     text("""
-                    UPDATE outbox_execution SET expires_at=clock_timestamp()
+                    UPDATE outbox_execution SET expires_at='-infinity'::timestamptz
                     WHERE resource_key=:key
                 """),
                     {"key": resource},
@@ -164,10 +164,12 @@ class DurableTasks(DurableDelivery):
                 raise DeliveryLeaseLost("consumer lease lost")
 
     async def release(self, lease: ConsumerLease) -> None:
+        # Released is a state, not a wall-clock deadline. Keep the epoch tombstone;
+        # a clock correction must neither resurrect this owner nor delay a retry.
         async with self.sessions() as s, s.begin():
             await s.execute(
                 text("""
-                UPDATE outbox_execution SET expires_at=clock_timestamp()
+                UPDATE outbox_execution SET expires_at='-infinity'::timestamptz
                 WHERE resource_key=:resource_key AND message_id=:message_id
                     AND owner=:owner AND epoch=:epoch
             """),

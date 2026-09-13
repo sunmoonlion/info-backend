@@ -75,7 +75,7 @@ async def collect_delivery_snapshot(
                 SELECT m.status,m.created_at,m.available_at,
                     m.lease_expires_at,m.published_at,
                     coalesce((m.headers->>'{NOT_BEFORE_HEADER}')::timestamptz,
-                        m.created_at) AS due_at,
+                        '-infinity'::timestamptz) AS due_at,
                     CASE WHEN CAST(:consumer AS text) IS NULL
                         THEN m.status='published'
                         ELSE EXISTS (SELECT 1 FROM inbox_message i

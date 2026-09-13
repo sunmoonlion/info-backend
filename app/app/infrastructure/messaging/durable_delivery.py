@@ -166,7 +166,7 @@ class DurableDelivery:
                         await s.execute(
                             text("""
                             UPDATE outbox_message SET status='pending',
-                                available_at=clock_timestamp(),updated_at=clock_timestamp()
+                                available_at='-infinity'::timestamptz,updated_at=clock_timestamp()
                             WHERE id=:id
                         """),
                             {"id": row["id"]},
@@ -200,7 +200,7 @@ class DurableDelivery:
             await s.execute(
                 text("""
                 UPDATE outbox_message SET status='pending',attempt_count=0,
-                    available_at=clock_timestamp(),last_error=NULL,
+                    available_at='-infinity'::timestamptz,last_error=NULL,
                     lease_owner=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
                 WHERE id=:id
             """),

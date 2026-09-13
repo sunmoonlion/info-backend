@@ -1,4 +1,4 @@
-# 只读投递观测（B7d / B7h）
+# 只读投递观测（B7d / B7h / B7j）
 
 在后端 app 目录运行：
 
@@ -23,6 +23,8 @@ Investment 加入实际 AgentDelivery：使用 agent.executor 回执和 Agent �
 | gauge 字段 | 含义 |
 | --- | --- |
 | messages / incomplete_messages | 保留记录数 / 未达到该 policy 完成条件的记录数 |
+| retained_receipt_messages | 当前保留的 Outbox 中，存在精确 consumer/message_id 已提交 Inbox 回执的消息数；不统计错误 consumer、孤立回执或无回执策略 |
+| latest_receipt_recorded_timestamp_seconds | 上述回执 processed_at 的最大 Unix 秒；无匹配回执为 0，需与回执数量一起解释；不是精确提交时间或 Worker 心跳 |
 | scheduled_messages | 未完成且 immutable not-before 尚未到期，不等于退避 available_at |
 | publishable_messages | 已到期、无活跃执行/死信、未完成，pending 或发布租约过期且退避已到期 |
 | awaiting_receipt_messages | published 但缺必需业务回执，可能仍正常执行或已有死信 |
@@ -43,6 +45,24 @@ Investment 加入实际 AgentDelivery：使用 agent.executor 回执和 Agent �
 取消向上传播。大账本扫描仍有成本，超时不是性能容量证明，需要按实际规模验收。
 
 ## 受保护 HTTP 采集（B7h）
+
+B7j 的两个回执字段同样由此入口和原 CLI 输出，保持既有 JSON v1 的加法字段；
+不改原字段/鉴权或创建新端点。回执只在提交后对另一事务可见，失败回滚不计入，
+相同 consumer/message_id 重复消费不增；无回执 hint 的发布成功不当作 Worker 回执。
+`processed_at` 由现有数据库写入规则产生（默认 NOW，即写事务开始时间），不是
+commit timestamp 或单调序号。墙钟回拨、乱序完成可使新增回执没有推进最大时间；
+有限未来值原样反映，非有限时间使整个采集失败，不静默当成健康值。
+未声明完成回执的当前长任务、空闲、凭据/采集失败不能单靠“无新回执”区分。
+指标按 policy/topic 聚合，不标识哪一个 Worker，也不证明业务结果正确、完整产品 Task
+成功或所有 Worker 都健康；例如领域 handler 已记录终止失败后正常返回也可能留回执。
+归档/恢复或删除关联 Outbox 后数量/最大时间可能下降，不能对 gauge 使用 counter 的
+rate/increase 语义。进展判定须联合采集新鲜度、待处理数、长任务策略和保留/恢复事件；
+不将该值直接绑定 readiness/liveness 或自动重启。
+
+测试专用 Worker 入口在 tests/，只替换数据库适配和合成 handler；真实共用 Celery
+execute、DurableTasks 租约/提交及 Inbox 路径不替换。真实 prefork 子进程暂停但父进程
+pong 仍通时无新增回执，恢复后提交才增加；失败回滚与重复投递不虚增。合成数据库
+和计数器证明的是共享执行链路，不是当前业务部署、真实 Provider 或业务结果验收。
 
 API 新增 `GET /api/internal/v1/delivery/metrics`，返回完整 Prometheus text 0.0.4。
 CLI 保留原行为，HTTP 不调用 CLI 初始化/关闭函数，而使用 API lifespan 管理的连接池。

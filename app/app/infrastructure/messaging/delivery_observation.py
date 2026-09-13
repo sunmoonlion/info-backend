@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from collections.abc import Mapping
 from datetime import datetime
@@ -15,6 +16,13 @@ from app.infrastructure.messaging.durable_delivery import DurableDelivery
 OBSERVATION_TIMEOUT_SECONDS = 2.0
 GAUGES = {
     "messages": "Retained outbox messages, not a lifetime counter.",
+    "retained_receipt_messages": (
+        "Retained messages with a committed receipt for the required consumer."
+    ),
+    "latest_receipt_recorded_timestamp_seconds": (
+        "Maximum retained receipt processed_at, not commit time or a heartbeat; "
+        "zero without matching receipts."
+    ),
     "incomplete_messages": "Messages without the policy's required completion.",
     "scheduled_messages": "Incomplete messages before immutable not-before.",
     "publishable_messages": "Due incomplete messages without dead letter or execution.",
@@ -76,17 +84,24 @@ async def collect_delivery_snapshot(
                     m.lease_expires_at,m.published_at,
                     coalesce((m.headers->>'{NOT_BEFORE_HEADER}')::timestamptz,
                         '-infinity'::timestamptz) AS due_at,
+                    i.processed_at AS receipt_at,
                     CASE WHEN CAST(:consumer AS text) IS NULL
                         THEN m.status='published'
-                        ELSE EXISTS (SELECT 1 FROM inbox_message i
-                            WHERE i.message_id=m.id AND i.consumer=:consumer)
+                        ELSE i.message_id IS NOT NULL
                         END AS done,
                     EXISTS ({policy.active_execution_sql}) AS executing,
                     EXISTS (SELECT 1 FROM outbox_dead_letter d
                         WHERE d.message_id=m.id AND d.replayed_at IS NULL) AS dead
-                FROM outbox_message m WHERE m.topic=:topic
+                FROM outbox_message m LEFT JOIN inbox_message i
+                    ON i.message_id=m.id AND i.consumer=CAST(:consumer AS text)
+                WHERE m.topic=:topic
             )
             SELECT count(*) AS messages,
+                coalesce(bool_or(NOT isfinite(receipt_at)),false)
+                    AS invalid_receipt_time,
+                count(receipt_at) AS retained_receipt_messages,
+                coalesce(extract(epoch FROM max(receipt_at)),0)::float8
+                    AS latest_receipt_recorded_timestamp_seconds,
                 count(*) FILTER (WHERE NOT done) AS incomplete_messages,
                 count(*) FILTER (WHERE NOT done AND due_at>:now)
                     AS scheduled_messages,
@@ -124,12 +139,18 @@ async def collect_delivery_snapshot(
                         .mappings()
                         .one()
                     )
+                    values = dict(row)
+                    invalid_time = values.pop("invalid_receipt_time")
+                    if invalid_time or not math.isfinite(
+                        values["latest_receipt_recorded_timestamp_seconds"]
+                    ):
+                        raise ValueError("invalid receipt timestamp")
                     observations.append(
                         {
                             "policy": name,
                             "topic": topic,
                             "receipt_required": consumer is not None,
-                            **dict(row),
+                            **values,
                         }
                     )
             return {

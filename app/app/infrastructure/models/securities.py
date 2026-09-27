@@ -110,6 +110,10 @@ class SecurityDataset(UUIDMixin, TimestampMixin, Base):
     start_date: Mapped[str] = mapped_column(String(10), nullable=False)
     end_date: Mapped[str] = mapped_column(String(10), nullable=False)
     built_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    knowledge_registered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    knowledge_registration_error: Mapped[str | None] = mapped_column(String(80))
 
     __table_args__ = (
         UniqueConstraint(

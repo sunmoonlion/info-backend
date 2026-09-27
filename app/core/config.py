@@ -194,6 +194,10 @@ class Settings(BaseSettings):
     knowledge_app_ingest_url: str | None = Field(
         default=None, validation_alias="KNOWLEDGE_APP_INGEST_URL"
     )
+    # 数据集登记接口（0008-info 段二 → 段三）；与入库用同一个服务身份。
+    knowledge_app_dataset_url: str | None = Field(
+        default=None, validation_alias="KNOWLEDGE_APP_DATASET_URL"
+    )
     knowledge_app_service_application: str = Field(
         default="sunmoonai-info-knowledge-ingest",
         validation_alias="KNOWLEDGE_APP_SERVICE_APPLICATION",
@@ -610,6 +614,14 @@ class Settings(BaseSettings):
     def knowledge_app_ingest_enabled(self) -> bool:
         return bool(
             self.knowledge_app_ingest_url
+            and self.knowledge_app_service_client_id
+            and self.knowledge_app_service_client_secret
+        )
+
+    @property
+    def knowledge_app_dataset_enabled(self) -> bool:
+        return bool(
+            self.knowledge_app_dataset_url
             and self.knowledge_app_service_client_id
             and self.knowledge_app_service_client_secret
         )

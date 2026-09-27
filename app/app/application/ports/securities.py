@@ -14,6 +14,7 @@ from app.domain.securities import (
     SecurityCode,
 )
 from app.domain.securities.dataset import BuiltDataset, ReportPage
+from app.domain.securities.registration import DatasetRecord
 
 
 class FetchFailed(RuntimeError):
@@ -104,4 +105,34 @@ class ReportReader(Protocol):
 class DatasetStore(Protocol):
     async def save(self, dataset: BuiltDataset, *, ingestion_id: str) -> str:
         """留存数据集文件、清单与质量报告，并登记。同一版本重复保存是幂等的。"""
+        ...
+
+
+class DatasetRecords(Protocol):
+    async def get(self, record_id: str) -> DatasetRecord | None: ...
+
+    async def latest_published(self, code: SecurityCode) -> DatasetRecord | None:
+        """该代码最近建成且通过质量检查的数据集版本。"""
+        ...
+
+    async def mark_registered(self, record_id: str) -> None:
+        """记下向下游登记成功的时间，并清掉上次的失败原因。"""
+        ...
+
+    async def mark_registration_failed(self, record_id: str, code: str) -> None:
+        """记下最近一次登记失败的错误码；不改动上次成功的时间。"""
+        ...
+
+
+class DatasetRegistrar(Protocol):
+    @property
+    def configured(self) -> bool:
+        """下游的地址与服务身份是否都配了。"""
+        ...
+
+    async def register(self, dataset: DatasetRecord) -> None:
+        """向下游登记这个版本并使它成为现行版本；不成功抛 RegistrationError。
+
+        下游对同一版本的重复登记是幂等的。
+        """
         ...

@@ -39,3 +39,21 @@ class SecurityIngestionItemRead(BaseModel):
 
 class SecurityIngestionDetail(SecurityIngestionRead):
     items: list[SecurityIngestionItemRead]
+
+
+class SecurityDatasetRead(BaseModel):
+    id: uuid.UUID
+    security_code: str
+    dataset_id: str
+    data_version: str
+    status: str
+    ingestion_id: uuid.UUID
+    sha256: str
+    size_bytes: int
+    row_counts: dict[str, Any]
+    start_date: str
+    end_date: str
+    built_at: datetime
+    failed_checks: list[str]
+    knowledge_registered_at: datetime | None
+    knowledge_registration_error: str | None

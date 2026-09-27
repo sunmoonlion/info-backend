@@ -139,3 +139,82 @@ uv run python -m app.cli.security_dataset --ingestion <批次标识> --out ./sh6
 
 - `tests/test_security_dataset.py`：解析、口径判定、质量检查、建库。夹具是实采数据裁出来的，数值没有改。
 - `tests/test_security_dataset_db.py`：读回原文、留存与登记，需要 `DELIVERY_TEST_DATABASE_URL`。
+
+# 向知识服务登记，以及三步任务链
+
+> 设计：k8s 库 `tree-build/SDD/modules/0008-info.md`「数据集文件进对象存储，向知识服务登记」。2026-09-27。
+> 对方的接口说明在 knowledge-backend 的 `docs/dataset-registry.md`。
+
+## 做什么
+
+数据集建好并通过质量检查之后，把它的**位置与校验值**登记到知识服务。文件不经 info 传过去：
+知识服务按登记的桶、对象键、对象版本、sha256 自己去对象存储取，取到的内容对不上就不用。
+
+## 三步任务链
+
+管理接口发起采集后，三步各是一个持久任务，前一步成功才排下一步；下一步和本步的完成记录在同一个事务里提交，
+所以不会漏排，重复投递也不会重复排。
+
+| 任务 | 做什么 | 什么时候排下一步 | 失败怎么办 |
+| --- | --- | --- | --- |
+| `info.security.ingest.v1` | 采集一个批次 | 批次成功 | 采集失败是批次的终态，不重投 |
+| `info.security.dataset.build.v1` | 从批次建数据集 | 质量检查通过，且知识服务已配置 | 原文有问题（缺表等）记日志后结束；存储、数据库故障由投递机制重试 |
+| `info.security.dataset.register.v1` | 向知识服务登记 | 无 | 对方不可达、限流、5xx：重试；被拒绝（冲突、不合规、身份不对、对方没开登记）：记下错误码，不重试 |
+
+质量检查没过的数据集不登记（`F-INFO-07`）；任务这一层和登记服务自身各拦一次。
+
+## 配置
+
+| 环境变量 | 含义 |
+| --- | --- |
+| `KNOWLEDGE_APP_DATASET_URL` | 知识服务登记接口的完整地址，`…/api/internal/v1/knowledge/datasets` |
+| `KNOWLEDGE_APP_SERVICE_CLIENT_ID`、`KNOWLEDGE_APP_SERVICE_CLIENT_SECRET` | 与文档入库用同一个服务身份，权限 `knowledge:ingest` |
+
+三项不全时视为没配置：建好数据集后不排登记任务，手动登记返回 `registrar_not_configured`。
+
+部署时还要两件事（段五）：知识服务打开 `knowledge_dataset_registry_enabled`，把 info 的桶写进
+`knowledge_dataset_allowed_buckets`；知识服务的存储账号对 info 的桶有只读权限。
+
+## 怎么用
+
+```
+# 建库并登记（命令行；退出码 3 表示已发布但登记没成功）
+python -m app.cli.security_dataset --code 600009 --register
+
+# 看某代码建出过的数据集、质量检查结果、登记结果
+GET  /api/admin/securities/600009/datasets
+
+# 手动登记某个版本：登记失败后的重试，或回退到旧版本
+POST /api/admin/security-datasets/{数据集记录标识}/registration
+```
+
+登记的结果记在 `security_dataset` 上：`knowledge_registered_at`（最近一次成功的时间）、
+`knowledge_registration_error`（最近一次失败的错误码，成功后清空）。
+
+| 错误码 | 含义 | 重试 |
+| --- | --- | --- |
+| `knowledge_unreachable` | 连不上 | 是 |
+| `service_token_unavailable` | 换不到服务令牌 | 是 |
+| `knowledge_request_failed` | 对方返回未分类的状态码（细节里有状态码） | 429、5xx 是 |
+| `knowledge_rejected_identity` | 401、403 | 否 |
+| `knowledge_registry_disabled` | 对方没开多数据集 | 否 |
+| `knowledge_version_conflict` | 同一版本已登记了不同的内容 | 否 |
+| `knowledge_refused_registration` | 对方认为登记不合规（例如桶不在允许清单） | 否 |
+| `knowledge_reply_unexpected` | 对方答复的不是我们登记的版本，或不是现行版本 | 否 |
+| `dataset_not_published`、`dataset_not_found`、`no_published_dataset`、`registrar_not_configured` | 本地就拦下的 | 否 |
+
+对方的响应正文、地址、令牌都不进错误信息与日志。
+
+## 还没在真实环境验过的
+
+本机没有对象存储服务，所以「info 登记 → 知识服务从对象存储取回文件」这一段只在两边各自用替身验过：
+info 发出的请求体与知识服务的接口定义逐项对应；知识服务用 info 实建的 600009 数据集原件验证读得了。
+两个服务连起来跑要等段五。
+
+## 测试
+
+| 文件 | 验什么 |
+| --- | --- |
+| `tests/test_security_registration.py` | 请求体、失败的分类、答复的核对、不泄露细节、应用服务的规则 |
+| `tests/test_security_registration_db.py` | 登记记录；三步任务链在真的持久任务运行时上的衔接、重试与不重试 |
+| `tests/test_security_routes_db.py` | 管理接口（含段一的采集接口） |

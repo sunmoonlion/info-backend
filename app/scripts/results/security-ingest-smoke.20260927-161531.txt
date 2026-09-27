@@ -1,0 +1,27 @@
+code=600009 commit=e5156a0 python=Python 3.12.3
+schema=20260927_0010 (head)
+== 第 1 次 exit=0 耗时=158s
+   status = succeeded
+   items = 80
+   new_artifacts = 80
+   reused_artifacts = 0
+   bytes_fetched = 28711977
+   by_source = {'cninfo': 11, 'eastmoney-f10': 69}
+   report_years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+   statement_periods = {'balance_sheet': 110, 'cash_flow': 103, 'income_statement': 110}
+   error_code = None
+   error_detail = None
+== 第 2 次 exit=0 耗时=65s
+   status = succeeded
+   items = 80
+   new_artifacts = 0
+   reused_artifacts = 80
+   bytes_fetched = 28711977
+   by_source = {'cninfo': 11, 'eastmoney-f10': 69}
+   report_years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+   statement_periods = {'balance_sheet': 110, 'cash_flow': 103, 'income_statement': 110}
+   error_code = None
+   error_detail = None
+== 复算 原文=80 一致=80 不一致或缺失=0 重试过的条目=0
+== 第二次新增的原文（按类型）: {}
+exit=0

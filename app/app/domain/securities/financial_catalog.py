@@ -174,8 +174,20 @@ KEY_ITEMS: tuple[KeyItem, ...] = (
 )
 
 
+RATIO = "比率"
+TIMES = "倍"
+NEAR_ZERO = "为负或在一元以内时不适用"
+
+
 @dataclass(frozen=True)
 class Metric:
+    """一个口径。前七项是给人看的说明；后面几项是可执行的定义（数据集自述第二版）。
+
+    可执行的定义是逐行的：基础表的一行（一家公司的一个报告期）算出一个值，不做汇总。
+    表达式只引用基础表的字段；引用有关系的表写成「表名.字段」，关系见 TABLE_LINKS。
+    queryable 为假的口径只有说明，一行表达不了（例如要用上一期的数），由使用方按说明自己算。
+    """
+
     metric_name: str
     display_name: str
     source_table: str
@@ -183,6 +195,14 @@ class Metric:
     unit: str
     time_basis: str
     description: str
+    base_table: str | None = None
+    value_expression: str | None = None
+    applicable_when: str | None = None
+    reason_if_not: str | None = None
+
+    @property
+    def queryable(self) -> bool:
+        return self.base_table is not None and self.value_expression is not None
 
 
 METRICS: tuple[Metric, ...] = (
@@ -191,43 +211,59 @@ METRICS: tuple[Metric, ...] = (
         "毛利率",
         "income_statement",
         "(operate_income - operate_cost) / operate_income",
-        "%",
+        RATIO,
         "报告期",
-        "营业收入减营业成本，除以营业收入",
+        "营业收入减营业成本，除以营业收入；0.25 即 25%",
+        "income_statement",
+        "(operate_income - operate_cost) / operate_income",
+        "operate_income > 1",
+        "营业收入" + NEAR_ZERO,
     ),
     Metric(
         "net_margin",
         "净利率",
         "income_statement",
         "netprofit / operate_income",
-        "%",
+        RATIO,
         "报告期",
-        "净利润除以营业收入",
+        "净利润除以营业收入；0.25 即 25%",
+        "income_statement",
+        "netprofit / operate_income",
+        "operate_income > 1",
+        "营业收入" + NEAR_ZERO,
     ),
     Metric(
         "deduct_ratio",
         "扣非净利润占比",
         "income_statement",
         "deduct_parent_netprofit / parent_netprofit",
-        "%",
+        RATIO,
         "报告期",
         "扣非归母净利润除以归母净利润；归母净利润为负或接近零时不适用",
+        "income_statement",
+        "deduct_parent_netprofit / parent_netprofit",
+        "parent_netprofit > 1",
+        "归母净利润" + NEAR_ZERO,
     ),
     Metric(
         "invest_income_share",
         "投资收益占营业利润比",
         "income_statement",
         "invest_income / operate_profit",
-        "%",
+        RATIO,
         "报告期",
-        "投资收益除以营业利润；营业利润为负时不适用",
+        "投资收益除以营业利润；营业利润为负或接近零时不适用",
+        "income_statement",
+        "invest_income / operate_profit",
+        "operate_profit > 1",
+        "营业利润" + NEAR_ZERO,
     ),
     Metric(
         "roe_avg",
         "净资产收益率（平均）",
         "income_statement+balance_sheet",
         "parent_netprofit / ((期初归母权益 + 期末归母权益) / 2)",
-        "%",
+        RATIO,
         "年度",
         "简单平均口径，与年报披露的加权平均口径不同；期初期末口径不一致时不适用",
     ),
@@ -236,9 +272,13 @@ METRICS: tuple[Metric, ...] = (
         "资产负债率",
         "balance_sheet",
         "total_liabilities / total_assets",
-        "%",
+        RATIO,
         "期末",
-        "负债合计除以资产总计",
+        "负债合计除以资产总计；0.25 即 25%",
+        "balance_sheet",
+        "total_liabilities / total_assets",
+        "total_assets > 1",
+        "资产总计" + NEAR_ZERO,
     ),
     Metric(
         "interest_bearing_debt",
@@ -249,25 +289,36 @@ METRICS: tuple[Metric, ...] = (
         YUAN,
         "期末",
         "空值按零计；一年内到期的非流动负债可能含无息部分，是上限口径",
+        "balance_sheet",
+        "COALESCE(short_loan,0) + COALESCE(noncurrent_liab_1year,0) + "
+        "COALESCE(long_loan,0) + COALESCE(bond_payable,0) + COALESCE(lease_liab,0)",
     ),
     Metric(
         "current_ratio",
         "流动比率",
         "balance_sheet",
         "total_current_assets / total_current_liab",
-        "倍",
+        TIMES,
         "期末",
         "流动资产除以流动负债",
+        "balance_sheet",
+        "total_current_assets / total_current_liab",
+        "total_current_liab > 1",
+        "流动负债" + NEAR_ZERO,
     ),
     Metric(
         "ocf_to_netprofit",
         "经营现金流与净利润之比",
         "cash_flow+income_statement",
         "netcash_operate / netprofit",
-        "倍",
+        TIMES,
         "年度",
         "净利润为负时不适用；2021 年起执行新租赁准则的公司，租金支付计入筹资活动，"
         "前后期间不可直接比较",
+        "cash_flow",
+        "netcash_operate / income_statement.netprofit",
+        "income_statement.netprofit > 1",
+        "净利润" + NEAR_ZERO,
     ),
     Metric(
         "free_cash_flow",
@@ -277,7 +328,45 @@ METRICS: tuple[Metric, ...] = (
         YUAN,
         "年度",
         "经营现金流净额减购建长期资产支付的现金；未扣租赁本金偿付，对租赁负债大的公司会高估",
+        "cash_flow",
+        "netcash_operate - construct_long_asset",
     ),
+)
+
+
+@dataclass(frozen=True)
+class TableLink:
+    """两张表的行怎么对上。on_columns 是两边同名的字段。"""
+
+    link_name: str
+    from_table: str
+    to_table: str
+    cardinality: str
+    on_columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TableKey:
+    """一张表的一行由哪些字段确定（key），再带哪些字段才看得懂这一行（label）。"""
+
+    table_name: str
+    key_columns: tuple[str, ...]
+    label_columns: tuple[str, ...]
+
+
+_PERIOD = ("security_code", "report_date")
+_PERIOD_LABELS = ("report_type", "fiscal_year", "basis", "verified")
+
+TABLE_KEYS: tuple[TableKey, ...] = tuple(
+    TableKey(statement, _PERIOD, _PERIOD_LABELS) for statement in STATEMENT_FIELDS
+)
+
+# 同一家公司同一个报告期的三张表互相对得上
+TABLE_LINKS: tuple[TableLink, ...] = tuple(
+    TableLink(f"{a}_to_{b}", a, b, "one_to_one", _PERIOD)
+    for a in STATEMENT_FIELDS
+    for b in STATEMENT_FIELDS
+    if a != b
 )
 
 

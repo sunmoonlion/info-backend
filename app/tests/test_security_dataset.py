@@ -604,6 +604,8 @@ async def test_build_publishes_a_dataset_the_knowledge_service_can_read(tmp_path
         "field_dictionary",
         "metric_dictionary",
         "reconciliation_rules",
+        "table_links",
+        "table_keys",
         "dataset_metadata",
     }
     meta = dict(db.execute("select key, value from dataset_metadata"))
@@ -652,6 +654,71 @@ async def test_rules_and_metric_hints_run_as_written_on_the_dataset(tmp_path):
             "where report_type='年报' and fiscal_year=2025"
         ).fetchone()[0]
         assert isinstance(value, float), name
+
+
+async def test_executable_metric_definitions_run_as_written(tmp_path):
+    """数据集自述第二版：可执行的定义照着表间关系关联后，逐行算得出来。"""
+    batches, store = FakeBatches(), FakeDatasets()
+    await build_service(batches, store).build("batch-1")
+    db = opened(store.saved[0][0].content, tmp_path)
+    links = {
+        (a, b): columns.split(",")
+        for _, a, b, cardinality, columns in db.execute("select * from table_links")
+        if cardinality == "one_to_one"
+    }
+    assert len(links) == 6
+    keys = {
+        name: (key.split(","), labels.split(","))
+        for name, key, labels in db.execute("select * from table_keys")
+    }
+    assert keys == {
+        table: (
+            ["security_code", "report_date"],
+            ["report_type", "fiscal_year", "basis", "verified"],
+        )
+        for table in ("balance_sheet", "income_statement", "cash_flow")
+    }
+    rows = db.execute(
+        "select metric_name, kind, base_table, value_expression, applicable_when,"
+        " reason_if_not, queryable, unit from metric_dictionary"
+    ).fetchall()
+    assert {r[0] for r in rows if not r[6]} == {"roe_avg"}
+    values = {}
+    for name, kind, base, value, condition, reason, queryable, _ in rows:
+        if not queryable:
+            assert (base, value, condition, reason) == (None, None, None, None)
+            continue
+        assert kind == "row" and (condition is None) == (reason is None), name
+        joins = "".join(
+            f" left join {other} on "
+            + " and ".join(f"{other}.{c} = {base}.{c}" for c in links[(base, other)])
+            for other in ("balance_sheet", "income_statement", "cash_flow")
+            if other != base and f"{other}." in (value + (condition or ""))
+        )
+        values[name] = db.execute(
+            f"select {base}.fiscal_year, case when {condition or '1=1'} "  # noqa: S608
+            f"then {value} end from {base}{joins} "
+            f"where {base}.report_type='年报' and {base}.fiscal_year in (2020, 2025) "
+            f"order by 1"
+        ).fetchall()
+    # 2020 年亏损：以利润为分母的口径不适用；2025 年都算得出
+    assert values["gross_margin"] == [
+        (2020, pytest.approx(-0.5338129183707764)),
+        (2025, pytest.approx(0.27514317245874353)),
+    ]
+    assert values["invest_income_share"] == [
+        (2020, None),
+        (2025, pytest.approx(0.27252579730010856)),
+    ]
+    assert values["ocf_to_netprofit"] == [
+        (2020, None),
+        (2025, pytest.approx(2.481450071337846)),
+    ]
+    assert values["deduct_ratio"][0] == (2020, None)
+    assert all(isinstance(v[1][1], float) for v in values.values()), values
+    units = {r[0]: r[7] for r in rows}
+    assert units["gross_margin"] == units["debt_ratio"] == "比率"
+    assert units["current_ratio"] == "倍" and units["free_cash_flow"] == "元"
 
 
 async def test_the_same_input_gives_the_same_version_and_file():

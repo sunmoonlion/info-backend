@@ -1,0 +1,17 @@
+从已留存的批次重建数据集（不访问网站）：数据集自述第二版，导出版本 2.0.0
+code=600009 source_ingestion=69b41087-d8b2-49d8-a6e5-fc8d5a4bb87d
+   status = published
+   dataset_id = sh600009-financials
+   data_version = sh600009-financials-9fd91db79529e208
+   sha256 = ac5cfd0805d0c7f99be5054c49d9aaf00e3e3f400d27884fe32e44e74fdbac23
+   size_bytes = 151552
+   row_counts = {'balance_sheet': 110, 'income_statement': 110, 'cash_flow': 103, 'official_key_figures': 177, 'disclosure_calendar': 9, 'field_dictionary': 84, 'metric_dictionary': 10, 'table_links': 6, 'table_keys': 3, 'reconciliation_rules': 9}
+   start_date = 1994-12-31
+   end_date = 2026-06-30
+   basis_by_year = {'2017': '原始披露', '2018': '原始披露', '2019': '原始披露', '2020': '原始披露', '2021': '追溯调整后', '2022': '原始披露', '2023': '原始披露', '2024': '原始披露', '2025': '原始披露'}
+   failed_checks = []
+   report_problems = {}
+== 两次建出的版本相同: 是
+== 两次建出的文件 sha256 相同: 是
+== 上一版（导出版本 1.0.0）: sh600009-financials-39a395bfa6f16b67 sha256 51900174f4b5b9a1d6f7ad040b29118e5bbdd214e7a7796c8a2af938c46b139e
+exit=0

@@ -2,6 +2,7 @@
 
 表的形状与知识服务现有的数据集一致（知识服务的查询类能直接读）：
 dataset_metadata 里有 data_snapshot_id、start_date、end_date；口径表叫 metric_dictionary。
+口径的可执行定义、表间关系、表的主键是给知识服务的语义层用的（k8s 库 0009-semantic）。
 """
 
 from __future__ import annotations
@@ -24,9 +25,13 @@ from app.domain.securities.financial_catalog import (
     RECONCILIATION_RULES,
     ROW_FIELDS,
     STATEMENT_FIELDS,
+    TABLE_KEYS,
+    TABLE_LINKS,
 )
 
-EXPORT_VERSION = "1.0.0"
+# 2.0.0：数据集自述第二版。口径表在原有七列之后增加可执行的定义；
+# 新增 table_links（表间关系）与 table_keys（一行由什么确定）。原有的列与表不变。
+EXPORT_VERSION = "2.0.0"
 
 
 def dataset_id(code: SecurityCode) -> str:
@@ -154,6 +159,12 @@ def build_tables(
             ("unit", "TEXT"),
             ("time_basis", "TEXT"),
             ("description", "TEXT"),
+            ("kind", "TEXT"),
+            ("base_table", "TEXT"),
+            ("value_expression", "TEXT"),
+            ("applicable_when", "TEXT"),
+            ("reason_if_not", "TEXT"),
+            ("queryable", "INTEGER"),
         ],
         [
             (
@@ -164,8 +175,44 @@ def build_tables(
                 m.unit,
                 m.time_basis,
                 m.description,
+                "row",
+                m.base_table,
+                m.value_expression,
+                m.applicable_when,
+                m.reason_if_not,
+                1 if m.queryable else 0,
             )
             for m in METRICS
+        ],
+    )
+    tables["table_links"] = (
+        [
+            ("link_name", "TEXT"),
+            ("from_table", "TEXT"),
+            ("to_table", "TEXT"),
+            ("cardinality", "TEXT"),
+            ("on_columns", "TEXT"),
+        ],
+        [
+            (
+                link.link_name,
+                link.from_table,
+                link.to_table,
+                link.cardinality,
+                ",".join(link.on_columns),
+            )
+            for link in TABLE_LINKS
+        ],
+    )
+    tables["table_keys"] = (
+        [
+            ("table_name", "TEXT"),
+            ("key_columns", "TEXT"),
+            ("label_columns", "TEXT"),
+        ],
+        [
+            (key.table_name, ",".join(key.key_columns), ",".join(key.label_columns))
+            for key in TABLE_KEYS
         ],
     )
     tables["reconciliation_rules"] = (

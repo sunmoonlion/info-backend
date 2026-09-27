@@ -78,3 +78,64 @@ GET  /api/admin/security-ingestions/{ingestion_id}  → 批次与每个条目
 - `tests/test_security_ingestion_db.py`：留存与登记，需要 `DELIVERY_TEST_DATABASE_URL`。会话配置与生产一致（提交后对象过期）。
 - `tests/test_crawl_http.py`：取数边界，含 POST 与有上限的解压。
 - `scripts/security_ingest_smoke.sh`：联网冒烟，手动跑，结果在 `scripts/results/`。
+
+# 从采集批次建数据集
+
+设计见同一份文档的「段二」。全部是确定性的计算，不调用模型。
+
+## 怎么用
+
+```bash
+cd info-backend/app
+uv run python -m app.cli.security_dataset --code 600009            # 用最近一个成功的批次
+uv run python -m app.cli.security_dataset --ingestion <批次标识> --out ./sh600009.sqlite
+```
+
+退出码 0 已发布，2 质量检查没过（数据集登记为 `quality_failed`，不发布），1 原文或运行环境有问题。
+
+## 做了什么
+
+1. 读回批次里的原文，逐个核对校验值。
+2. 把三大报表的原始响应解析成报表行，只取财务目录里登记的字段。
+3. 从每份年度报告的「主要会计数据」表里取七个关键科目。表格由 pdfplumber 抽取，只处理前 25 页里出现这个表的页。版式认不出来就记下原因，不猜。
+4. 口径判定：报表里某年的数与该年年报「本期」列一致是原始披露；与后面年报里标了「调整后」的列一致，或与后面年报的比较数一致而与当年披露不一致，是追溯调整后；都对不上是未核实。中报季报一律未核实。
+5. 质量检查，十五项。
+6. 写成 SQLite 文件，连同清单 `manifest.json`、质量报告 `quality.json` 存进对象存储，登记进 `security_dataset` 表。
+
+## 质量检查
+
+| 检查 | 内容 | 不通过时 |
+| --- | --- | --- |
+| `Q-STRUCT` | 三张表都有数据，报告期不重复，必有字段不为空 | 拦住 |
+| `Q-R01` 至 `Q-R09` | 九条同期勾稽，容差一元 | 拦住 |
+| `Q-CONT` | 本年期初现金等于上年期末现金；不连续必须能由追溯调整解释 | 拦住 |
+| `Q-OFFICIAL` | 标了口径的年份，关键科目与年报原文逐项一致 | 拦住 |
+| `Q-BASIS` | 有年报原文的年份，报表必须与原文的某个口径一致 | 拦住 |
+| `Q-DISCLOSURE` | 每个年度都有法定披露日 | 提醒 |
+| `Q-FRESH` | 最新一期距今不超过 200 天 | 提醒 |
+
+## 数据集的内容
+
+| 表 | 内容 |
+| --- | --- |
+| `balance_sheet`、`income_statement`、`cash_flow` | 报表行，带 `basis`、`verified`、`verified_against` |
+| `official_key_figures` | 年报里的关键数字，带口径、列标签、报告名、披露日、页码 |
+| `disclosure_calendar` | 法定披露日历，带原文的校验值 |
+| `field_dictionary`、`metric_dictionary`、`reconciliation_rules` | 字段字典、口径表、勾稽规则，来自 `app/domain/securities/financial_catalog.py` |
+| `dataset_metadata` | 版本、期间、来源、重述说明、年报对追溯调整的原文说明、会计准则说明、使用权说明 |
+
+数据版本由内容决定：同样的原文和同样的财务目录，得到同样的版本和同样的文件。文件里不写采集时间和批次标识，这两样在清单和登记表里。
+
+财务目录是我们自建的数据。改它等于改数据集的含义。
+
+## 已知事实（2026-09-27 实测，600009）
+
+- 九份年报（2017 至 2025 年）全部解析成功，共 177 个关键数字。关键页在第 6 或第 7 页。
+- 判定结果：2017 至 2020 年、2022 至 2025 年为原始披露，2021 年为追溯调整后。与当天手工核对的结果一致。
+- 十五项检查全部通过。跨期检查发现 2021 年期初现金与 2020 年期末现金差 5353.86 万元，由 2021 年的追溯调整解释。
+- 建一次约 30 秒，内存峰值约 220 MB，主要花在 PDF 抽取上。数据集文件约 140 KB。
+
+## 测试
+
+- `tests/test_security_dataset.py`：解析、口径判定、质量检查、建库。夹具是实采数据裁出来的，数值没有改。
+- `tests/test_security_dataset_db.py`：读回原文、留存与登记，需要 `DELIVERY_TEST_DATABASE_URL`。

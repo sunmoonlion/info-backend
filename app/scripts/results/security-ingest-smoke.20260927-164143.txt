@@ -1,0 +1,53 @@
+code=600009 commit=1516f9f python=Python 3.12.3
+schema=20260927_0011 (head)
+== 第 1 次 exit=0 耗时=196s
+   status = succeeded
+   items = 80
+   new_artifacts = 80
+   reused_artifacts = 0
+   bytes_fetched = 28711977
+   by_source = {'cninfo': 11, 'eastmoney-f10': 69}
+   report_years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+   statement_periods = {'balance_sheet': 110, 'cash_flow': 103, 'income_statement': 110}
+   error_code = None
+   error_detail = None
+== 第 2 次 exit=0 耗时=32s
+   status = succeeded
+   items = 80
+   new_artifacts = 0
+   reused_artifacts = 80
+   bytes_fetched = 28711977
+   by_source = {'cninfo': 11, 'eastmoney-f10': 69}
+   report_years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+   statement_periods = {'balance_sheet': 110, 'cash_flow': 103, 'income_statement': 110}
+   error_code = None
+   error_detail = None
+== 复算 原文=80 一致=80 不一致或缺失=0 重试过的条目=0
+== 第二次新增的原文（按类型）: {}
+== 建数据集 第 1 次 exit=0 耗时=28s
+   status = published
+   dataset_id = sh600009-financials
+   data_version = sh600009-financials-39a395bfa6f16b67
+   sha256 = 51900174f4b5b9a1d6f7ad040b29118e5bbdd214e7a7796c8a2af938c46b139e
+   size_bytes = 143360
+   row_counts = {'balance_sheet': 110, 'income_statement': 110, 'cash_flow': 103, 'official_key_figures': 177, 'disclosure_calendar': 9, 'field_dictionary': 84, 'metric_dictionary': 10, 'reconciliation_rules': 9}
+   start_date = 1994-12-31
+   end_date = 2026-06-30
+   basis_by_year = {'2017': '原始披露', '2018': '原始披露', '2019': '原始披露', '2020': '原始披露', '2021': '追溯调整后', '2022': '原始披露', '2023': '原始披露', '2024': '原始披露', '2025': '原始披露'}
+   failed_checks = []
+   report_problems = {}
+== 建数据集 第 2 次 exit=0 耗时=29s
+   status = published
+   dataset_id = sh600009-financials
+   data_version = sh600009-financials-39a395bfa6f16b67
+   sha256 = 51900174f4b5b9a1d6f7ad040b29118e5bbdd214e7a7796c8a2af938c46b139e
+   size_bytes = 143360
+   row_counts = {'balance_sheet': 110, 'income_statement': 110, 'cash_flow': 103, 'official_key_figures': 177, 'disclosure_calendar': 9, 'field_dictionary': 84, 'metric_dictionary': 10, 'reconciliation_rules': 9}
+   start_date = 1994-12-31
+   end_date = 2026-06-30
+   basis_by_year = {'2017': '原始披露', '2018': '原始披露', '2019': '原始披露', '2020': '原始披露', '2021': '追溯调整后', '2022': '原始披露', '2023': '原始披露', '2024': '原始披露', '2025': '原始披露'}
+   failed_checks = []
+   report_problems = {}
+== 两次建出的文件 sha256 相同: 是
+== 数据集另存: /home/zym/ashare-probe/data/sh600009-financials.from-info.sqlite
+exit=0

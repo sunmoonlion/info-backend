@@ -85,3 +85,40 @@ class SecurityIngestionItem(UUIDMixin, TimestampMixin, Base):
         ),
         Index("ix_security_ingestion_item_sha256", "sha256"),
     )
+
+
+class SecurityDataset(UUIDMixin, TimestampMixin, Base):
+    """从一个采集批次建出的数据集（0008-info 段二）。版本由内容决定。"""
+
+    __tablename__ = "security_dataset"
+
+    security_code: Mapped[str] = mapped_column(String(6), nullable=False)
+    dataset_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    data_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    ingestion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_ingestion.id"), nullable=False
+    )
+    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    version_id: Mapped[str | None] = mapped_column(String(255))
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    row_counts: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    quality: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    start_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    end_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    built_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "security_code", "data_version", name="uq_security_dataset_version"
+        ),
+        CheckConstraint(
+            "status IN ('published', 'quality_failed')",
+            name="ck_security_dataset_status",
+        ),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_security_dataset_sha256"),
+        Index("ix_security_dataset_code_built", "security_code", "built_at"),
+    )

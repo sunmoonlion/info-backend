@@ -52,6 +52,41 @@ class ObjectStorage:
             metadata=metadata,
         )
 
+    def get_bytes(
+        self,
+        *,
+        object_key: str,
+        version_id: str | None = None,
+        expected_sha256: str | None = None,
+        max_bytes: int = 64 * 1024 * 1024,
+    ) -> bytes:
+        """读回已留存的对象。给了校验值就核对，对不上不返回内容。"""
+        if self._settings.storage_backend.lower() == "s3":
+            client = self.s3_client()
+            try:
+                extra = {"VersionId": version_id} if version_id else {}
+                response = client.get_object(
+                    Bucket=self.bucket, Key=object_key, **extra
+                )
+                if int(response["ContentLength"]) > max_bytes:
+                    raise RuntimeError("stored_object_too_large")
+                data = response["Body"].read(max_bytes + 1)
+            finally:
+                client.close()
+        else:
+            root = Path(self._settings.storage_local_root).resolve()
+            target = (root / self.bucket / object_key).resolve()
+            if root not in target.parents:
+                raise RuntimeError("stored_object_key_invalid")
+            if target.stat().st_size > max_bytes:
+                raise RuntimeError("stored_object_too_large")
+            data = target.read_bytes()
+        if len(data) > max_bytes:
+            raise RuntimeError("stored_object_too_large")
+        if expected_sha256 and hashlib.sha256(data).hexdigest() != expected_sha256:
+            raise RuntimeError("stored_object_digest_mismatch")
+        return data
+
     def put_json(self, *, object_key: str, payload: object) -> StoredObject:
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         return self.put_bytes(

@@ -15,11 +15,18 @@ from app.application.securities.collectors import (
     CninfoDisclosureCollector,
     EastmoneyF10StatementCollector,
 )
+from app.application.securities.dataset_service import SecurityDatasetService
 from app.application.securities.ingestion_service import SecurityIngestionService
 from app.application.services.durable_tasks import enqueue_task
 from app.domain.securities import SecurityCode
 from app.infrastructure.models.securities import SecurityIngestion
-from app.infrastructure.securities import CrawlHttpFetcher, SqlIngestionStore
+from app.infrastructure.securities import (
+    CrawlHttpFetcher,
+    PdfPlumberReportReader,
+    SqlBatchReader,
+    SqlDatasetStore,
+    SqlIngestionStore,
+)
 from app.infrastructure.storage.object_storage import get_object_storage
 from core.config import get_settings
 
@@ -89,3 +96,17 @@ async def request_security_ingestion(
     await session.commit()
     await session.refresh(batch)
     return batch
+
+
+def build_security_dataset_service(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> SecurityDatasetService:
+    storage = get_object_storage()
+    return SecurityDatasetService(
+        batches=SqlBatchReader(session_factory=session_factory, storage=storage),
+        reports=PdfPlumberReportReader(),
+        store=SqlDatasetStore(
+            session_factory=session_factory, storage=storage, clock=_now
+        ),
+        today=lambda: datetime.now(_SHANGHAI).date(),
+    )

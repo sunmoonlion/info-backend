@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 证券采集联网冒烟（0008-info 段一，MVP-01、MVP-02）：真实网站、真实数据库、本地对象存储。
-# 采两次同一个代码，然后从磁盘上的文件复算每条原文的校验值。
+# 证券采集联网冒烟（0008-info 段一、段二，MVP-01 至 MVP-04）：真实网站、真实数据库、本地对象存储。
+# 采两次同一个代码，从磁盘上的文件复算每条原文的校验值，再从批次建两次数据集。
+# 可选：DATASET_OUT=<路径> 把建出的数据集文件另存一份。
 #
 # 用法：在 info-backend/app 下
 #   DATABASE_URL=postgresql://<用户>:<口令>@127.0.0.1:<端口>/<库> \
@@ -58,6 +59,26 @@ async def main():
 asyncio.run(main())
 PY
   v=$?; [ "$v" -eq 0 ] || rc=$v
+  # 段二：从刚采的批次建数据集，建两次，版本与文件应完全相同
+  for n in 1 2; do
+    start=$(date +%s)
+    uv run python -m app.cli.security_dataset --code "$CODE" --out "$TMP/dataset$n.sqlite" >"$TMP/ds$n.json" 2>"$TMP/ds$n.err"; code=$?
+    echo "== 建数据集 第 $n 次 exit=$code 耗时=$(( $(date +%s) - start ))s"
+    python3 - "$TMP/ds$n.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for k in ("status", "dataset_id", "data_version", "sha256", "size_bytes", "row_counts", "start_date",
+          "end_date", "basis_by_year", "failed_checks", "report_problems", "error", "detail", "type"):
+    if k in d: print(f"   {k} = {d[k]}")
+PY
+    [ "$code" -eq 0 ] || rc=2
+  done
+  if [ -f "$TMP/dataset1.sqlite" ] && [ -f "$TMP/dataset2.sqlite" ]; then
+    a=$(sha256sum "$TMP/dataset1.sqlite" | cut -d' ' -f1); b=$(sha256sum "$TMP/dataset2.sqlite" | cut -d' ' -f1)
+    echo "== 两次建出的文件 sha256 相同: $([ "$a" = "$b" ] && echo 是 || echo 否)"
+    [ "$a" = "$b" ] || rc=4
+    [ -n "${DATASET_OUT:-}" ] && cp "$TMP/dataset1.sqlite" "$DATASET_OUT" && echo "== 数据集另存: $DATASET_OUT"
+  fi
   echo "exit=$rc"
 } 2>&1 | grep -v -i "password\|secret\|token=" | tee "$OUT"
 echo "结果: $OUT"

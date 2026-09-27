@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.domain.securities import (
@@ -12,6 +13,7 @@ from app.domain.securities import (
     RawResponse,
     SecurityCode,
 )
+from app.domain.securities.dataset import BuiltDataset, ReportPage
 
 
 class FetchFailed(RuntimeError):
@@ -62,3 +64,44 @@ class IngestionStore(Protocol):
         error_code: str | None = None,
         error_detail: str | None = None,
     ) -> None: ...
+
+
+@dataclass(frozen=True)
+class BatchItem:
+    seq: int
+    source: str
+    kind: str
+    sha256: str
+    http_status: int
+    meta: Mapping[str, Any]
+    locator: Any  # 留存实现自己用来找回原文的凭据，应用层不解读
+
+
+@dataclass(frozen=True)
+class LoadedBatch:
+    ingestion_id: str
+    code: SecurityCode
+    status: str
+    items: tuple[BatchItem, ...]
+
+
+class BatchReader(Protocol):
+    async def load(self, ingestion_id: str) -> LoadedBatch | None: ...
+
+    async def latest_succeeded(self, code: SecurityCode) -> str | None: ...
+
+    async def read(self, item: BatchItem) -> bytes:
+        """读回原文并核对校验值；对不上要报错，不能返回内容。"""
+        ...
+
+
+class ReportReader(Protocol):
+    def extract_pages(self, pdf: bytes, *, max_pages: int) -> list[ReportPage]:
+        """抽出报告前若干页的文字与表格。读不了就抛 DatasetBuildError。"""
+        ...
+
+
+class DatasetStore(Protocol):
+    async def save(self, dataset: BuiltDataset, *, ingestion_id: str) -> str:
+        """留存数据集文件、清单与质量报告，并登记。同一版本重复保存是幂等的。"""
+        ...

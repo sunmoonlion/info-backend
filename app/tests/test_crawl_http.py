@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import subprocess
 import sys
+import zlib
 from collections.abc import AsyncIterator
 
 import httpx
@@ -339,3 +341,158 @@ async def test_resolver_capacity_is_bounded(monkeypatch):
     with pytest.raises(crawl_http.CrawlFetchError, match="capacity_exhausted"):
         await crawl_http._resolve("example.org", 443)
     slots.release()
+
+
+async def test_post_sends_form_once_with_the_same_boundary(network):
+    network[1].append(httpx.Response(200, stream=Body([b"{}"])))
+    response = await fetch(
+        "http://example.org/query",
+        method="POST",
+        form={"stock": "600009,gssh0600009", "category": "年报"},
+    )
+    request = network[0][0]
+    assert request.method == "POST"
+    assert str(request.url) == "http://93.184.216.34/query"
+    assert request.headers["host"] == "example.org"
+    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    assert request.headers["accept-encoding"] == "identity"
+    assert request.content == (
+        b"stock=600009%2Cgssh0600009&category=%E5%B9%B4%E6%8A%A5"
+    )
+    assert response.request.method == "POST"
+    assert str(response.url) == "http://example.org/query"
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+async def test_post_is_never_redirected(network, status):
+    network[1].append(
+        httpx.Response(status, headers={"location": "https://example.org/elsewhere"})
+    )
+    with pytest.raises(crawl_http.CrawlFetchError, match="crawl_redirect_forbidden"):
+        await fetch(method="POST", form={"a": "b"})
+    assert len(network[0]) == 1
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "code"),
+    [
+        ({"method": "PUT"}, "crawl_method_forbidden"),
+        ({"method": "DELETE"}, "crawl_method_forbidden"),
+        ({"method": "get"}, "crawl_method_forbidden"),
+        ({"form": {"a": "b"}}, "crawl_body_forbidden"),
+        ({"method": "POST", "form": {"a": "x" * 20000}}, "crawl_body_too_large"),
+    ],
+)
+async def test_method_and_body_are_bounded_before_any_connection(network, kwargs, code):
+    with pytest.raises(crawl_http.CrawlFetchError, match=code):
+        await fetch(**kwargs)
+    assert network[0] == [] and network[2] == []
+
+
+async def test_post_response_limits_still_apply(network):
+    network[1].append(httpx.Response(200, stream=Body([b"x" * 21])))
+    with pytest.raises(crawl_http.CrawlFetchError, match="crawl_response_too_large"):
+        await fetch(method="POST", form={"a": "b"})
+
+
+def encoded(body: bytes, encoding: str, chunk: int = 7) -> httpx.Response:
+    data = gzip.compress(body) if encoding == "gzip" else zlib.compress(body)
+    return httpx.Response(
+        200,
+        headers={"content-encoding": encoding, "content-type": "application/json"},
+        stream=Body([data[i : i + chunk] for i in range(0, len(data), chunk)]),
+    )
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "x-gzip", "deflate", "GZIP"])
+async def test_opted_in_caller_gets_the_inflated_body(network, encoding):
+    body = b'{"data": [1, 2, 3]}'
+    network[1].append(
+        encoded(body, "gzip" if "gzip" in encoding.lower() else "deflate")
+    )
+    network[1][0].headers["content-encoding"] = encoding
+    response = await fetch(decode=True, max_bytes=64)
+    assert response.content == body
+    assert "content-encoding" not in response.headers
+    assert response.headers["x-crawl-decoded-from"] == encoding.lower()
+    assert response.headers["content-type"] == "application/json"
+    assert network[0][0].headers["accept-encoding"] == "identity"
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate"])
+async def test_compressed_answers_are_still_refused_unless_opted_in(network, encoding):
+    network[1].append(encoded(b"{}", encoding))
+    with pytest.raises(
+        crawl_http.CrawlFetchError, match="crawl_content_encoding_forbidden"
+    ):
+        await fetch()
+
+
+@pytest.mark.parametrize(
+    "encoding", ["br", "zstd", "compress", "gzip, br", "gzip,gzip"]
+)
+async def test_other_encodings_are_refused_even_when_opted_in(network, encoding):
+    network[1].append(
+        httpx.Response(200, headers={"content-encoding": encoding}, stream=Body([b"x"]))
+    )
+    with pytest.raises(
+        crawl_http.CrawlFetchError, match="crawl_content_encoding_forbidden"
+    ):
+        await fetch(decode=True)
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate"])
+async def test_a_bomb_is_stopped_at_the_limit_without_being_inflated(network, encoding):
+    bomb = b"0" * (50 * 1024 * 1024)  # 压缩后只有几万字节
+    response = encoded(bomb, encoding, chunk=4096)
+    body = response.stream
+    network[1].append(response)
+    with pytest.raises(crawl_http.CrawlFetchError, match="crawl_response_too_large"):
+        await fetch(decode=True, max_bytes=100_000)
+    assert body.reads <= 2 and body.closed  # 第一两块就超限，后面的不再读
+
+
+async def test_inflated_size_exactly_at_the_limit_is_accepted(network):
+    body = b"x" * 1000
+    network[1].append(encoded(body, "gzip"))
+    assert (await fetch(decode=True, max_bytes=1000)).content == body
+    network[1].append(encoded(body + b"y", "gzip"))
+    with pytest.raises(crawl_http.CrawlFetchError, match="crawl_response_too_large"):
+        await fetch(decode=True, max_bytes=1000)
+
+
+async def test_compressed_input_is_bounded_too(network):
+    import os
+
+    noise = os.urandom(4000)  # 压不小
+    network[1].append(encoded(noise, "gzip", chunk=500))
+    with pytest.raises(crawl_http.CrawlFetchError, match="crawl_response_too_large"):
+        await fetch(decode=True, max_bytes=3000)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda d: d[:-5],  # 截断
+        lambda d: d[:10] + b"\x00" * 10 + d[20:],  # 中段损坏
+        lambda d: b"not gzip at all",
+        lambda d: d + b"trailing",  # 结束后还有多余内容
+        lambda d: b"",
+    ],
+)
+async def test_damaged_compressed_body_is_refused(network, damage):
+    data = damage(gzip.compress(b'{"data": "value"}' * 20))
+    network[1].append(
+        httpx.Response(200, headers={"content-encoding": "gzip"}, stream=Body([data]))
+    )
+    with pytest.raises(
+        crawl_http.CrawlFetchError, match="crawl_content_encoding_invalid"
+    ):
+        await fetch(decode=True, max_bytes=10_000)
+
+
+async def test_identity_answers_are_untouched_when_opted_in(network):
+    network[1].append(httpx.Response(200, stream=Body([b"plain"])))
+    response = await fetch(decode=True)
+    assert response.content == b"plain"
+    assert "x-crawl-decoded-from" not in response.headers

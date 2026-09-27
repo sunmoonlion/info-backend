@@ -12,6 +12,10 @@ from app.infrastructure.models.info import (
     RawArtifact,
 )
 from app.infrastructure.models.outbox import InboxMessage, OutboxMessage
+from app.infrastructure.models.securities import (
+    SecurityIngestion,
+    SecurityIngestionItem,
+)
 
 __all__ = [
     "AuthUser",
@@ -27,4 +31,6 @@ __all__ = [
     "InfoSource",
     "OutboxMessage",
     "RawArtifact",
+    "SecurityIngestion",
+    "SecurityIngestionItem",
 ]

@@ -68,9 +68,14 @@ def parse_key_figures(
     return ParsedReport((), None, None, "table_not_found")
 
 
-def _columns(header: Sequence[str]) -> list[int | None]:
-    """表头 → 每一列是哪一年。空表头是上一列的延续（合并单元格）。"""
+def _columns(header: Sequence[str]) -> tuple[list[int | None], list[bool]]:
+    """表头 → 每一列是哪一年，以及这一列是不是靠「延续上一列」得到年份的。
+
+    空表头是上一列的延续（合并单元格）。延续来的列只有在下一行标了「调整前 / 调整后」
+    时才算数，由调用的一方判断。
+    """
     years: list[int | None] = [None]
+    continued: list[bool] = [False]
     previous: int | None = None
     for cell in header[1:]:
         text = _clean(cell)
@@ -78,12 +83,15 @@ def _columns(header: Sequence[str]) -> list[int | None]:
         if matched:
             previous = int(matched.group(1))
             years.append(previous)
+            continued.append(False)
         elif text == "":
             years.append(previous)
+            continued.append(previous is not None)
         else:
             previous = None  # 「增减」一类的列，后面的空表头不再延续年份
             years.append(None)
-    return years
+            continued.append(False)
+    return years, continued
 
 
 def _figures(
@@ -103,7 +111,7 @@ def _figures(
             _YEAR.match(c) for c in cells[1:]
         )
         if is_header:
-            years = _columns(row)
+            years, continued = _columns(row)
             adjust = [""] * len(row)
             if position < len(rows):
                 following = [_clean(c) for c in rows[position]]
@@ -112,6 +120,12 @@ def _figures(
                 ):
                     adjust = [c if c in ("调整后", "调整前") else "" for c in following]
                     position += 1
+            # 没有「调整前 / 调整后」标记的空表头列不是某一年的数。恒瑞医药 2023 年年报里，
+            # 「本期比上年同期增减(%)」的表头被拆到了隔壁，百分比落在一个空表头的列里
+            years = [
+                None if continued[i] and not (i < len(adjust) and adjust[i]) else year
+                for i, year in enumerate(years)
+            ]
             continue
         item = _LABELS.get(label)
         if item is None or not years:

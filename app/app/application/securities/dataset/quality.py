@@ -317,7 +317,7 @@ def _official(rows_by_statement, figures) -> QualityCheck:
         if value is None:
             continue
         checked += 1
-        if abs(value - figure.value) > TOLERANCE_YUAN:
+        if abs(value - figure.value) > max(TOLERANCE_YUAN, figure.precision):
             violations.append(
                 {
                     "fiscal_year": figure.fiscal_year,

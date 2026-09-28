@@ -36,12 +36,20 @@ def _values(rows_by_statement, year: int) -> dict[str, float]:
     return found
 
 
-def _agrees(statement: dict[str, float], official: dict[str, float]) -> bool | None:
-    """全部可比科目都一致才算一致；可比科目不足时返回 None（不能判）。"""
+def _agrees(
+    statement: dict[str, float], official: dict[str, tuple[float, float]]
+) -> bool | None:
+    """全部可比科目都一致才算一致；可比科目不足时返回 None（不能判）。
+
+    official 的值是（数, 年报上这个数的精度）。年报以千元列示时，差在一千元以内就是一致。
+    """
     common = [k for k in official if k in statement]
     if len(common) < _MIN_ITEMS:
         return None
-    return all(abs(statement[k] - official[k]) <= TOLERANCE_YUAN for k in common)
+    return all(
+        abs(statement[k] - official[k][0]) <= max(TOLERANCE_YUAN, official[k][1])
+        for k in common
+    )
 
 
 def assign_basis(
@@ -74,16 +82,18 @@ def assign_basis(
 def _decide(
     year: int, statement: dict[str, float], figures: Sequence[OfficialFigure]
 ) -> tuple[str, str | None]:
-    def column(basis: str, *, own: bool | None) -> list[tuple[str, dict[str, float]]]:
+    def column(
+        basis: str, *, own: bool | None
+    ) -> list[tuple[str, dict[str, tuple[float, float]]]]:
         """按年报分组的一列。先披露的排前面；修订版排在原版后面。"""
-        grouped: dict[tuple[str, bool, str], dict[str, float]] = {}
+        grouped: dict[tuple[str, bool, str], dict[str, tuple[float, float]]] = {}
         for f in figures:
             if f.fiscal_year != year or f.basis != basis:
                 continue
             if own is not None and (f.report_fiscal_year == year) != own:
                 continue
             key = (f.disclosed_date, f.revised_report, f.source_report)
-            grouped.setdefault(key, {})[f.item] = f.value
+            grouped.setdefault(key, {})[f.item] = (f.value, f.precision)
         return [(k[2], v) for k, v in sorted(grouped.items())]
 
     originals = column(BASIS_ORIGINAL, own=True) + column(BASIS_ORIGINAL, own=False)

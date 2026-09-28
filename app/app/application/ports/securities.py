@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -15,6 +15,7 @@ from app.domain.securities import (
 )
 from app.domain.securities.dataset import BuiltDataset, ReportPage
 from app.domain.securities.registration import DatasetRecord
+from app.domain.securities.report_statements import PageWords
 
 
 class FetchFailed(RuntimeError):
@@ -99,6 +100,12 @@ class BatchReader(Protocol):
 class ReportReader(Protocol):
     def extract_pages(self, pdf: bytes, *, max_pages: int) -> list[ReportPage]:
         """抽出报告前若干页的文字与表格。读不了就抛 DatasetBuildError。"""
+        ...
+
+
+class ReportWordsReader(Protocol):
+    def read_words(self, pdf: bytes, *, first_page: int = 12) -> Iterator[PageWords]:
+        """逐页给出词和坐标，用的人读够了就停。读不了就抛 DatasetBuildError。"""
         ...
 
 

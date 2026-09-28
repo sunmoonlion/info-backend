@@ -1,0 +1,47 @@
+用存档批次重建十四家的数据集（不访问网站）。
+新增：年报的「主要会计数据」表认不出来时，改从年报的合并报表取关键数字（SECURITY_STATEMENT_FALLBACK_ENABLED，默认开）。
+时间：2026-09-29 02:05 至 02:45（上海时间）  代码：工作区，基于 ccbc7fc 加本次改动
+库：一次性测试库 info_smoke；存储：本机目录
+
+代码|公司|状态|没过的拦截项|判出口径的年数|其中追溯调整后|没用上的年报|耗时秒|数据版本|sha256 前 12 位
+600009|上海机场|published||9|1|0|29|sh600009-financials-9fd91db79529e208|ac5cfd0805d0
+000858|五粮液|published||9|1|0|102|sz000858-financials-f86c6b515c7576ea|1e36965c3896
+002415|海康威视|published||9|3|0|152|sz002415-financials-4f43b7a00460f4f4|f4b62ce3f141
+920185|贝特瑞|quality_failed|Q-R06,Q-CONT|5|1|0|103|bj920185-financials-05131ad8bc7acc4b|2ab1cbe72ea1
+600519|贵州茅台|quality_failed|Q-BASIS|8|1|0|34|sh600519-financials-ca1d55c2da1759b4|7ef13e0b62e4
+000333|美的集团|quality_failed|Q-BASIS|0|0|9|175|sz000333-financials-e31ab89e956a5f27|e03819d7aaac
+002594|比亚迪|published||8|1|1|234|sz002594-financials-e8028bcf97e75d4c|63a22cc315a3
+300750|宁德时代|quality_failed|Q-R01,Q-R03,Q-R04,Q-R05,Q-R06,Q-R07,Q-R08,Q-R09,Q-CONT|8|1|0|143|sz300750-financials-302e70aa32e7ccf7|6e0d3ec7a6bf
+000002|万科A|published||7|1|2|277|sz000002-financials-652644cf528eec49|3a4cd79e2094
+688981|中芯国际|quality_failed|Q-R03,Q-R07,Q-R08,Q-R09,Q-CONT|6|2|0|19|sh688981-financials-afca29150c5d5e32|3dd4bbff6fbd
+600276|恒瑞医药|published||9|1|0|62|sh600276-financials-5868ab1a7688d3e9|e068be03e17b
+600900|长江电力|published||9|4|1|29|sh600900-financials-9038e254db04428c|a240b5a96b00
+601888|中国中免|published||9|1|0|44|sh601888-financials-d080a65966d654a3|76769ab8942d
+601899|紫金矿业|published||7|0|2|560|sh601899-financials-7da59b5e8885a5a8|157fed228a18
+
+发布 9 / 14：600009、000858、002415、002594、000002、600276、600900、601888、601899
+600009 逐字节不变（sha256 ac5cfd0805d0c7f99be5054c49d9aaf00e3e3f400d27884fe32e44e74fdbac23）。
+
+没用上的年报及原因
+000333|2017年年度报告|table_not_found；statements_unusable（income_statement:unbalanced；cash_flow:not_reconciled）
+000333|2018年年度报告|table_not_found；statements_unusable（balance_sheet:unbalanced；income_statement:unbalanced；cash_flow:not_reconciled）
+000333|2019年年度报告|table_not_found；statements_unusable（income_statement:unbalanced；cash_flow:not_reconciled）
+000333|2020年年度报告|table_not_found；statements_unusable（income_statement:unbalanced；cash_flow:not_reconciled）
+000333|2021年年度报告|table_not_found；statements_unusable（income_statement:unbalanced；cash_flow:not_reconciled）
+000333|2022年年度报告|table_not_found；statements_unusable（income_statement:unbalanced；cash_flow:not_reconciled）
+000333|2023年年度报告|table_not_found；statements_unusable（income_statement:not_extracted；cash_flow:not_reconciled）
+000333|2024年年度报告|table_not_found；statements_unusable（income_statement:not_extracted；cash_flow:not_reconciled）
+000333|2025年年度报告|table_not_found；statements_unusable（income_statement:unbalanced；cash_flow:not_reconciled）
+002594|2023年年度报告|table_not_found；statements_unusable（balance_sheet:not_extracted；income_statement:not_extracted；cash_flow:not_extracted）
+000002|2024年年度报告|table_not_found；statements_unusable（income_statement:not_reconciled；cash_flow:not_reconciled）
+000002|2025年年度报告|table_not_found；statements_unusable（income_statement:not_reconciled；cash_flow:not_reconciled）
+600900|长江电力关于《2022年年度报告》《2023年第一季度报告》披露日期变更的公告|table_not_found；statements_unusable（balance_sheet:not_extracted；income_statement:not_extracted；cash_flow:not_extracted）
+601899|紫金矿业集团股份有限公司2024年年报报告|table_not_found；statements_unusable（balance_sheet:not_extracted；income_statement:not_extracted；cash_flow:not_extracted）
+601899|紫金矿业集团股份有限公司2025年年度报告|table_not_found；statements_unusable（balance_sheet:not_extracted；income_statement:not_extracted；cash_flow:not_extracted）
+
+仍被拦的五家
+600519 贵州茅台：2021 年第三方的一行里混着两种口径。营业收入、归母净利润、总资产等六项是原始披露的数，扣非净利润是 2023 年年报追溯调整后的数。整行既不等于原始披露也不等于调整后。
+000333 美的集团：九份年报的合并报表勾稽都不平（所得税印成负数等），关键数字一个没取。
+300750 宁德时代：第三方数据的勾稽差额是 100 元、1000 元的整数倍，容差一元过不了。
+688981 中芯国际：2017 至 2019 年的中报季报勾稽不平，2019 年现金不连续。
+920185 贝特瑞：2021 年一季报勾稽不平，2019 年现金不连续。

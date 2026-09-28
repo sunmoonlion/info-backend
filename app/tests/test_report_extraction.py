@@ -930,3 +930,13 @@ def test_the_size_limit_and_the_first_page_are_checked():
         list(PdfPlumberWordsReader().read_words(pdf, first_page=0))
     with pytest.raises(ValueError, match="max_bytes"):
         PdfPlumberWordsReader(max_bytes=0)
+    with pytest.raises(ValueError, match="max_pages"):
+        PdfPlumberWordsReader(max_pages=0)
+
+
+def test_no_more_than_the_allowed_number_of_pages_is_read():
+    pdf = (ONE_PAGE / "annual_2025_page6.pdf").read_bytes()
+    assert (
+        len(list(PdfPlumberWordsReader(max_pages=1).read_words(pdf, first_page=1))) == 1
+    )
+    assert PdfPlumberWordsReader()._max_pages == 260

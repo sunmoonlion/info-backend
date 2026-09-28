@@ -171,6 +171,11 @@ class Settings(BaseSettings):
     security_quality_hard_years: int = Field(
         default=10, ge=1, le=60, validation_alias="SECURITY_QUALITY_HARD_YEARS"
     )
+    # 年报的「主要会计数据」表认不出来时，改从年报的合并报表取关键数字。
+    # 关掉就和 2026-09-28 之前一样：那些公司一个关键数字都取不到，数据集不发布。
+    security_statement_fallback_enabled: bool = Field(
+        default=True, validation_alias="SECURITY_STATEMENT_FALLBACK_ENABLED"
+    )
     security_report_timeout_seconds: float = Field(
         default=180.0,
         gt=0,

@@ -44,6 +44,7 @@ class OfficialFigure:
     disclosed_date: str
     page: int
     revised_report: bool
+    precision: float = 1.0  # 年报上这个数精确到多少元：以千元列示的表是 1000
 
 
 @dataclass(frozen=True)

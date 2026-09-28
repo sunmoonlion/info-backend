@@ -36,6 +36,7 @@ from app.infrastructure.securities import (
     SqlDatasetStore,
     SqlIngestionStore,
 )
+from app.infrastructure.securities.pdf_words import PdfPlumberWordsReader
 from app.infrastructure.storage.object_storage import get_object_storage
 from core.config import get_settings
 
@@ -127,6 +128,11 @@ def build_security_dataset_service(
             session_factory=session_factory, storage=storage, max_bytes=readable
         ),
         reports=PdfPlumberReportReader(max_bytes=readable),
+        words=(
+            PdfPlumberWordsReader(max_bytes=readable)
+            if settings.security_statement_fallback_enabled
+            else None
+        ),
         store=SqlDatasetStore(
             session_factory=session_factory, storage=storage, clock=_now
         ),

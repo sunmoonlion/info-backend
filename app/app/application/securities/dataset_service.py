@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from app.application.ports.securities import (
     BatchItem,
@@ -15,6 +16,7 @@ from app.application.ports.securities import (
     DatasetStore,
     LoadedBatch,
     ReportReader,
+    ReportWordsReader,
 )
 from app.application.securities.dataset.basis import assign_basis
 from app.application.securities.dataset.official_report import parse_key_figures
@@ -31,13 +33,18 @@ from app.application.securities.dataset.sqlite_writer import (
     dataset_id,
     write_sqlite,
 )
+from app.application.securities.dataset.statement_figures import (
+    figures_from_statements,
+)
 from app.application.securities.dataset.statements import parse_statement
+from app.application.securities.report_extraction import extract_statements
 from app.domain.securities import IngestionStatus, ItemKind, SecurityCode, SourceCode
 from app.domain.securities.dataset import (
     BuiltDataset,
     DatasetBuildError,
     DisclosureEntry,
     OfficialFigure,
+    ParsedReport,
     StatementRow,
 )
 from app.domain.securities.financial_catalog import (
@@ -80,11 +87,14 @@ class SecurityDatasetService:
         store: DatasetStore,
         today: Callable[[], date],
         hard_years: int = DEFAULT_HARD_YEARS,
+        words: ReportWordsReader | None = None,
     ) -> None:
         if hard_years < 1:
             raise ValueError("hard_years must be at least 1")
         self._batches = batches
         self._reports = reports
+        # 给了它，「主要会计数据」表认不出来的年报就改从合并报表取关键数字；不给就和以前一样
+        self._words = words
         self._store = store
         self._today = today
         self._hard_years = hard_years
@@ -104,7 +114,7 @@ class SecurityDatasetService:
             raise DatasetBuildError("ingestion_not_succeeded", batch.status)
         screening = screen(await self._statements(batch), hard_years=self._hard_years)
         rows = screening.rows
-        figures, calendar, problems, explanations = await self._reports_of(batch)
+        figures, calendar, problems, explanations = await self._reports_of(batch, rows)
         decided = assign_basis(rows, figures)
         quality = run_checks(
             rows, figures, calendar, today=self._today(), screening=screening
@@ -122,6 +132,7 @@ class SecurityDatasetService:
             end=max(dates),
         )
         metadata.update(_old_data_notes(screening, quality))
+        metadata.update(_statement_source_note(figures))
         identity = dataset_id(batch.code)
         fingerprint = hashlib.sha256(
             (content_fingerprint(tables) + repr(sorted(metadata.items()))).encode()
@@ -186,7 +197,7 @@ class SecurityDatasetService:
         return rows
 
     async def _reports_of(
-        self, batch: LoadedBatch
+        self, batch: LoadedBatch, rows: dict[str, list[StatementRow]]
     ) -> tuple[
         list[OfficialFigure],
         list[DisclosureEntry],
@@ -222,7 +233,7 @@ class SecurityDatasetService:
                     artifact_sha256=item.sha256,
                 )
             )
-            parsed = await self._parse(item, year, title)
+            parsed = await self._parse(item, year, title, rows)
             if parsed.problem:
                 problems[title] = parsed.problem
                 continue
@@ -235,18 +246,39 @@ class SecurityDatasetService:
                     explanations.setdefault(restated, (title, parsed.explanation))
         return figures, calendar, problems, explanations
 
-    async def _parse(self, item: BatchItem, year: int, title: str):
+    async def _parse(
+        self,
+        item: BatchItem,
+        year: int,
+        title: str,
+        rows: dict[str, list[StatementRow]],
+    ):
         pdf = await self._batches.read(item)
         pages = await asyncio.to_thread(
             self._reports.extract_pages, pdf, max_pages=_REPORT_PAGES
         )
-        return parse_key_figures(
-            pages,
-            report_fiscal_year=year,
-            title=title,
-            disclosed_date=str(item.meta["official_disclosed_date"]),
-            revised=bool(item.meta.get("revised")),
+        about = {
+            "report_fiscal_year": year,
+            "title": title,
+            "disclosed_date": str(item.meta["official_disclosed_date"]),
+            "revised": bool(item.meta.get("revised")),
+        }
+        parsed = parse_key_figures(pages, **about)
+        words = self._words
+        if not parsed.problem or words is None:
+            return parsed
+        try:
+            extraction = await asyncio.to_thread(
+                lambda: extract_statements(words.read_words(pdf))
+            )
+        except DatasetBuildError:
+            return parsed
+        fallback = figures_from_statements(
+            extraction, reference_in_yuan=_reference(rows, year), **about
         )
+        if fallback.problem:
+            return ParsedReport((), None, None, f"{parsed.problem}；{fallback.problem}")
+        return fallback
 
 
 def _metadata(
@@ -312,6 +344,36 @@ def _metadata(
             "因此 2021 年前后的资产负债率、经营活动现金流量不可直接比较"
         )
     return meta
+
+
+def _reference(
+    rows: dict[str, list[StatementRow]], year: int
+) -> dict[str, dict[str, Decimal]]:
+    """第三方数据里这一年的年报行，只用来核对量级。"""
+    found: dict[str, dict[str, Decimal]] = {}
+    for statement, group in rows.items():
+        for row in group:
+            if row.report_type == _ANNUAL and row.fiscal_year == year:
+                found[statement] = {
+                    k: Decimal(str(v)) for k, v in row.values.items() if v is not None
+                }
+    return found
+
+
+def _statement_source_note(figures: list[OfficialFigure]) -> dict[str, str]:
+    """有年报的关键数字取自合并报表时，写进数据集的说明。没有就什么都不加。"""
+    reports = sorted(
+        {f.source_report for f in figures if f.column_label.startswith("合并")}
+    )
+    if not reports:
+        return {}
+    return {
+        "official_figures_from_statements": (
+            "以下年报的「主要会计数据」表没有认出来，关键数字取自年报里的合并报表"
+            "（本期列为原始披露，上期列为比较数；不含扣除非经常性损益的净利润）："
+            + "、".join(reports)
+        )
+    }
 
 
 def _old_data_notes(screening: Screening, quality) -> dict[str, str]:

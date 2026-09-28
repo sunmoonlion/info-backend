@@ -281,6 +281,94 @@ def test_amounts_are_converted_to_yuan(unit, factor):
     assert own["operate_income"] == round(13346192164.12 * factor, 2)
 
 
+def test_a_percent_column_under_an_empty_header_is_not_a_year():
+    """恒瑞医药 2023 年年报：「本期比上年同期增减(%)」的表头被拆到隔壁一列，
+    百分比落在一个空表头的列里。以前它被当成 2022 年的数读了进来。"""
+    table = (
+        (
+            "主要会计数据",
+            "2023年",
+            "2022年",
+            "",
+            "本期比上\n年同期增\n减(%)",
+            "",
+            "2021年",
+        ),
+        (
+            "营业收入",
+            "22,819,784,741.30",
+            "21,275,270,681.52",
+            "7.26",
+            "",
+            "",
+            "25,905,526,375.80",
+        ),
+        (
+            "归属于上市公司股东的净利润",
+            "4,302,435,930.05",
+            "3,906,375,067.36",
+            "10.14",
+            "",
+            "",
+            "4,530,217,550.47",
+        ),
+        (
+            "经营活动产生的现金流量净额",
+            "7,643,665,074.52",
+            "1,265,264,631.93",
+            "504.12",
+            "",
+            "",
+            "4,218,816,053.27",
+        ),
+        (
+            "",
+            "2023年末",
+            "2022年末",
+            "",
+            "本期末比\n上年同期\n末增减\n（%）",
+            "",
+            "2021年末",
+        ),
+        (
+            "归属于上市公司股东的净资产",
+            "40,465,795,358.60",
+            "37,823,560,699.44",
+            "6.99",
+            "",
+            "",
+            "35,002,961,303.80",
+        ),
+        (
+            "总资产",
+            "43,784,506,635.70",
+            "42,370,875,897.96",
+            "3.34",
+            "",
+            "",
+            "39,266,221,700.10",
+        ),
+    )
+    parsed = parse_key_figures(
+        [ReportPage(6, (table,), "单位：元 币种：人民币")],
+        report_fiscal_year=2023,
+        title="恒瑞医药2023年年度报告",
+        disclosed_date="2024-04-18",
+        revised=False,
+    )
+    assert parsed.problem is None
+    of_2022 = sorted((f.item, f.value) for f in parsed.figures if f.fiscal_year == 2022)
+    assert of_2022 == [
+        ("netcash_operate", 1265264631.93),
+        ("operate_income", 21275270681.52),
+        ("parent_netprofit", 3906375067.36),
+        ("total_assets", 42370875897.96),
+        ("total_parent_equity", 37823560699.44),
+    ]
+    assert len(parsed.figures) == 15
+    assert all(f.value > 1000 for f in parsed.figures)
+
+
 def test_pdf_reader_extracts_tables_only_from_the_key_page():
     pdf = (FIXTURES / "annual_2025_page6.pdf").read_bytes()
     pages = PdfPlumberReportReader().extract_pages(pdf, max_pages=5)
@@ -963,6 +1051,123 @@ async def test_how_far_back_the_block_reaches_is_a_setting():
     assert set(summary.failed_checks) == {"Q-R01", "Q-R05"}
     with pytest.raises(ValueError, match="hard_years"):
         build_service(FakeBatches(), FakeDatasets(), hard_years=0)
+
+
+class FixtureWords:
+    """把指定的年报换成夹具里的词；别的年报没有词。"""
+
+    def __init__(self, by_pdf: dict[bytes, str]) -> None:
+        self.by_pdf = by_pdf
+        self.asked: list[bytes] = []
+
+    def read_words(self, pdf: bytes, *, first_page: int = 12):
+        import gzip
+
+        from app.domain.securities.report_statements import PageWords, Word
+
+        self.asked.append(pdf)
+        name = self.by_pdf.get(pdf)
+        if name is None:
+            return
+        path = FIXTURES.parent / "report_words" / f"{name}.json.gz"
+        for page in json.loads(gzip.decompress(path.read_bytes()))["pages"]:
+            yield PageWords(page["page"], tuple(Word(*w) for w in page["words"]))
+
+
+def without_key_page(batches: FakeBatches, year: int) -> bytes:
+    item = next(
+        i
+        for i in batches.items
+        if i.kind == "report_file" and i.meta["fiscal_year"] == year
+    )
+    pdf = batches.contents[item.locator]
+    batches.pages[pdf] = [ReportPage(1, (), "封面")]
+    return pdf
+
+
+async def test_a_report_without_the_key_page_is_verified_from_its_statements(tmp_path):
+    """「主要会计数据」表认不出来：改从这份年报的合并报表取关键数字，口径照样判得出。"""
+    batches, store = FakeBatches(), FakeDatasets()
+    pdf = without_key_page(batches, 2022)
+    words = FixtureWords({pdf: "600009-2022"})
+    summary = await build_service(batches, store, words=words).build("batch-1")
+    assert summary.status == PUBLISHED and summary.report_problems == {}
+    assert summary.basis_by_year[2022] == "原始披露"
+    assert words.asked == [pdf]  # 别的年报认得出那张表，不去读合并报表
+    db = opened(store.saved[0][0].content, tmp_path)
+    taken = db.execute(
+        "select fiscal_year, basis, column_label, count(*) from official_key_figures "
+        "where column_label like '合并%' group by 1, 2, 3"
+    ).fetchall()
+    assert sorted(taken) == sorted(
+        [
+            (2021, "比较数", "合并利润表 上期", 3),
+            (2021, "比较数", "合并现金流量表 上期", 1),
+            (2021, "比较数", "合并资产负债表 上期", 2),
+            (2022, "原始披露", "合并利润表 本期", 3),
+            (2022, "原始披露", "合并现金流量表 本期", 1),
+            (2022, "原始披露", "合并资产负债表 本期", 2),
+        ]
+    )
+    meta = dict(db.execute("select key, value from dataset_metadata"))
+    assert "上海机场2022年年度报告" in meta["official_figures_from_statements"]
+    assert summary.data_version != PINNED_VERSION
+
+
+async def test_without_a_words_reader_nothing_changes(tmp_path):
+    batches, store = FakeBatches(), FakeDatasets()
+    without_key_page(batches, 2022)
+    summary = await build_service(batches, store).build("batch-1")
+    assert summary.report_problems == {"上海机场2022年年度报告": "table_not_found"}
+    assert 2022 not in summary.basis_by_year
+    assert "official_figures_from_statements" not in store.saved[0][0].metadata
+
+
+async def test_statements_that_cannot_be_used_leave_the_report_unverified():
+    batches, store = FakeBatches(), FakeDatasets()
+    pdf = without_key_page(batches, 2022)
+    summary = await build_service(
+        batches, store, words=FixtureWords({pdf: "000333-2018"})
+    ).build("batch-1")
+    assert summary.report_problems == {
+        "上海机场2022年年度报告": (
+            "table_not_found；statements_unusable（balance_sheet:unbalanced；"
+            "income_statement:unbalanced；cash_flow:not_reconciled）"
+        )
+    }
+    assert 2022 not in summary.basis_by_year
+
+
+async def test_figures_that_do_not_match_never_vouch_for_the_data(tmp_path):
+    """从合并报表取到的数与报表数据对不上：这份年报不能为这一年作证。
+
+    这一年仍可以由下一年年报的比较数作证，那时口径是「追溯调整后」，依据是下一年的年报。
+    这与「主要会计数据」表的判法相同。已知的限度：当年的数要是读错了，
+    这一年会被当成追溯调整过。口径标到科目之后才分得开，见设计文档。
+    """
+    batches, store = FakeBatches(), FakeDatasets()
+    pdf = without_key_page(batches, 2022)
+    summary = await build_service(
+        batches, store, words=FixtureWords({pdf: "000858-2025"})
+    ).build("batch-1")
+    assert summary.basis_by_year[2022] == "追溯调整后"
+    rows = (
+        opened(store.saved[0][0].content, tmp_path)
+        .execute(
+            "select distinct verified_against from income_statement "
+            "where fiscal_year = 2022 and report_type = '年报'"
+        )
+        .fetchall()
+    )
+    assert rows == [("上海机场2023年年度报告",)]
+
+
+async def test_the_pinned_file_is_unchanged_when_every_key_page_is_found():
+    store = FakeDatasets()
+    words = FixtureWords({})
+    summary = await build_service(FakeBatches(), store, words=words).build("batch-1")
+    assert (summary.data_version, summary.sha256) == (PINNED_VERSION, PINNED_SHA256)
+    assert words.asked == []
 
 
 async def test_an_unreadable_report_is_recorded_and_its_year_is_unverified(tmp_path):

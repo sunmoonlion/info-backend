@@ -1,0 +1,20 @@
+用默认设置重新采集此前失败的两家（访问了巨潮与东方财富），并建数据集。库：一次性测试库 info_smoke；存储：本机目录。
+时间：2026-09-28 20:34 至 21:53（上海时间）  代码：工作区，基于 e6032c1 加本次改动
+
+一、601899 第一次（采集的三处筛选与读回上限修正之前）
+{"ingestion_id": "0aba7555-5f7e-437c-bb6e-a7c7539aa1a1", "security_code": "601899", "status": "succeeded", "started_at": "2026-09-28 12:34:09.201690+00:00", "finished_at": "2026-09-28 12:37:10.507910+00:00", "items": 67, "new_artifacts": 53, "reused_artifacts": 14, "bytes_fetched": 290265985, "by_source": {"cninfo": 15, "eastmoney-f10": 52}, "report_years": [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2025], "statement_periods": {"balance_sheet": 78, "cash_flow": 79, "income_statement": 79}, "error_code": null, "error_detail": null, "skipped": []}
+
+建库：程序崩溃 RuntimeError stored_object_too_large（读回原件的上限写死 64 MiB，2025 年年报 79.9 MB）
+读回上限修正后重建：published，法定披露日历 13 行（含 H 股年报 1 份、重新挂出的年报 3 份），缺 2024 年
+
+二、601899 第二次（修正之后）
+{"ingestion_id": "fc6f1d6b-7982-4f50-9e93-d357e5e0a65c", "security_code": "601899", "status": "succeeded", "started_at": "2026-09-28 13:45:08.837997+00:00", "finished_at": "2026-09-28 13:48:27.489621+00:00", "items": 64, "new_artifacts": 3, "reused_artifacts": 61, "bytes_fetched": 246324693, "by_source": {"cninfo": 12, "eastmoney-f10": 52}, "report_years": [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025], "statement_periods": {"balance_sheet": 78, "cash_flow": 79, "income_statement": 79}, "error_code": null, "error_detail": null, "skipped": []}
+
+{"record_id": "b20d7cbf-ed36-49f3-b1f9-30f00e4c9f92", "ingestion_id": "fc6f1d6b-7982-4f50-9e93-d357e5e0a65c", "dataset_id": "sh601899-financials", "data_version": "sh601899-financials-bc6a3fd63e7fab40", "security_code": "601899", "status": "published", "sha256": "e80ff25931530ca42dd57e018b0831080f69b585ead62b814266273d5928bfdc", "size_bytes": 106496, "row_counts": {"balance_sheet": 78, "income_statement": 79, "cash_flow": 79, "official_key_figures": 36, "disclosure_calendar": 10, "field_dictionary": 84, "metric_dictionary": 10, "table_links": 6, "table_keys": 3, "reconciliation_rules": 9}, "start_date": "2004-12-31", "end_date": "2026-06-30", "basis_by_year": {"2017": "原始披露", "2018": "原始披露"}, "failed_checks": [], "report_problems": {"2019年年度报告": "table_not_found", "紫金矿业集团股份有限公司2020年年度报告": "table_not_found", "紫金矿业集团股份有限公司2020年年度报告（更新后）": "table_not_found", "紫金矿业集团股份有限公司2021年年度报告": "table_not_found", "紫金矿业集团股份有限公司2022年年度报告": "table_not_found", "紫金矿业集团股份有限公司2023年年度报告": "table_not_found", "紫金矿业集团股份有限公司2024年年报报告": "table_not_found", "紫金矿业集团股份有限公司2025年年度报告": "table_not_found"}}
+
+
+三、920185
+{"ingestion_id": "01667934-1a8e-4de7-ad07-a31630c0d9b8", "security_code": "920185", "status": "succeeded", "started_at": "2026-09-28 12:45:12.613914+00:00", "finished_at": "2026-09-28 12:47:10.653280+00:00", "items": 37, "new_artifacts": 30, "reused_artifacts": 7, "bytes_fetched": 19995605, "by_source": {"cninfo": 7, "eastmoney-f10": 30}, "report_years": [2021, 2022, 2023, 2024, 2025], "statement_periods": {"balance_sheet": 40, "cash_flow": 44, "income_statement": 44}, "error_code": null, "error_detail": null, "skipped": []}
+
+{"record_id": "6006ee7a-bcee-4da0-94df-6766f6e718b8", "ingestion_id": "01667934-1a8e-4de7-ad07-a31630c0d9b8", "dataset_id": "bj920185-financials", "data_version": "bj920185-financials-2a60b018a299445d", "security_code": "920185", "status": "quality_failed", "sha256": "9078883a16a89ae3633784a4a0ec55238898e8a3b497f6258ff193ee1067ca9e", "size_bytes": 90112, "row_counts": {"balance_sheet": 40, "income_statement": 44, "cash_flow": 44, "official_key_figures": 0, "disclosure_calendar": 5, "field_dictionary": 84, "metric_dictionary": 10, "table_links": 6, "table_keys": 3, "reconciliation_rules": 9}, "start_date": "2013-12-31", "end_date": "2026-06-30", "basis_by_year": {}, "failed_checks": ["Q-R06", "Q-CONT", "Q-BASIS"], "report_problems": {"2021年年度报告": "table_not_found", "2022年年度报告": "table_not_found", "2023年年度报告": "table_not_found", "2024年年度报告": "table_not_found", "2025年年度报告": "table_not_found"}}
+

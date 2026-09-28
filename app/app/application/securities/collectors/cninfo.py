@@ -30,8 +30,10 @@ _MAX_PAGES = 10
 # 原文地址来自响应内容，必须是披露平台固定的归档路径，不能带出别的主机或目录
 _ADJUNCT = re.compile(r"^finalpage/\d{4}-\d{2}-\d{2}/\d{6,20}\.PDF$", re.IGNORECASE)
 _ORG_ID = re.compile(r"^[0-9A-Za-z]{4,32}$")
-_TITLE_YEAR = re.compile(r"(20\d{2})\s*年\s*年度报告")
-_NOT_FULL_REPORT = ("摘要", "英文", "取消", "已取消")
+# 「年报报告」是发行人写错的标题，实际就是年度报告全文（601899 的 2024 年年报，2026-09-28 实测）
+_TITLE_YEAR = re.compile(r"(20\d{2})\s*年\s*(?:年度报告|年报报告)")
+# 「H股」：同时在香港上市的公司把 H 股年报也挂在这一类下面，那不是 A 股的年度报告
+_NOT_FULL_REPORT = ("摘要", "英文", "取消", "已取消", "H股", "H 股")
 _REVISED = ("修订", "更正", "更新")
 _SHANGHAI = timezone(timedelta(hours=8))
 DEFAULT_MAX_REPORT_BYTES = 128 * 1024 * 1024
@@ -61,7 +63,9 @@ class CninfoDisclosureCollector:
     async def collect(self, code: SecurityCode, ctx: CollectContext) -> None:
         org_id = await self._org_id(code, ctx)
         announcements = await self._annual_announcements(code, org_id, ctx)
-        reports = [a for a in (self._report(x) for x in announcements) if a]
+        reports = _without_relisted(
+            [a for a in (self._report(x) for x in announcements) if a]
+        )
         if not reports:
             raise CollectError("no_annual_report_found")
         downloaded = 0
@@ -167,6 +171,7 @@ class CninfoDisclosureCollector:
         ):
             return None
         disclosed = datetime.fromtimestamp(time_ms / 1000, tz=UTC).astimezone(_SHANGHAI)
+        size = row.get("adjunctSize")
         return {
             "fiscal_year": int(matched.group(1)),
             "title": title,
@@ -175,4 +180,24 @@ class CninfoDisclosureCollector:
             "official_disclosed_date": disclosed.date().isoformat(),
             "revised": any(word in title for word in _REVISED),
             "adjunct_url": adjunct,
+            "listed_size_kb": size if isinstance(size, int) else None,
         }
+
+
+def _without_relisted(reports: list[dict]) -> list[dict]:
+    """同一份年报被重新挂出来时（标题、披露时间、大小都相同，只是公告编号不同）只取一次。
+
+    留编号最小的那条，别的编号记在它的 `relisted_as` 里。大小不明的不合并。
+    """
+    kept: dict[tuple, dict] = {}
+    found: list[dict] = []
+    for report in sorted(reports, key=lambda r: int(r["announcement_id"])):
+        size = report.pop("listed_size_kb")
+        key = (report["title"], report["announcement_time_ms"], size)
+        first = kept.get(key) if size is not None else None
+        if first is None:
+            kept[key] = report
+            found.append(report)
+        else:
+            first.setdefault("relisted_as", []).append(report["announcement_id"])
+    return found

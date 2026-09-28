@@ -119,14 +119,19 @@ def build_security_dataset_service(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> SecurityDatasetService:
     storage = get_object_storage()
+    settings = get_settings()
+    # 采集时允许多大的年报，建库时就要读得回多大的年报
+    readable = max(64 * 1024 * 1024, settings.security_report_max_bytes)
     return SecurityDatasetService(
-        batches=SqlBatchReader(session_factory=session_factory, storage=storage),
-        reports=PdfPlumberReportReader(),
+        batches=SqlBatchReader(
+            session_factory=session_factory, storage=storage, max_bytes=readable
+        ),
+        reports=PdfPlumberReportReader(max_bytes=readable),
         store=SqlDatasetStore(
             session_factory=session_factory, storage=storage, clock=_now
         ),
         today=lambda: datetime.now(_SHANGHAI).date(),
-        hard_years=get_settings().security_quality_hard_years,
+        hard_years=settings.security_quality_hard_years,
     )
 
 

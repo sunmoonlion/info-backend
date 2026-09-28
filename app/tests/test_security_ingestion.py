@@ -356,6 +356,90 @@ async def test_cninfo_keeps_revised_reports_and_marks_them():
     assert sorted(m["revised"] for m in of_2025) == [False, True]
 
 
+def with_announcements(*changes: dict, base: int = 0) -> FakeFetcher:
+    payload = json.loads(fixture("cninfo_annual_query.json"))
+    for change in changes:
+        row = dict(payload["announcements"][base])
+        row.update(change)
+        payload["announcements"].append(row)
+        payload["totalAnnouncement"] += 1
+    return FakeFetcher(
+        {
+            "hisAnnouncement/query": RawResponse(
+                200, "application/json", json.dumps(payload).encode(), "x"
+            )
+        }
+    )
+
+
+async def collected_reports(fetcher: FakeFetcher) -> list[dict]:
+    await CninfoDisclosureCollector(today=TODAY).collect(
+        SecurityCode("600009"), Context(fetcher)
+    )
+    return [r.meta for r in fetcher.requests if r.kind is ItemKind.REPORT_FILE]
+
+
+async def test_cninfo_accepts_the_misspelt_title_of_a_full_report():
+    """601899 的 2024 年年报标题写成了「年报报告」，此前被漏掉（2026-09-28 实测）。"""
+    reports = await collected_reports(
+        with_announcements(
+            {
+                "announcementTitle": "某某股份有限公司2016年年报报告",
+                "announcementId": "1203000001",
+                "adjunctUrl": "finalpage/2017-03-22/1203000001.PDF",
+            }
+        )
+    )
+    assert len(reports) == 10
+    assert [r["title"] for r in reports if r["fiscal_year"] == 2016] == [
+        "某某股份有限公司2016年年报报告"
+    ]
+
+
+async def test_cninfo_leaves_out_the_h_share_report():
+    reports = await collected_reports(
+        with_announcements(
+            {
+                "announcementTitle": "某某H股市场公告-2025年年度报告",
+                "announcementId": "1225999998",
+                "adjunctUrl": "finalpage/2026-04-26/1225999998.PDF",
+            }
+        )
+    )
+    assert len(reports) == 9 and all("H股" not in r["title"] for r in reports)
+
+
+async def test_cninfo_takes_a_relisted_report_once():
+    """同一份年报重新挂出来：标题、披露时间、大小都相同，只有公告编号不同。"""
+    reports = await collected_reports(
+        with_announcements(
+            {
+                "announcementId": "1225999997",
+                "adjunctUrl": "finalpage/2026-04-30/1225999997.PDF",
+            }
+        )
+    )
+    assert len(reports) == 9
+    original = json.loads(fixture("cninfo_annual_query.json"))["announcements"][0]
+    kept = next(r for r in reports if r.get("relisted_as"))
+    assert kept["announcement_id"] == str(original["announcementId"])
+    assert kept["relisted_as"] == ["1225999997"]
+    assert all("listed_size_kb" not in r for r in reports)
+
+
+async def test_cninfo_does_not_merge_reports_that_differ_in_size():
+    reports = await collected_reports(
+        with_announcements(
+            {
+                "announcementId": "1225999997",
+                "adjunctUrl": "finalpage/2026-04-30/1225999997.PDF",
+                "adjunctSize": 1,
+            }
+        )
+    )
+    assert len(reports) == 10 and all("relisted_as" not in r for r in reports)
+
+
 # ---------------------------------------------------------------- 东方财富
 
 

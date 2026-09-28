@@ -25,15 +25,23 @@ class _Locator:
     version_id: str | None
 
 
+DEFAULT_MAX_BYTES = 64 * 1024 * 1024
+
+
 class SqlBatchReader:
     def __init__(
         self,
         *,
         session_factory: async_sessionmaker[AsyncSession],
         storage: ObjectStorage,
+        max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> None:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
         self._sessions = session_factory
         self._storage = storage
+        # 读回的上限不能比采集时允许的单份上限小，否则采得到、读不回
+        self._max_bytes = max_bytes
 
     async def load(self, ingestion_id: str) -> LoadedBatch | None:
         try:
@@ -95,4 +103,5 @@ class SqlBatchReader:
             object_key=locator.object_key,
             version_id=locator.version_id,
             expected_sha256=item.sha256,
+            max_bytes=self._max_bytes,
         )

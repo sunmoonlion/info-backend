@@ -61,8 +61,17 @@ class MemoryStorage:
             object_key=object_key, data=data, content_type="application/json"
         )
 
-    def get_bytes(self, *, object_key, version_id=None, expected_sha256=None, **_):
+    def get_bytes(
+        self,
+        *,
+        object_key,
+        version_id=None,
+        expected_sha256=None,
+        max_bytes=64 * 1024 * 1024,
+    ):
         data = self.objects[object_key]
+        if len(data) > max_bytes:
+            raise RuntimeError("stored_object_too_large")
         if expected_sha256 and hashlib.sha256(data).hexdigest() != expected_sha256:
             raise RuntimeError("stored_object_digest_mismatch")
         return data
@@ -128,10 +137,10 @@ async def ingested(db, storage, reader: Reports, *, damage=None, status=None) ->
     return ingestion_id
 
 
-def service(db, storage, reader: Reports) -> SecurityDatasetService:
+def service(db, storage, reader: Reports, **limits) -> SecurityDatasetService:
     sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
     return SecurityDatasetService(
-        batches=SqlBatchReader(session_factory=sessions, storage=storage),
+        batches=SqlBatchReader(session_factory=sessions, storage=storage, **limits),
         reports=reader,
         store=SqlDatasetStore(session_factory=sessions, storage=storage, clock=clock),
         today=lambda: date(2026, 9, 27),
@@ -230,6 +239,22 @@ async def test_an_archive_that_no_longer_matches_its_checksum_is_refused(db):
     with pytest.raises(RuntimeError, match="stored_object_digest_mismatch"):
         await service(db, storage, reader).build_latest("600009")
     assert await sql(db, "SELECT count(*) FROM security_dataset") == 0
+
+
+async def test_how_large_an_archive_may_be_read_back_is_set_by_the_caller(db):
+    """采得到就要读得回：读回的上限由组装处按采集的上限给，不是写死的。"""
+    storage, reader = MemoryStorage(), Reports()
+    await ingested(db, storage, reader)
+    largest = max(len(v) for v in storage.objects.values())
+    with pytest.raises(RuntimeError, match="stored_object_too_large"):
+        await service(db, storage, reader, max_bytes=largest - 1).build_latest("600009")
+    assert await sql(db, "SELECT count(*) FROM security_dataset") == 0
+    summary = await service(db, storage, reader, max_bytes=largest).build_latest(
+        "600009"
+    )
+    assert summary.status == "published"
+    with pytest.raises(ValueError, match="max_bytes"):
+        service(db, storage, reader, max_bytes=0)
 
 
 @pytest.mark.parametrize("ingestion_id", ["not-a-uuid", ""])

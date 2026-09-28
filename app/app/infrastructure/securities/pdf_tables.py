@@ -11,16 +11,21 @@ import logging
 from app.domain.securities.dataset import DatasetBuildError, ReportPage
 
 _MARKER = "主要会计数据"
-_MAX_PDF_BYTES = 64 * 1024 * 1024
+DEFAULT_MAX_PDF_BYTES = 64 * 1024 * 1024
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
 
 class PdfPlumberReportReader:
+    def __init__(self, *, max_bytes: int = DEFAULT_MAX_PDF_BYTES) -> None:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        self._max_bytes = max_bytes
+
     def extract_pages(self, pdf: bytes, *, max_pages: int) -> list[ReportPage]:
         import pdfplumber  # noqa: PLC0415 - 只有建数据集时才需要
 
-        if not pdf.startswith(b"%PDF-") or len(pdf) > _MAX_PDF_BYTES:
+        if not pdf.startswith(b"%PDF-") or len(pdf) > self._max_bytes:
             raise DatasetBuildError("report_unreadable")
         pages: list[ReportPage] = []
         try:

@@ -302,6 +302,15 @@ def test_pdf_reader_refuses_what_it_cannot_read(junk):
         PdfPlumberReportReader().extract_pages(junk, max_pages=5)
 
 
+def test_pdf_reader_size_limit_is_given_by_the_caller():
+    pdf = (FIXTURES / "annual_2025_page6.pdf").read_bytes()
+    with pytest.raises(DatasetBuildError, match="report_unreadable"):
+        PdfPlumberReportReader(max_bytes=len(pdf) - 1).extract_pages(pdf, max_pages=5)
+    assert PdfPlumberReportReader(max_bytes=len(pdf)).extract_pages(pdf, max_pages=5)
+    with pytest.raises(ValueError, match="max_bytes"):
+        PdfPlumberReportReader(max_bytes=0)
+
+
 # ---------------------------------------------------------------- 口径判定
 
 

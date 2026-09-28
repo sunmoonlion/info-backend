@@ -6,11 +6,14 @@ from app.application.securities.report_extraction.checks import (
     reconcile,
     values_of,
 )
+from app.application.securities.report_extraction.cross_year import cross_check, judge
 from app.application.securities.report_extraction.extract import extract_statements
 from app.application.securities.report_extraction.labels import normalize, resolve
 
 __all__ = [
     "check_unit",
+    "cross_check",
+    "judge",
     "extract_statements",
     "magnitude",
     "normalize",

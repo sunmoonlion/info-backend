@@ -107,3 +107,55 @@ class Imbalance:
     balanced_if_flipped: tuple[
         str, ...
     ] = ()  # 把这些科目的符号反过来就平：列报习惯的线索
+
+
+# 跨年核对：同一年的同一个科目，当年年报的「本期」与下一年年报的「上期」
+AGREE = "agree"  # 两份年报给的数相同
+SIGN_ONLY = "sign_only"  # 大小相同、正负号相反：列报习惯变了
+SUSPECT_TRUNCATED = "suspect_truncated"  # 一个数是另一个数的后半截：多半是读错了
+SUSPECT_UNIT = "suspect_unit"  # 差一百倍以上：多半是单位认错了
+DIFFERENT = "different"  # 两份年报给的数不同：重述、重新归类，或读错
+ONLY_EARLIER = "only_earlier"  # 只有当年年报里有
+ONLY_LATER = "only_later"  # 只有下一年年报里有
+AMBIGUOUS = "ambiguous"  # 同名的行两边数量不同，配不上
+PAIRED_BY_LABEL = "label"
+PAIRED_BY_VALUE = "value"
+
+
+@dataclass(frozen=True)
+class CrossYearItem:
+    statement: str
+    fiscal_year: int  # 这个数属于哪一年
+    label: str  # 归一化之后的科目名
+    occurrence: int  # 同名的行里第几个，从 1 起
+    earlier: Decimal | None  # 当年年报本期列，已换算成元
+    later: Decimal | None  # 下一年年报上期列，已换算成元
+    verdict: str
+    earlier_page: int | None = None
+    later_page: int | None = None
+    paired_by: str = (
+        "label"  # label：科目名相同；value：科目名对不上，数相同且两边都只此一个
+    )
+    later_label: str | None = None  # 按数配对时，下一年年报里的科目名
+
+
+@dataclass(frozen=True)
+class CrossYearResult:
+    statement: str
+    fiscal_year: int
+    items: tuple[CrossYearItem, ...]
+
+    def count(self, verdict: str) -> int:
+        return sum(1 for item in self.items if item.verdict == verdict)
+
+    @property
+    def compared(self) -> int:
+        return sum(
+            1 for i in self.items if i.earlier is not None and i.later is not None
+        )
+
+    @property
+    def suspects(self) -> tuple[CrossYearItem, ...]:
+        return tuple(
+            i for i in self.items if i.verdict in (SUSPECT_TRUNCATED, SUSPECT_UNIT)
+        )

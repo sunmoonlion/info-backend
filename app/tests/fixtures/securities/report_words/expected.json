@@ -1,0 +1,1328 @@
+{
+ "000002-2018": {
+  "layouts": [
+   "three_columns_refused"
+  ],
+  "problems": [
+   [
+    "more_than_two_columns",
+    "balance_sheet"
+   ],
+   [
+    "more_than_two_columns",
+    "balance_sheet"
+   ]
+  ],
+  "reference_in_yuan": {
+   "cash_flow": {
+    "end_cce": "180000000000"
+   },
+   "income_statement": {
+    "total_profit": "67000000000"
+   }
+  },
+  "statements": {
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_finance",
+     "netcash_invest",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "be7925e217fc92e369bb58bf90cef6a54bc4639db48bd6a4e38ea444564a2fe3",
+    "rows_with_numbers": 38,
+    "side_by_side": false,
+    "start_page": 148,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "cce_add": "11342156167.35",
+      "end_cce": "175668163538.65",
+      "netcash_operate": "33618183388.52"
+     },
+     "prior": {
+      "cce_add": "84835992425.61",
+      "end_cce": "164326007371.30",
+      "netcash_operate": "82322834216.50"
+     }
+    },
+    "wrapped": 1
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "02d79d2d00df9183e0cf8f8b6ca7573b1faa22db6148ecd2d3c2e0f6d548f54d",
+    "rows_with_numbers": 38,
+    "side_by_side": false,
+    "start_page": 145,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "49272294534.61",
+      "total_profit": "67460201390.98"
+     },
+     "prior": {
+      "netprofit": "37208387330.07",
+      "total_profit": "51141952665.41"
+     }
+    },
+    "wrapped": 1
+   }
+  },
+  "unit_verdict": {
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "000333-2018": {
+  "layouts": [
+   "side_by_side",
+   "period_in_title_and_continued",
+   "split_numbers",
+   "costs_as_negatives"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "260000000000"
+   },
+   "income_statement": {
+    "total_profit": "26000000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [
+     [
+      "R03",
+      "current",
+      "9382401",
+      []
+     ],
+     [
+      "R03",
+      "prior",
+      "9187734",
+      []
+     ]
+    ],
+    "checked": 10,
+    "fields": [
+     "bond_payable",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "long_loan",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit"
+    ],
+    "rows_sha256": "8737ffc9dc1320c529af34167adf97a796cdcf5d10b125c781b1238c27d09b3b",
+    "rows_with_numbers": 59,
+    "side_by_side": true,
+    "start_page": 99,
+    "unit": "千元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "263701148",
+      "total_equity": "92454517",
+      "total_liab_equity": "263701148"
+     },
+     "prior": {
+      "total_assets": "248106858",
+      "total_equity": "82925171",
+      "total_liab_equity": "248106858"
+     }
+    },
+    "wrapped": 0
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 0,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "construct_long_asset",
+     "netcash_finance",
+     "netcash_invest",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "b760450b8a2478bea2ed47ed920f008561e806503bd64e5433344c100c659e59",
+    "rows_with_numbers": 43,
+    "side_by_side": true,
+    "start_page": 103,
+    "unit": "千元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {},
+     "prior": {}
+    },
+    "wrapped": 1
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [
+     [
+      "R07",
+      "current",
+      "-8245278",
+      [
+       "income_tax"
+      ]
+     ],
+     [
+      "R07",
+      "prior",
+      "-6487168",
+      [
+       "income_tax"
+      ]
+     ]
+    ],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "income_tax",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "d3cb2680caa4bb80e91f5d0b0da0630aec1a5d4c86cd6ae02258a73b40560bf6",
+    "rows_with_numbers": 44,
+    "side_by_side": true,
+    "start_page": 101,
+    "unit": "千元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "21650419",
+      "total_profit": "25773058"
+     },
+     "prior": {
+      "netprofit": "18611190",
+      "total_profit": "21854774"
+     }
+    },
+    "wrapped": 0
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "000858-2025": {
+  "layouts": [
+   "numbered_title"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "190000000000"
+   },
+   "cash_flow": {
+    "end_cce": "120000000000"
+   },
+   "income_statement": {
+    "total_profit": "12000000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_payable",
+     "accounts_rece",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "lease_liab",
+     "long_equity_invest",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit",
+     "useright_asset"
+    ],
+    "rows_sha256": "0e02ebd896b497a04784fe7ade18f11686c657c6411801cec373cd4f8ba0f796",
+    "rows_with_numbers": 45,
+    "side_by_side": false,
+    "start_page": 51,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "189984270815.47",
+      "total_equity": "122180683645.14",
+      "total_liab_equity": "189984270815.47"
+     },
+     "prior": {
+      "total_assets": "188252218704.17",
+      "total_equity": "136394793732.69",
+      "total_liab_equity": "188252218704.17"
+     }
+    },
+    "wrapped": 0
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_finance",
+     "netcash_invest",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "6f025369123b8150595a62b0c63c38f747d8f3c24dcef106068138c0cba7421e",
+    "rows_with_numbers": 29,
+    "side_by_side": false,
+    "start_page": 59,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "cce_add": "-656583784.01",
+      "end_cce": "124114690633.67",
+      "netcash_operate": "29706259919.13"
+     },
+     "prior": {
+      "cce_add": "11675590193.38",
+      "end_cce": "124771274417.68",
+      "netcash_operate": "33939755192.78"
+     }
+    },
+    "wrapped": 3
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "9aad5d82302238ca2354cc4f71a5ddd11e65ac523ad8054a125770038b5b8213",
+    "rows_with_numbers": 31,
+    "side_by_side": false,
+    "start_page": 56,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "9317113184.68",
+      "total_profit": "12198853038.23"
+     },
+     "prior": {
+      "netprofit": "33193460484.32",
+      "total_profit": "44163325242.01"
+     }
+    },
+    "wrapped": 1
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "002594-2018": {
+  "layouts": [
+   "unit_note_above_title",
+   "broken_amount_refused"
+  ],
+  "problems": [
+   [
+    "broken_amount",
+    "cash_flow"
+   ]
+  ],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "190000000000"
+   },
+   "income_statement": {
+    "total_profit": "4400000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_rece",
+     "bond_payable",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "long_equity_invest",
+     "long_loan",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit"
+    ],
+    "rows_sha256": "f3b3a6f36c4be76e9c12913e633ac6958cab099e3f3316392fca3d422c7ba341",
+    "rows_with_numbers": 61,
+    "side_by_side": false,
+    "start_page": 121,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "194571077000.00",
+      "total_equity": "60693979000.00",
+      "total_liab_equity": "194571077000.00"
+     },
+     "prior": {
+      "total_assets": "178099430000.00",
+      "total_equity": "59957487000.00",
+      "total_liab_equity": "178099430000.00"
+     }
+    },
+    "wrapped": 0
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "849ddd5c820681ae5bd4efc346ff23f1d908372d83dbc11a39d123749c2f77b7",
+    "rows_with_numbers": 42,
+    "side_by_side": false,
+    "start_page": 127,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "3556193000.00",
+      "total_profit": "4385640000.00"
+     },
+     "prior": {
+      "netprofit": "4916936000.00",
+      "total_profit": "5620641000.00"
+     }
+    },
+    "wrapped": 1
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "002594-2024": {
+  "layouts": [
+   "unit_declared_elsewhere"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "780000000000"
+   },
+   "cash_flow": {
+    "end_cce": "100000000000"
+   },
+   "income_statement": {
+    "total_profit": "50000000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_payable",
+     "accounts_rece",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "lease_liab",
+     "long_equity_invest",
+     "long_loan",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit",
+     "useright_asset"
+    ],
+    "rows_sha256": "6f56cd313ae7c272ca8e04eb019b300f04282b37b47ba715b9855a93fe853308",
+    "rows_with_numbers": 63,
+    "side_by_side": false,
+    "start_page": 142,
+    "unit": "千元",
+    "unit_source": "declared_elsewhere",
+    "values": {
+     "current": {
+      "total_assets": "783355855",
+      "total_equity": "198688209",
+      "total_liab_equity": "783355855"
+     },
+     "prior": {
+      "total_assets": "679547670",
+      "total_equity": "150462113",
+      "total_liab_equity": "679547670"
+     }
+    },
+    "wrapped": 0
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 2,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "feb02f73cd61e8c0f44cd12de395ebe0f5de62bf82d76207b4ab762c88c5fc9e",
+    "rows_with_numbers": 41,
+    "side_by_side": false,
+    "start_page": 149,
+    "unit": "千元",
+    "unit_source": "declared_elsewhere",
+    "values": {
+     "current": {
+      "cce_add": "-6255203",
+      "end_cce": "102256542",
+      "netcash_operate": "133453873"
+     },
+     "prior": {
+      "cce_add": "57329288",
+      "end_cce": "108511745",
+      "netcash_operate": "169725025"
+     }
+    },
+    "wrapped": 0
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_profit"
+    ],
+    "rows_sha256": "4cf34be29f5ad2173861b0d2ccb561e2b6eb9ae5a9e84042b0adc86f8e89fc97",
+    "rows_with_numbers": 42,
+    "side_by_side": false,
+    "start_page": 145,
+    "unit": "千元",
+    "unit_source": "declared_elsewhere",
+    "values": {
+     "current": {
+      "netprofit": "41587940",
+      "total_profit": "49680677"
+     },
+     "prior": {
+      "netprofit": "31344070",
+      "total_profit": "37268637"
+     }
+    },
+    "wrapped": 0
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "300750-2021": {
+  "layouts": [
+   "unit_ten_thousand"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "310000000000"
+   },
+   "cash_flow": {
+    "end_cce": "76000000000"
+   },
+   "income_statement": {
+    "total_profit": "20000000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_payable",
+     "accounts_rece",
+     "bond_payable",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "lease_liab",
+     "long_equity_invest",
+     "long_loan",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit",
+     "useright_asset"
+    ],
+    "rows_sha256": "49de4f6cac8bf6f76fb73d2dbcd915d360b56ff8153135051d9641f9f432a6a9",
+    "rows_with_numbers": 61,
+    "side_by_side": false,
+    "start_page": 108,
+    "unit": "万元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "30766686.09",
+      "total_equity": "9262217.45",
+      "total_liab_equity": "30766686.09"
+     },
+     "prior": {
+      "total_assets": "15661842.69",
+      "total_equity": "6919471.64",
+      "total_liab_equity": "15661842.69"
+     }
+    },
+    "wrapped": 0
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_finance",
+     "netcash_invest",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "f223976731e45e921ff4c7e66b66b808d4b6b70df55d55567f2101c8af6e8f9e",
+    "rows_with_numbers": 39,
+    "side_by_side": false,
+    "start_page": 118,
+    "unit": "万元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "cce_add": "1207374.92",
+      "end_cce": "7550573.52",
+      "netcash_operate": "4290800.87"
+     },
+     "prior": {
+      "cce_add": "4023193.03",
+      "end_cce": "6343198.60",
+      "netcash_operate": "1842990.26"
+     }
+    },
+    "wrapped": 3
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "e6a1a01decc78d90a89c82f5a005816ae9082c2cd698c06dd2266079beb03471",
+    "rows_with_numbers": 47,
+    "side_by_side": false,
+    "start_page": 113,
+    "unit": "万元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "1786073.01",
+      "total_profit": "1988712.91"
+     },
+     "prior": {
+      "netprofit": "610391.81",
+      "total_profit": "698255.34"
+     }
+    },
+    "wrapped": 2
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "600009-2022": {
+  "layouts": [
+   "standard",
+   "columns_shift_between_pages",
+   "wrapped_labels"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "68000000000"
+   },
+   "cash_flow": {
+    "end_cce": "14000000000"
+   },
+   "income_statement": {
+    "total_profit": "-3800000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_payable",
+     "accounts_rece",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "lease_liab",
+     "long_equity_invest",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit",
+     "useright_asset"
+    ],
+    "rows_sha256": "48d68346c5ef563b08064b35a8cec6a90c956cf8e62b30e7d89b2c1b891d4005",
+    "rows_with_numbers": 43,
+    "side_by_side": false,
+    "start_page": 69,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "67775098795.68",
+      "total_equity": "40703487827.97",
+      "total_liab_equity": "67775098795.68"
+     },
+     "prior": {
+      "total_assets": "67842539413.31",
+      "total_equity": "37317000731.76",
+      "total_liab_equity": "67842539413.31"
+     }
+    },
+    "wrapped": 2
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_finance",
+     "netcash_invest",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "b5e529953fe98f5a35ad2d1b7ea95814054b5e64ac21063dbf6898fc6e0c21d9",
+    "rows_with_numbers": 32,
+    "side_by_side": false,
+    "start_page": 76,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "cce_add": "1244945541.10",
+      "end_cce": "13876587382.90",
+      "netcash_operate": "-116961358.39"
+     },
+     "prior": {
+      "cce_add": "4922425295.32",
+      "end_cce": "12631641841.80",
+      "netcash_operate": "1849196959.64"
+     }
+    },
+    "wrapped": 1
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "cf85bc19ea755a4c0d0db39e6a64338b7c137bfda776a45fb0e460f4244e93fe",
+    "rows_with_numbers": 30,
+    "side_by_side": false,
+    "start_page": 73,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "-2789984707.95",
+      "total_profit": "-3825023512.94"
+     },
+     "prior": {
+      "netprofit": "-1341424666.19",
+      "total_profit": "-1905187350.83"
+     }
+    },
+    "wrapped": 2
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "601899-2025": {
+  "layouts": [
+   "index_page_of_titles",
+   "scanned_statements_refused"
+  ],
+  "problems": [
+   [
+    "statement_not_found",
+    "balance_sheet"
+   ],
+   [
+    "statement_not_found",
+    "income_statement"
+   ],
+   [
+    "statement_not_found",
+    "cash_flow"
+   ]
+  ],
+  "reference_in_yuan": {},
+  "statements": {},
+  "unit_verdict": {}
+ },
+ "688981-2023": {
+  "layouts": [
+   "unit_thousand_no_decimals"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "340000000000"
+   },
+   "cash_flow": {
+    "end_cce": "44000000000"
+   },
+   "income_statement": {
+    "total_profit": "6800000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_payable",
+     "accounts_rece",
+     "bond_payable",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "lease_liab",
+     "long_equity_invest",
+     "long_loan",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit",
+     "useright_asset"
+    ],
+    "rows_sha256": "d1322e60e27c2306aa140a931d5df9b75652f65777a3f7c9d6769eb1b2f35b44",
+    "rows_with_numbers": 49,
+    "side_by_side": false,
+    "start_page": 122,
+    "unit": "千元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "338463197",
+      "total_equity": "218470246",
+      "total_liab_equity": "338463197"
+     },
+     "prior": {
+      "total_assets": "305103691",
+      "total_equity": "201704713",
+      "total_liab_equity": "305103691"
+     }
+    },
+    "wrapped": 2
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_finance",
+     "netcash_invest",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "9cef233fbc66760ed198658859defd404aea5143964c5aef96287698a2a14ed4",
+    "rows_with_numbers": 34,
+    "side_by_side": false,
+    "start_page": 127,
+    "unit": "千元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "cce_add": "-4263306",
+      "end_cce": "44019391",
+      "netcash_operate": "23047761"
+     },
+     "prior": {
+      "cce_add": "-6360711",
+      "end_cce": "48282697",
+      "netcash_operate": "36591209"
+     }
+    },
+    "wrapped": 1
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "c2a37add26bf52e7db8a0334789efee2bff6b4c28b8164348007e3239dd12603",
+    "rows_with_numbers": 38,
+    "side_by_side": false,
+    "start_page": 125,
+    "unit": "千元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "6396152",
+      "total_profit": "6840418"
+     },
+     "prior": {
+      "netprofit": "14653530",
+      "total_profit": "14759564"
+     }
+    },
+    "wrapped": 1
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ },
+ "920185-2025": {
+  "layouts": [
+   "beijing_exchange"
+  ],
+  "problems": [],
+  "reference_in_yuan": {
+   "balance_sheet": {
+    "total_assets": "36000000000"
+   },
+   "cash_flow": {
+    "end_cce": "2500000000"
+   },
+   "income_statement": {
+    "total_profit": "1400000000"
+   }
+  },
+  "statements": {
+   "balance_sheet": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 10,
+    "fields": [
+     "accounts_payable",
+     "accounts_rece",
+     "cip",
+     "fixed_asset",
+     "intangible_asset",
+     "inventory",
+     "lease_liab",
+     "long_equity_invest",
+     "long_loan",
+     "minority_equity",
+     "monetaryfunds",
+     "noncurrent_liab_1year",
+     "share_capital",
+     "short_loan",
+     "total_assets",
+     "total_current_assets",
+     "total_current_liab",
+     "total_equity",
+     "total_liab_equity",
+     "total_liabilities",
+     "total_noncurrent_assets",
+     "total_noncurrent_liab",
+     "total_parent_equity",
+     "unassign_rpofit",
+     "useright_asset"
+    ],
+    "rows_sha256": "182e972bfede83d385372bf0d1d3462d76440c101b06fb7bdfac06eeaf1a4dfa",
+    "rows_with_numbers": 55,
+    "side_by_side": false,
+    "start_page": 84,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "total_assets": "35829385395.22",
+      "total_equity": "15312546285.98",
+      "total_liab_equity": "35829385395.22"
+     },
+     "prior": {
+      "total_assets": "33347260439.89",
+      "total_equity": "14395280036.09",
+      "total_liab_equity": "33347260439.89"
+     }
+    },
+    "wrapped": 3
+   },
+   "cash_flow": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "assign_dividend_porfit",
+     "begin_cce",
+     "cce_add",
+     "construct_long_asset",
+     "end_cce",
+     "netcash_finance",
+     "netcash_invest",
+     "netcash_operate",
+     "rate_change_effect",
+     "sales_services",
+     "total_operate_inflow",
+     "total_operate_outflow"
+    ],
+    "rows_sha256": "cecee22c5ead9a4af049ea88e1ce5c8ccd673382be643bb6dd45dc8d3742bac1",
+    "rows_with_numbers": 35,
+    "side_by_side": false,
+    "start_page": 91,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "cce_add": "-65253745.10",
+      "end_cce": "2491921359.37",
+      "netcash_operate": "453676867.06"
+     },
+     "prior": {
+      "cce_add": "-1649719646.60",
+      "end_cce": "2557175104.47",
+      "netcash_operate": "1253172801.66"
+     }
+    },
+    "wrapped": 1
+   },
+   "income_statement": {
+    "ambiguous": [],
+    "broken": [],
+    "checked": 4,
+    "fields": [
+     "fe_interest_expense",
+     "finance_expense",
+     "income_tax",
+     "invest_income",
+     "invest_joint_income",
+     "manage_expense",
+     "minority_interest",
+     "netprofit",
+     "operate_cost",
+     "operate_income",
+     "operate_profit",
+     "parent_netprofit",
+     "research_expense",
+     "sale_expense",
+     "total_operate_cost",
+     "total_operate_income",
+     "total_profit"
+    ],
+    "rows_sha256": "6427f05698ac86c56e7bbdede6f41f2f11a05fd15748e939f1bc65adf3466e83",
+    "rows_with_numbers": 39,
+    "side_by_side": false,
+    "start_page": 88,
+    "unit": "元",
+    "unit_source": "statement_page",
+    "values": {
+     "current": {
+      "netprofit": "1148688092.70",
+      "total_profit": "1350937595.95"
+     },
+     "prior": {
+      "netprofit": "946437584.85",
+      "total_profit": "1143655357.78"
+     }
+    },
+    "wrapped": 2
+   }
+  },
+  "unit_verdict": {
+   "balance_sheet": "confirmed",
+   "cash_flow": "confirmed",
+   "income_statement": "confirmed"
+  }
+ }
+}

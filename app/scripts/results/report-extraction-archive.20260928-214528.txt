@@ -1,0 +1,80 @@
+年报抽取核心在存档年报上的结果（不访问网站；原件是 2026-09-27、28 两天采集留存的巨潮年度报告）。
+时间：2026-09-28T21:45:28+08:00  代码：工作区，基于 e6032c1 加本次改动
+做法：每份年报从第 12 页起逐页取词，抽三张合并报表，认科目，勾稽；再与 2026-09-28 探针的结果逐行对照，
+并用第三方数据同一年的数核对单位的量级。
+
+一、逐家结果
+代码 | 年报 | 表(正式/探针) | 单位 | 单位不在报表页 | 问题 | 勾稽(不平/次数) | 带数字的行 | 对上目录 | 折行 | 多行同字段 | 与探针逐行相同
+000002 | 9 | 25/25 | 元 | 0 | 3 | 0/106 | 1090 | 387 | 2 | 0 | 25/25
+000333 | 9 | 25/24 | 千元 | 0 | 2 | 16/118 | 1297 | 375 | 12 | 0 | 18/24
+000858 | 9 | 27/27 | 元 | 0 | 0 | 0/162 | 905 | 450 | 36 | 0 | 27/27
+002415 | 9 | 27/27 | 元 | 0 | 0 | 0/126 | 1120 | 407 | 5 | 0 | 27/27
+002594 | 9 | 23/24 | 元、千元 | 9 | 4 | 0/132 | 1109 | 405 | 2 | 0 | 23/23
+300750 | 8 | 24/24 | 万元、元、千元 | 0 | 0 | 0/144 | 1139 | 432 | 33 | 0 | 24/24
+600009 | 9 | 27/27 | 元 | 0 | 0 | 0/162 | 906 | 447 | 52 | 0 | 27/27
+600276 | 9 | 27/27 | 元 | 0 | 0 | 0/162 | 980 | 444 | 45 | 0 | 27/27
+600519 | 9 | 27/27 | 元 | 0 | 0 | 0/160 | 1034 | 427 | 70 | 0 | 27/27
+600900 | 9 | 27/27 | 元 | 0 | 0 | 0/160 | 1166 | 483 | 110 | 1 | 27/27
+601888 | 9 | 26/26 | 元 | 0 | 1 | 0/158 | 1041 | 446 | 49 | 0 | 26/26
+601899 | 8 | 21/21 | 元 | 0 | 3 | 0/76 | 903 | 317 | 12 | 0 | 21/21
+688981 | 6 | 18/18 | 千元 | 0 | 0 | 2/108 | 742 | 329 | 27 | 0 | 18/18
+920185 | 5 | 15/15 | 元 | 0 | 0 | 0/90 | 633 | 270 | 28 | 0 | 15/15
+合计 {'reports': 117, 'problems': 13, 'probe_statements': 339, 'statements': 339, 'checked': 1864, 'broken': 18, 'rows': 14065, 'matched': 5619, 'ambiguous': 1, 'wrapped': 483, 'compared': 338, 'identical': 332, 'unit_elsewhere': 9}
+明细 44 条，见 notes.txt
+
+二、单位的量级核对（结论, 单位是在哪里认到的）: 张数
+{('confirmed', 'statement_page'): 289, ('no_reference', 'statement_page'): 41, ('confirmed', 'declared_elsewhere'): 9}
+no_reference 是没有第三方数据可比的（紫金矿业、贝特瑞在探针时没有建出数据集）。
+
+三、明细
+000002 2017 问题 more_than_two_columns balance_sheet p144 
+000002 2018 问题 more_than_two_columns balance_sheet p141 
+000002 2018 问题 more_than_two_columns balance_sheet p142 
+000333 2017 balance_sheet: 带数字的行与探针不同（正式 65 行，探针 65 行）
+000333 2017 income_statement: 不平 R07 current -6487168 反号可平=['income_tax']
+000333 2017 income_statement: 不平 R07 prior -6105382 反号可平=['income_tax']
+000333 2017 income_statement: 带数字的行与探针不同（正式 41 行，探针 39 行）
+000333 2017 cash_flow: 带数字的行与探针不同（正式 43 行，探针 43 行）
+000333 2018 balance_sheet: 不平 R03 current 9382401 反号可平=[]
+000333 2018 balance_sheet: 不平 R03 prior 9187734 反号可平=[]
+000333 2018 income_statement: 不平 R07 current -8245278 反号可平=['income_tax']
+000333 2018 income_statement: 不平 R07 prior -6487168 反号可平=['income_tax']
+000333 2018 income_statement: 带数字的行与探针不同（正式 44 行，探针 44 行）
+000333 2018 cash_flow: 带数字的行与探针不同（正式 43 行，探针 43 行）
+000333 2019 income_statement: 不平 R07 current -9303940 反号可平=['income_tax']
+000333 2019 income_statement: 不平 R07 prior -8245278 反号可平=['income_tax']
+000333 2020 income_statement: 不平 R07 current -8313994 反号可平=['income_tax']
+000333 2020 income_statement: 不平 R07 prior -9303940 反号可平=['income_tax']
+000333 2021 balance_sheet: 带数字的行与探针不同（正式 67 行，探针 67 行）
+000333 2021 income_statement: 不平 R07 current -9404336 反号可平=['income_tax']
+000333 2021 income_statement: 不平 R07 prior -8313994 反号可平=['income_tax']
+000333 2022 income_statement: 不平 R07 current -10291400 反号可平=['income_tax']
+000333 2022 income_statement: 不平 R07 prior -9404336 反号可平=['income_tax']
+000333 2023 问题 expected_four_columns_found_3 income_statement p162 
+000333 2024 问题 expected_four_columns_found_3 income_statement p159 
+000333 2025 income_statement: 不平 R07 current -8565147 反号可平=[]
+000333 2025 income_statement: 不平 R07 prior -7932532 反号可平=[]
+000333 2025 income_statement: 正式核心抽到了，探针没有
+002594 2017 balance_sheet: 单位不同 探针=千元 正式=元（statement_page）
+002594 2018 问题 broken_amount cash_flow p132 238,400,00
+002594 2018 balance_sheet: 单位不同 探针=千元 正式=元（statement_page）
+002594 2018 cash_flow: 探针抽到了，正式核心没抽到
+002594 2020 balance_sheet: 单位不同 探针=千元 正式=元（statement_page）
+002594 2021 balance_sheet: 单位不同 探针=千元 正式=元（statement_page）
+002594 2023 问题 unit_not_stated balance_sheet p138 
+002594 2023 问题 unit_not_stated income_statement p140 
+002594 2023 问题 unit_not_stated cash_flow p144 
+600900 2021 cash_flow: 同一字段对上多行 netcash_finance
+601888 2021 问题 more_than_two_columns income_statement p71 
+601899 2025 问题 statement_not_found balance_sheet pNone 
+601899 2025 问题 statement_not_found income_statement pNone 
+601899 2025 问题 statement_not_found cash_flow pNone 
+688981 2020 income_statement: 不平 R07 current -939484 反号可平=['income_tax']
+688981 2020 income_statement: 不平 R07 prior -316938 反号可平=['income_tax']
+
+四、与探针不同的地方
+美的集团 6 张表：探针读错 13 个数（PDF 里一个数被拆成两个词，探针只读到后半截），漏读 4 个数。现在都读对了。
+比亚迪 4 张资产负债表：探针把单位认成千元，实际是元。现在认对了。
+比亚迪 2018 年现金流量表：有一个残缺的数（238,400,00），现在整张表拒绝。探针当时给出了结果。
+美的集团 2025 年利润表：探针没抽到，现在抽到了。
+其余 332 张表与探针逐行相同。

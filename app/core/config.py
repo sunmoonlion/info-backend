@@ -158,6 +158,25 @@ class Settings(BaseSettings):
     crawl_max_bytes: int = Field(
         default=10 * 1024 * 1024, validation_alias="CRAWL_MAX_BYTES"
     )
+    # 证券采集里的年报原文：比普通网页大得多，单独设上限（2026-09-28 批量实测：
+    # 大公司的年报多在 5 到 30 MB，见过 78 MB 的）。只对采集器明确要求的请求生效。
+    security_report_max_bytes: int = Field(
+        default=128 * 1024 * 1024,
+        ge=1024 * 1024,
+        le=512 * 1024 * 1024,
+        validation_alias="SECURITY_REPORT_MAX_BYTES",
+    )
+    # 第三方数据的质量检查只对近若干年做硬性拦截（F-INFO-13）。几年由所有者定，
+    # 2026-09-28 时尚未定，先按远程的建议取 10。
+    security_quality_hard_years: int = Field(
+        default=10, ge=1, le=60, validation_alias="SECURITY_QUALITY_HARD_YEARS"
+    )
+    security_report_timeout_seconds: float = Field(
+        default=180.0,
+        gt=0,
+        le=1800,
+        validation_alias="SECURITY_REPORT_TIMEOUT_SECONDS",
+    )
     crawl_user_agent: str = Field(
         default="SunmoonAI InfoAppBot/0.1",
         validation_alias="CRAWL_USER_AGENT",

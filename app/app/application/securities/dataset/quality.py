@@ -1,8 +1,15 @@
-"""质量检查（F-INFO-06）。入库前跑；任何一条「拦住」的检查不通过，数据集不发布。"""
+"""质量检查（F-INFO-06）。入库前跑；任何一条「拦住」的检查不通过，数据集不发布。
+
+硬性拦截只针对近若干年（F-INFO-13，所有者 2026-09-28 定）。更早的报告期同期勾稽不平，
+只剔除那一期并标注，不拦整个数据集：第三方网站的老数据里有少量对不上的地方
+（2026-09-28 批量实测，出问题的多是十几二十年前或上市之前的数据），
+不能为了它们把近些年的数据也拦掉。
+"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import date
 
 from app.application.securities.dataset.official_report import BASIS_COMPARATIVE
@@ -33,24 +40,121 @@ _REQUIRED = {
 }
 
 
+DEFAULT_HARD_YEARS = 10
+
+
+@dataclass(frozen=True)
+class Screening:
+    """筛过之后的报表行，以及被剔除的报告期。"""
+
+    rows: dict[str, list[StatementRow]]
+    first_hard_year: int | None  # 这一年及以后的数据有问题就拦；None 表示没有任何数据
+    excluded: tuple[dict, ...] = ()
+    hard_years: int = DEFAULT_HARD_YEARS
+    _dropped: frozenset[str] = field(default_factory=frozenset, repr=False)
+
+
+def _residual(rule, row: StatementRow) -> float | None:
+    total = 0.0
+    for name, sign, optional in rule.terms:
+        value = row.values.get(name)
+        if value is None:
+            if optional:
+                continue
+            return None
+        total += sign * value
+    return total
+
+
+def screen(
+    rows_by_statement: dict[str, list[StatementRow]],
+    *,
+    hard_years: int = DEFAULT_HARD_YEARS,
+) -> Screening:
+    """硬性拦截范围之前的报告期，同期勾稽不平的整期剔除（三张表一起）。
+
+    范围之内的一行不动：它们不平要由后面的检查拦住，不能在这里悄悄去掉。
+    """
+    if hard_years < 1:
+        raise ValueError("hard_years must be at least 1")
+    years = [r.fiscal_year for rows in rows_by_statement.values() for r in rows]
+    if not years:
+        return Screening(dict(rows_by_statement), None, hard_years=hard_years)
+    first = max(years) - hard_years + 1
+    reasons: dict[str, list[dict]] = {}
+    kinds: dict[str, str] = {}
+    for rule in RECONCILIATION_RULES:
+        for row in rows_by_statement.get(rule.source_table) or []:
+            if row.fiscal_year >= first:
+                continue
+            residual = _residual(rule, row)
+            if residual is not None and abs(residual) > TOLERANCE_YUAN:
+                kinds[row.report_date] = row.report_type
+                reasons.setdefault(row.report_date, []).append(
+                    {"rule_id": rule.rule_id, "residual": round(residual, 2)}
+                )
+    dropped = frozenset(reasons)
+    kept = {
+        statement: [r for r in rows if r.report_date not in dropped]
+        for statement, rows in rows_by_statement.items()
+    }
+    excluded = tuple(
+        {
+            "report_date": report_date,
+            "report_type": kinds[report_date],
+            "rules": reasons[report_date],
+        }
+        for report_date in sorted(reasons)
+    )
+    return Screening(kept, first, excluded, hard_years, dropped)
+
+
 def run_checks(
     rows_by_statement: dict[str, list[StatementRow]],
     figures: Sequence[OfficialFigure],
     calendar: Sequence[DisclosureEntry],
     *,
     today: date,
+    screening: Screening | None = None,
 ) -> QualityReport:
+    """rows_by_statement 是筛过之后的行。不给 screening 就是全部期间都硬性拦截。"""
     window = sorted({f.report_fiscal_year for f in figures})
+    first = screening.first_hard_year if screening else None
     checks = [
         _structure(rows_by_statement, window),
         *_reconciliation(rows_by_statement),
-        _continuity(rows_by_statement),
+        _continuity(rows_by_statement, first),
         _official(rows_by_statement, figures),
         _basis_coverage(rows_by_statement, window),
         _disclosure(calendar, window),
         _freshness(rows_by_statement, today),
     ]
+    if screening is not None and (screening.excluded or _old_breaks(checks)):
+        checks.append(_excluded(screening, _old_breaks(checks)))
     return QualityReport(tuple(checks))
+
+
+def _old_breaks(checks: list[QualityCheck]) -> list[dict]:
+    continuity = next(c for c in checks if c.check_id == "Q-CONT")
+    return [v for v in continuity.violations if v.get("outside_hard_window")]
+
+
+def _excluded(screening: Screening, old_breaks: list[dict]) -> QualityCheck:
+    """不拦，只把「哪些期被剔除了、哪些老年份不连续」摆出来。没有这类情况时不出现。"""
+    listed = [{"kind": "excluded_period", **e} for e in screening.excluded] + [
+        {"kind": "old_continuity_break", **b} for b in old_breaks
+    ]
+    return QualityCheck(
+        "Q-OLD",
+        "硬性拦截范围之前的数据：勾稽不平的报告期已剔除，不连续的年度已标注",
+        False,
+        False,
+        len(listed),
+        tuple(listed[:_MAX_LISTED]),
+        f"硬性拦截的范围是 {screening.first_hard_year} 年及以后"
+        f"（近 {screening.hard_years} 年）；剔除 {len(screening.excluded)} 期，"
+        f"范围之前不连续的年度 {len(old_breaks)} 个",
+    )
 
 
 def _structure(rows_by_statement, window) -> QualityCheck:
@@ -100,17 +204,8 @@ def _reconciliation(rows_by_statement) -> list[QualityCheck]:
         violations: list[dict] = []
         checked = 0
         for row in rows_by_statement.get(rule.source_table) or []:
-            residual = 0.0
-            complete = True
-            for name, sign, optional in rule.terms:
-                value = row.values.get(name)
-                if value is None:
-                    if optional:
-                        continue
-                    complete = False
-                    break
-                residual += sign * value
-            if not complete:
+            residual = _residual(rule, row)
+            if residual is None:
                 continue
             checked += 1
             if abs(residual) > TOLERANCE_YUAN:
@@ -135,8 +230,11 @@ def _reconciliation(rows_by_statement) -> list[QualityCheck]:
     return checks
 
 
-def _continuity(rows_by_statement) -> QualityCheck:
-    """本年期初现金 = 上年期末现金。不连续必须能用口径变化解释，否则拦住。"""
+def _continuity(rows_by_statement, first_hard_year: int | None = None) -> QualityCheck:
+    """本年期初现金 = 上年期末现金。不连续必须能用口径变化解释，否则拦住。
+
+    硬性拦截范围之前的年度不连续不拦：那些年度的口径本来就是未核实，只标注。
+    """
     annual = sorted(
         (
             r
@@ -147,6 +245,7 @@ def _continuity(rows_by_statement) -> QualityCheck:
     )
     explained: list[dict] = []
     unexplained: list[dict] = []
+    old: list[dict] = []
     checked = 0
     for previous, current in zip(annual, annual[1:], strict=False):
         begin, end = current.values.get("begin_cce"), previous.values.get("end_cce")
@@ -167,11 +266,22 @@ def _continuity(rows_by_statement) -> QualityCheck:
             "basis_current": current.basis,
         }
         by_restatement = BASIS_RESTATED in (previous.basis, current.basis)
-        (explained if by_restatement else unexplained).append(entry)
-    note = ""
+        if by_restatement:
+            explained.append(entry)
+        elif first_hard_year is not None and current.fiscal_year < first_hard_year:
+            old.append({**entry, "outside_hard_window": True})
+        else:
+            unexplained.append(entry)
+    notes = []
     if explained:
-        note = "不连续且已由追溯调整解释的年度：" + "、".join(
-            str(e["fiscal_year"]) for e in explained
+        notes.append(
+            "不连续且已由追溯调整解释的年度："
+            + "、".join(str(e["fiscal_year"]) for e in explained)
+        )
+    if old:
+        notes.append(
+            "硬性拦截范围之前不连续、只标注不拦的年度："
+            + "、".join(str(e["fiscal_year"]) for e in old)
         )
     return QualityCheck(
         "Q-CONT",
@@ -179,8 +289,8 @@ def _continuity(rows_by_statement) -> QualityCheck:
         True,
         not unexplained,
         checked,
-        tuple((unexplained + explained)[:_MAX_LISTED]),
-        note,
+        tuple((unexplained + explained + old)[:_MAX_LISTED]),
+        "；".join(notes),
     )
 
 

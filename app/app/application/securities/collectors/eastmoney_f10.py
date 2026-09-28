@@ -43,8 +43,7 @@ class EastmoneyF10StatementCollector:
     source = SourceCode.EASTMONEY_F10.value
 
     async def collect(self, code: SecurityCode, ctx: CollectContext) -> None:
-        if code.market == "BJ":
-            raise CollectError("unsupported_market", "BJ")
+        # 沪、深、京三个市场的接口相同，只是代码前缀不同（北交所 2026-09-28 实测）
         company_type = await self._company_type(code, ctx)
         for statement, prefix in STATEMENTS.items():
             periods = await self._periods(code, company_type, statement, prefix, ctx)

@@ -496,3 +496,60 @@ async def test_identity_answers_are_untouched_when_opted_in(network):
     response = await fetch(decode=True)
     assert response.content == b"plain"
     assert "x-crawl-decoded-from" not in response.headers
+
+
+# ---------------------------------------------------------------- 证券采集的取数适配
+
+
+async def test_a_request_may_ask_for_more_than_the_default_up_to_the_ceiling(
+    monkeypatch,
+):
+    """年报比网页大得多：采集器可以为它要更大的上限，但不超过封顶值。"""
+    from app.domain.securities import FetchRequest, ItemKind, SourceCode
+    from app.infrastructure.securities import fetcher as module
+
+    seen: list[tuple[int, float]] = []
+
+    async def fake(url, *, timeout_seconds, max_bytes, **kwargs):
+        seen.append((max_bytes, timeout_seconds))
+        return httpx.Response(200, content=b"ok", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(module, "fetch_crawl_url", fake)
+
+    def request(**kwargs):
+        return FetchRequest(
+            source=SourceCode.CNINFO,
+            kind=ItemKind.REPORT_FILE,
+            url="http://static.cninfo.com.cn/finalpage/2026-03-28/1.PDF",
+            name="a.pdf",
+            **kwargs,
+        )
+
+    capped = module.CrawlHttpFetcher(
+        timeout_seconds=20,
+        max_bytes=10,
+        user_agent="t",
+        max_bytes_ceiling=100,
+        timeout_ceiling_seconds=180,
+    )
+    await capped.fetch(request())
+    await capped.fetch(request(max_bytes=64, timeout_seconds=90))
+    await capped.fetch(request(max_bytes=1000, timeout_seconds=900))
+    await capped.fetch(request(max_bytes=5, timeout_seconds=3))
+    assert seen == [(10, 20), (64, 90), (100, 180), (5, 3)]
+
+    seen.clear()
+    plain = module.CrawlHttpFetcher(timeout_seconds=20, max_bytes=10, user_agent="t")
+    await plain.fetch(request(max_bytes=64, timeout_seconds=90))
+    assert seen == [(10, 20)]  # 没给封顶值：不许超过默认值，与以前一样
+
+    seen.clear()
+    odd = module.CrawlHttpFetcher(
+        timeout_seconds=20,
+        max_bytes=10,
+        user_agent="t",
+        max_bytes_ceiling=4,
+        timeout_ceiling_seconds=1,
+    )
+    await odd.fetch(request())
+    assert seen == [(10, 20)]  # 封顶值比默认值还小时，以默认值为准

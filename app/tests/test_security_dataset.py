@@ -17,7 +17,7 @@ import pytest
 from app.application.ports.securities import BatchItem, LoadedBatch
 from app.application.securities.dataset.basis import assign_basis
 from app.application.securities.dataset.official_report import parse_key_figures
-from app.application.securities.dataset.quality import run_checks
+from app.application.securities.dataset.quality import run_checks, screen
 from app.application.securities.dataset.statements import parse_statement
 from app.application.securities.dataset_service import (
     PUBLISHED,
@@ -519,6 +519,136 @@ def test_warnings_do_not_block():
     assert by_id["Q-FRESH"].violations[0]["latest"] == "2026-06-30"
 
 
+# ------------------------------------------ 只对近若干年硬性拦截（F-INFO-13）
+
+
+def screened(rows, hard_years=10, figures=None):
+    """与建库时的顺序一致：先筛，再判口径，再检查。"""
+    screening = screen(rows, hard_years=hard_years)
+    figures = figures if figures is not None else all_figures()
+    assign_basis(screening.rows, figures)
+    report = run_checks(
+        screening.rows, figures, calendar(), today=TODAY, screening=screening
+    )
+    return screening, report, {c.check_id: c for c in report.checks}
+
+
+def test_real_data_is_untouched_by_the_screening():
+    """STMT-04：没有问题的数据，筛与不筛结果相同，也不多出任何检查项。"""
+    rows = all_rows()
+    screening, report, by_id = screened(rows)
+    assert screening.first_hard_year == 2017 and screening.excluded == ()
+    assert screening.rows == rows
+    plain, _ = checked()
+    assert report == plain and "Q-OLD" not in by_id
+
+
+def test_an_old_period_that_does_not_reconcile_is_dropped_and_listed():
+    """STMT-02：范围之前的一期对不上，只剔除这一期，三张表一起，其余照常发布。"""
+    rows = all_rows()
+    annual(rows, "balance_sheet", 2016).values["total_liabilities"] += 12345.0
+    screening, report, by_id = screened(rows)
+    assert screening.excluded == (
+        {
+            "report_date": "2016-12-31",
+            "report_type": "年报",
+            "rules": [
+                {"rule_id": "R01", "residual": -12345.0},
+                {"rule_id": "R05", "residual": 12345.0},
+            ],
+        },
+    )
+    for statement in STATEMENTS:
+        dates = [r.report_date for r in screening.rows[statement]]
+        assert "2016-12-31" not in dates and "2015-12-31" in dates
+        assert len(dates) == len(rows[statement]) - 1
+    assert report.passed and report.failed_blocking == ()
+    old = by_id["Q-OLD"]
+    assert not old.blocking and not old.passed and old.checked == 1
+    assert old.violations[0]["kind"] == "excluded_period"
+    assert old.violations[0]["report_date"] == "2016-12-31"
+    assert "2017 年及以后" in old.note and "剔除 1 期" in old.note
+    # 剔除之后 2015 与 2017 不相邻，跨期检查不把它们连起来比
+    assert by_id["Q-CONT"].checked == 8
+
+
+@pytest.mark.parametrize(
+    ("year", "hard_years"),
+    [(2017, 10), (2025, 10), (2016, 11), (2015, 60)],
+)
+def test_a_period_inside_the_range_is_never_dropped(year, hard_years):
+    """STMT-03：范围之内的一期对不上，一行不动，整个数据集拦住。"""
+    rows = all_rows()
+    annual(rows, "balance_sheet", year).values["total_liabilities"] += 12345.0
+    screening, report, by_id = screened(rows, hard_years)
+    assert screening.excluded == () and screening.rows == rows
+    assert set(report.failed_blocking) == {"Q-R01", "Q-R05"}
+    assert "Q-OLD" not in by_id
+
+
+def test_the_range_is_counted_from_the_latest_period_in_the_data():
+    rows = all_rows()
+    assert screen(rows, hard_years=1).first_hard_year == 2026
+    assert screen(rows, hard_years=3).first_hard_year == 2024
+    empty = screen({s: [] for s in STATEMENTS})
+    assert empty.first_hard_year is None and empty.excluded == ()
+    with pytest.raises(ValueError, match="hard_years"):
+        screen(rows, hard_years=0)
+
+
+def test_an_old_interim_period_is_dropped_on_its_own():
+    """中报、季报同样处理：范围收窄到只剩 2026 年，2025 年中报对不上就剔除。"""
+    rows = all_rows()
+    target = next(r for r in rows["cash_flow"] if r.report_date == "2025-06-30")
+    target.values["netcash_invest"] += 999.0
+    screening = screen(rows, hard_years=1)
+    assert [(e["report_date"], e["report_type"]) for e in screening.excluded] == [
+        ("2025-06-30", "中报")
+    ]
+    assert [r["rule_id"] for r in screening.excluded[0]["rules"]] == ["R08"]
+    assert abs(screening.excluded[0]["rules"][0]["residual"]) == 999.0
+    for statement in STATEMENTS:
+        dates = [r.report_date for r in screening.rows[statement]]
+        assert "2025-06-30" not in dates and "2025-12-31" in dates
+    assert screen(rows, hard_years=2).excluded == ()
+
+
+def test_an_old_break_in_cash_continuity_is_listed_not_blocked():
+    rows = all_rows()
+    first = annual(rows, "cash_flow", 2015)
+    first.values["begin_cce"] += 1_000_000.0
+    first.values["end_cce"] += 1_000_000.0  # 同期仍然平衡，只有 2015 到 2016 接不上
+    screening, report, by_id = screened(rows)
+    assert screening.excluded == () and report.passed
+    continuity = by_id["Q-CONT"]
+    assert continuity.passed and continuity.checked == 10
+    assert [
+        (v["fiscal_year"], v.get("outside_hard_window")) for v in continuity.violations
+    ] == [
+        (2021, None),
+        (2016, True),
+    ]
+    assert "只标注不拦的年度：2016" in continuity.note
+    old = by_id["Q-OLD"]
+    assert [v["kind"] for v in old.violations] == ["old_continuity_break"]
+    assert old.violations[0]["diff"] == -1_000_000.0
+
+
+def test_a_break_that_reaches_into_the_range_blocks():
+    """2016 的期末与 2017 的期初接不上：2017 在范围之内，要拦。"""
+    rows = all_rows()
+    target = annual(rows, "cash_flow", 2016)
+    target.values["begin_cce"] += 1_000_000.0
+    target.values["end_cce"] += 1_000_000.0
+    _, report, by_id = screened(rows)
+    assert report.failed_blocking == ("Q-CONT",)
+    kinds = {
+        v["fiscal_year"]: v.get("outside_hard_window")
+        for v in by_id["Q-CONT"].violations
+    }
+    assert kinds == {2017: None, 2021: None, 2016: True}
+
+
 # ---------------------------------------------------------------- 建库
 
 
@@ -569,9 +699,9 @@ class FakeDatasets:
         return f"dataset-{len(self.saved)}"
 
 
-def build_service(batches: FakeBatches, store: FakeDatasets):
+def build_service(batches: FakeBatches, store: FakeDatasets, **options):
     return SecurityDatasetService(
-        batches=batches, reports=batches, store=store, today=lambda: TODAY
+        batches=batches, reports=batches, store=store, today=lambda: TODAY, **options
     )
 
 
@@ -756,6 +886,74 @@ async def test_a_damaged_batch_is_saved_as_failed_and_not_published():
     assert failed["violations"] == [
         {"report_date": "2026-06-30", "report_type": "中报", "residual": -5000.0}
     ]
+
+
+# 规则改动之前（提交 75805c8）用同一份测试样本建出的版本与校验值。
+# 真实批次的值不同（9fd91db79529e208），那一份在重建记录里另行核对。
+PINNED_VERSION = "sh600009-financials-f07bb6d4b1222bb9"
+PINNED_SHA256 = "c051623669cf0c7d3d9d06f490e8b1108706188607088a4443c6917474e014cc"
+
+
+def damaged_in(year_end: str, amount: float = 5000.0) -> FakeBatches:
+    batches = FakeBatches()
+    for seq, item in enumerate(batches.items, start=1):
+        if item.meta.get("statement") != "balance_sheet":
+            continue
+        body = json.loads(batches.contents[seq])
+        for row in body["data"]:
+            if str(row["REPORT_DATE"]).startswith(year_end):
+                row["TOTAL_LIABILITIES"] += amount
+                batches.contents[seq] = json.dumps(body).encode()
+                return batches
+    raise AssertionError(f"no balance sheet row for {year_end}")
+
+
+@pytest.mark.parametrize("hard_years", [1, 10, 60])
+async def test_the_published_file_is_the_same_as_before_the_rule(hard_years):
+    """STMT-04：没有被剔除的期间时，文件与规则改动之前逐字节相同。"""
+    store = FakeDatasets()
+    summary = await build_service(FakeBatches(), store, hard_years=hard_years).build(
+        "batch-1"
+    )
+    assert summary.status == PUBLISHED
+    assert (summary.data_version, summary.sha256) == (PINNED_VERSION, PINNED_SHA256)
+    built = store.saved[0][0]
+    assert "excluded_periods_note" not in built.metadata
+    assert "old_continuity_note" not in built.metadata
+    assert all(c["check_id"] != "Q-OLD" for c in built.quality.as_dict()["checks"])
+
+
+async def test_an_old_damaged_period_is_left_out_of_the_published_file(tmp_path):
+    """STMT-02：范围之前的一期对不上，数据集照常发布，缺的那一期写在说明里。"""
+    batches, store = damaged_in("2016-12-31"), FakeDatasets()
+    summary = await build_service(batches, store).build("batch-1")
+    assert summary.status == PUBLISHED and summary.failed_checks == ()
+    assert summary.data_version != PINNED_VERSION
+    built = store.saved[0][0]
+    note = built.metadata["excluded_periods_note"]
+    assert "2016-12-31（年报，R01 差 -5000.0、R05 差 5000.0）" in note
+    assert "2017 年及以后" in note
+    db = opened(built.content, tmp_path)
+    for table in STATEMENTS:
+        dates = {r[0] for r in db.execute(f"select report_date from {table}")}
+        assert "2016-12-31" not in dates and {"2015-12-31", "2017-12-31"} <= dates
+    meta = dict(db.execute("select key, value from dataset_metadata"))
+    assert meta["excluded_periods_note"] == note
+    old = next(c for c in built.quality.as_dict()["checks"] if c["check_id"] == "Q-OLD")
+    assert old["blocking"] is False and old["violations"][0]["report_date"] == (
+        "2016-12-31"
+    )
+
+
+async def test_how_far_back_the_block_reaches_is_a_setting():
+    """同一批数据，范围放宽到 11 年，2016 年就在范围之内，要拦。"""
+    summary = await build_service(
+        damaged_in("2016-12-31"), FakeDatasets(), hard_years=11
+    ).build("batch-1")
+    assert summary.status == QUALITY_FAILED
+    assert set(summary.failed_checks) == {"Q-R01", "Q-R05"}
+    with pytest.raises(ValueError, match="hard_years"):
+        build_service(FakeBatches(), FakeDatasets(), hard_years=0)
 
 
 async def test_an_unreadable_report_is_recorded_and_its_year_is_unverified(tmp_path):

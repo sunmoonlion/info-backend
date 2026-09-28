@@ -141,9 +141,25 @@ class FakeStore:
 class Context:
     def __init__(self, fetcher: FakeFetcher) -> None:
         self.fetcher = fetcher
+        self.skipped: list[tuple[str, str]] = []
 
     async def fetch(self, request: FetchRequest) -> bytes:
-        return (await self.fetcher.fetch(request)).content
+        try:
+            response = await self.fetcher.fetch(request)
+        except FetchFailed as exc:
+            raise CollectError("fetch_failed", exc.code) from None
+        if response.status_code >= 400:
+            raise CollectError("http_status", str(response.status_code))
+        return response.content
+
+    async def fetch_optional(self, request: FetchRequest) -> bytes | None:
+        try:
+            return await self.fetch(request)
+        except CollectError as exc:
+            if exc.code not in ("fetch_failed", "http_status"):
+                raise
+            self.skipped.append((request.name, exc.detail))
+            return None
 
 
 def service(
@@ -406,11 +422,133 @@ async def test_eastmoney_says_so_when_the_response_is_not_what_it_expects(marker
     assert caught.value.code == "unexpected_response"
 
 
-async def test_eastmoney_does_not_cover_the_beijing_exchange():
-    with pytest.raises(CollectError, match="unsupported_market"):
-        await EastmoneyF10StatementCollector().collect(
-            SecurityCode("835185"), Context(FakeFetcher())
+async def test_eastmoney_covers_the_beijing_exchange_with_its_own_prefix():
+    """三个市场的接口相同，只是代码前缀不同（北交所 2026-09-28 实测）。"""
+    fetcher = FakeFetcher()
+    await EastmoneyF10StatementCollector().collect(
+        SecurityCode("920185"), Context(fetcher)
+    )
+    codes = {dict(r.params)["code"] for r in fetcher.requests}
+    assert codes == {"bj920185", "BJ920185"}  # 类型页用小写，数据接口用大写
+    assert len(fetcher.requests) == 10
+
+
+# ---------------------------------------------------------------- 年报原文的大小与缺失
+
+
+async def test_reports_ask_for_their_own_size_and_time_limits():
+    fetcher = FakeFetcher()
+    await CninfoDisclosureCollector(
+        today=TODAY, max_report_bytes=64 * 1024 * 1024, report_timeout_seconds=90
+    ).collect(SecurityCode("600009"), Context(fetcher))
+    reports = [r for r in fetcher.requests if r.kind is ItemKind.REPORT_FILE]
+    others = [r for r in fetcher.requests if r.kind is not ItemKind.REPORT_FILE]
+    assert reports and all(
+        (r.max_bytes, r.timeout_seconds) == (64 * 1024 * 1024, 90) for r in reports
+    )
+    assert all(r.max_bytes is None and r.timeout_seconds is None for r in others)
+
+
+def test_report_limits_must_be_positive():
+    for kwargs in ({"max_report_bytes": 0}, {"report_timeout_seconds": 0}):
+        with pytest.raises(ValueError):
+            CninfoDisclosureCollector(today=TODAY, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("failure", "detail"),
+    [
+        (FetchFailed("crawl_response_too_large"), "crawl_response_too_large"),
+        (FetchFailed("crawl_deadline_exceeded"), "crawl_deadline_exceeded"),
+        (RawResponse(404, "text/html", b"gone", "x"), "404"),
+    ],
+)
+async def test_one_report_that_cannot_be_fetched_does_not_stop_the_others(
+    failure, detail
+):
+    names = [
+        r.name
+        for r in await reports_requested(FakeFetcher())
+        if r.kind is ItemKind.REPORT_FILE
+    ]
+    assert len(names) >= 3
+    broken = names[1]
+    marker = broken.split("-")[2].removesuffix(".pdf")
+    context = Context(FakeFetcher({f"{marker}.PDF": [failure, failure, failure]}))
+    await CninfoDisclosureCollector(today=TODAY).collect(
+        SecurityCode("600009"), context
+    )
+    assert context.skipped == [(broken, detail)]
+    fetched = [
+        r.name for r in context.fetcher.requests if r.kind is ItemKind.REPORT_FILE
+    ]
+    assert set(fetched) == set(names)  # 后面的年报照常去取
+
+
+async def reports_requested(fetcher: FakeFetcher) -> list[FetchRequest]:
+    await CninfoDisclosureCollector(today=TODAY).collect(
+        SecurityCode("600009"), Context(fetcher)
+    )
+    return fetcher.requests
+
+
+async def test_when_no_report_at_all_can_be_fetched_the_source_fails():
+    fetcher = FakeFetcher(
+        {"static.cninfo.com.cn": FetchFailed("crawl_response_too_large")}
+    )
+    with pytest.raises(CollectError, match="no_annual_report_downloaded"):
+        await CninfoDisclosureCollector(today=TODAY).collect(
+            SecurityCode("600009"), Context(fetcher)
         )
+
+
+async def test_a_skipped_report_is_in_the_summary_and_the_batch_succeeds():
+    names = [
+        r.name
+        for r in await reports_requested(FakeFetcher())
+        if r.kind is ItemKind.REPORT_FILE
+    ]
+    marker = names[0].split("-")[2].removesuffix(".pdf")
+    fetcher = FakeFetcher({f"{marker}.PDF": FetchFailed("crawl_response_too_large")})
+    store = FakeStore()
+    summary = await service(fetcher, store).ingest("600009")
+    assert summary.status is IngestionStatus.SUCCEEDED
+    assert summary.items == 20  # 少了取不到的那一份，报表数据照常采了
+    assert summary.statement_periods  # 报表数据在
+    (skipped,) = summary.skipped
+    assert (skipped.name, skipped.error_code, skipped.error_detail) == (
+        names[0],
+        "fetch_failed",
+        "crawl_response_too_large",
+    )
+    assert skipped.kind is ItemKind.REPORT_FILE
+    year = int(names[0].split("-")[1])
+    assert year not in summary.report_years
+    (saved,) = store.batches.values()
+    assert saved["summary"]["skipped"] == [
+        {
+            "source": "cninfo",
+            "kind": skipped.kind.value,
+            "name": names[0],
+            "error_code": "fetch_failed",
+            "error_detail": "crawl_response_too_large",
+            "fiscal_year": year,
+        }
+    ]
+
+
+async def test_a_batch_level_problem_is_not_swallowed_as_a_skipped_report():
+    """请求数超限是批次的问题，不是某一份年报的问题。"""
+    import app.application.securities.ingestion_service as module
+
+    original = module._MAX_REQUESTS
+    module._MAX_REQUESTS = 4  # 股票列表、公告查询各一次，之后第三份年报就超限
+    try:
+        summary = await service(FakeFetcher(), FakeStore()).ingest("600009")
+    finally:
+        module._MAX_REQUESTS = original
+    assert summary.status is IngestionStatus.FAILED
+    assert summary.error_code == "too_many_requests" and summary.skipped == ()
 
 
 # ---------------------------------------------------------------- 采集服务

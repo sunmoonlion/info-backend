@@ -24,6 +24,7 @@ from app.domain.securities import (
     ItemKind,
     RawResponse,
     SecurityCode,
+    SkippedItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ _TRANSIENT_FETCH_ERRORS = frozenset(
     }
 )
 _TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+# 只涉及「这一条」的错误；用 fetch_optional 取的条目遇到它们记为跳过
+_ITEM_LEVEL_ERRORS = frozenset({"fetch_failed", "http_status"})
 
 
 class _Context:
@@ -60,6 +63,32 @@ class _Context:
         self._pause = pause
         self._backoff = backoff
         self.items: list[ArchivedItem] = []
+        self.skipped: list[SkippedItem] = []
+
+    async def fetch_optional(self, request: FetchRequest) -> bytes | None:
+        try:
+            return await self.fetch(request)
+        except CollectError as exc:
+            if exc.code not in _ITEM_LEVEL_ERRORS:
+                raise
+            self.skipped.append(
+                SkippedItem(
+                    source=request.source,
+                    kind=request.kind,
+                    name=request.name,
+                    error_code=exc.code,
+                    error_detail=exc.detail or None,
+                    meta=dict(request.meta),
+                )
+            )
+            logger.warning(
+                "security ingestion skipped item code=%s name=%s error=%s/%s",
+                self._code,
+                request.name,
+                exc.code,
+                exc.detail,
+            )
+            return None
 
     async def fetch(self, request: FetchRequest) -> bytes:
         if len(self.items) >= _MAX_REQUESTS:
@@ -164,6 +193,7 @@ class SecurityIngestionService:
             finished=self._clock(),
             items=ctx.items,
             error=error,
+            skipped=ctx.skipped,
         )
         await self._store.finish(
             ingestion_id,
@@ -176,6 +206,17 @@ class SecurityIngestionService:
                 "by_source": summary.by_source,
                 "report_years": list(summary.report_years),
                 "statement_periods": summary.statement_periods,
+                "skipped": [
+                    {
+                        "source": s.source.value,
+                        "kind": s.kind.value,
+                        "name": s.name,
+                        "error_code": s.error_code,
+                        "error_detail": s.error_detail,
+                        "fiscal_year": s.meta.get("fiscal_year"),
+                    }
+                    for s in summary.skipped
+                ],
             },
             error_code=summary.error_code,
             error_detail=summary.error_detail,
@@ -192,6 +233,7 @@ def _summarize(
     finished: datetime,
     items: list[ArchivedItem],
     error: CollectError | None,
+    skipped: list[SkippedItem],
 ) -> IngestionSummary:
     periods: dict[str, set[str]] = {}
     for item in items:
@@ -221,4 +263,5 @@ def _summarize(
         statement_periods={k: len(v) for k, v in sorted(periods.items())},
         error_code=error.code if error else None,
         error_detail=(error.detail or None) if error else None,
+        skipped=tuple(skipped),
     )

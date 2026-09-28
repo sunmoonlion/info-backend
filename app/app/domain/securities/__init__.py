@@ -11,6 +11,7 @@ from app.domain.securities.models import (
     ItemKind,
     RawResponse,
     SecurityCode,
+    SkippedItem,
     SourceCode,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "ItemKind",
     "RawResponse",
     "SecurityCode",
+    "SkippedItem",
     "SourceCode",
 ]

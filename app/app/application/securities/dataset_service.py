@@ -18,7 +18,12 @@ from app.application.ports.securities import (
 )
 from app.application.securities.dataset.basis import assign_basis
 from app.application.securities.dataset.official_report import parse_key_figures
-from app.application.securities.dataset.quality import run_checks
+from app.application.securities.dataset.quality import (
+    DEFAULT_HARD_YEARS,
+    Screening,
+    run_checks,
+    screen,
+)
 from app.application.securities.dataset.sqlite_writer import (
     EXPORT_VERSION,
     build_tables,
@@ -74,11 +79,15 @@ class SecurityDatasetService:
         reports: ReportReader,
         store: DatasetStore,
         today: Callable[[], date],
+        hard_years: int = DEFAULT_HARD_YEARS,
     ) -> None:
+        if hard_years < 1:
+            raise ValueError("hard_years must be at least 1")
         self._batches = batches
         self._reports = reports
         self._store = store
         self._today = today
+        self._hard_years = hard_years
 
     async def build_latest(self, raw_code: str) -> DatasetSummary:
         code = SecurityCode(raw_code)
@@ -93,10 +102,13 @@ class SecurityDatasetService:
             raise DatasetBuildError("ingestion_not_found")
         if batch.status != IngestionStatus.SUCCEEDED.value:
             raise DatasetBuildError("ingestion_not_succeeded", batch.status)
-        rows = await self._statements(batch)
+        screening = screen(await self._statements(batch), hard_years=self._hard_years)
+        rows = screening.rows
         figures, calendar, problems, explanations = await self._reports_of(batch)
         decided = assign_basis(rows, figures)
-        quality = run_checks(rows, figures, calendar, today=self._today())
+        quality = run_checks(
+            rows, figures, calendar, today=self._today(), screening=screening
+        )
         tables = build_tables(rows, figures, calendar)
         dates = [r.report_date for group in rows.values() for r in group]
         metadata = _metadata(
@@ -109,6 +121,7 @@ class SecurityDatasetService:
             start=min(dates),
             end=max(dates),
         )
+        metadata.update(_old_data_notes(screening, quality))
         identity = dataset_id(batch.code)
         fingerprint = hashlib.sha256(
             (content_fingerprint(tables) + repr(sorted(metadata.items()))).encode()
@@ -299,6 +312,38 @@ def _metadata(
             "因此 2021 年前后的资产负债率、经营活动现金流量不可直接比较"
         )
     return meta
+
+
+def _old_data_notes(screening: Screening, quality) -> dict[str, str]:
+    """硬性拦截范围之前的数据被剔除或不连续时，写进数据集的说明。没有这类情况就什么都不加。"""
+    notes: dict[str, str] = {}
+    if screening.excluded:
+        listed = "；".join(
+            f"{e['report_date']}（{e['report_type']}，"
+            + "、".join(f"{r['rule_id']} 差 {r['residual']}" for r in e["rules"])
+            + "）"
+            for e in screening.excluded
+        )
+        notes["excluded_periods_note"] = (
+            f"以下报告期的第三方数据同期勾稽不平，三张表都已剔除这一期：{listed}。"
+            f"硬性拦截的范围是 {screening.first_hard_year} 年及以后；"
+            "范围之前的数据有问题只剔除、不拦整个数据集"
+        )
+    old = [
+        v
+        for c in quality.checks
+        if c.check_id == "Q-CONT"
+        for v in c.violations
+        if v.get("outside_hard_window")
+    ]
+    if old:
+        years = "、".join(str(v["fiscal_year"]) for v in old)
+        notes["old_continuity_note"] = (
+            f"以下年度的期初现金与上一年的期末现金不一致：{years}。"
+            f"它们在硬性拦截的范围（{screening.first_hard_year} 年及以后）之前，"
+            "口径未核实，原因未知；跨这些年度的现金流量比较不可直接使用"
+        )
+    return notes
 
 
 def _first_year_with(rows, names: tuple[str, ...]) -> int | None:

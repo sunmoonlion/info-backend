@@ -74,10 +74,16 @@ def build_security_ingestion_service(
             timeout_seconds=settings.crawl_timeout_seconds,
             max_bytes=settings.crawl_max_bytes,
             user_agent=settings.crawl_user_agent,
+            max_bytes_ceiling=settings.security_report_max_bytes,
+            timeout_ceiling_seconds=settings.security_report_timeout_seconds,
         ),
         store=build_store(session_factory),
         collectors=[
-            CninfoDisclosureCollector(today=datetime.now(_SHANGHAI).date()),
+            CninfoDisclosureCollector(
+                today=datetime.now(_SHANGHAI).date(),
+                max_report_bytes=settings.security_report_max_bytes,
+                report_timeout_seconds=settings.security_report_timeout_seconds,
+            ),
             EastmoneyF10StatementCollector(),
         ],
         clock=_now,
@@ -120,6 +126,7 @@ def build_security_dataset_service(
             session_factory=session_factory, storage=storage, clock=_now
         ),
         today=lambda: datetime.now(_SHANGHAI).date(),
+        hard_years=get_settings().security_quality_hard_years,
     )
 
 

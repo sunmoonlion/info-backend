@@ -11,6 +11,14 @@ class CollectContext(Protocol):
         """取回并留存；返回内容供采集器决定下一步请求。"""
         ...
 
+    async def fetch_optional(self, request: FetchRequest) -> bytes | None:
+        """同 fetch，但这一条取不到不让批次失败：记为跳过，返回 None。
+
+        只容忍「这一条」的问题（太大、超时、对方返回错误状态）。
+        请求数超限这类批次级的问题照常抛出。
+        """
+        ...
+
 
 class SecurityCollector(Protocol):
     source: str

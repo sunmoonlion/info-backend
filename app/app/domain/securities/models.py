@@ -98,6 +98,19 @@ class FetchRequest:
     form: tuple[tuple[str, str], ...] | None = None
     meta: dict[str, Any] = field(default_factory=dict)
     max_bytes: int | None = None
+    timeout_seconds: float | None = None  # 大文件要比普通请求等得久
+
+
+@dataclass(frozen=True)
+class SkippedItem:
+    """没取到、但不值得让整个批次失败的条目（例如某一份年报太大或超时）。"""
+
+    source: SourceCode
+    kind: ItemKind
+    name: str
+    error_code: str
+    error_detail: str | None
+    meta: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -140,3 +153,4 @@ class IngestionSummary:
     statement_periods: dict[str, int]
     error_code: str | None = None
     error_detail: str | None = None
+    skipped: tuple[SkippedItem, ...] = ()

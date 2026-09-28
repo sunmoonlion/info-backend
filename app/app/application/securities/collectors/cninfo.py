@@ -34,17 +34,29 @@ _TITLE_YEAR = re.compile(r"(20\d{2})\s*年\s*年度报告")
 _NOT_FULL_REPORT = ("摘要", "英文", "取消", "已取消")
 _REVISED = ("修订", "更正", "更新")
 _SHANGHAI = timezone(timedelta(hours=8))
-_MAX_REPORT_BYTES = 40 * 1024 * 1024
+DEFAULT_MAX_REPORT_BYTES = 128 * 1024 * 1024
+DEFAULT_REPORT_TIMEOUT_SECONDS = 180.0
 
 
 class CninfoDisclosureCollector:
     source = SourceCode.CNINFO.value
 
-    def __init__(self, *, today: date, years: int = 8) -> None:
+    def __init__(
+        self,
+        *,
+        today: date,
+        years: int = 8,
+        max_report_bytes: int = DEFAULT_MAX_REPORT_BYTES,
+        report_timeout_seconds: float = DEFAULT_REPORT_TIMEOUT_SECONDS,
+    ) -> None:
         if years < 1 or years > 30:
             raise ValueError("years must be within 1..30")
+        if max_report_bytes <= 0 or report_timeout_seconds <= 0:
+            raise ValueError("report limits must be positive")
         self._today = today
         self._years = years
+        self._max_report_bytes = max_report_bytes
+        self._report_timeout_seconds = report_timeout_seconds
 
     async def collect(self, code: SecurityCode, ctx: CollectContext) -> None:
         org_id = await self._org_id(code, ctx)
@@ -52,17 +64,24 @@ class CninfoDisclosureCollector:
         reports = [a for a in (self._report(x) for x in announcements) if a]
         if not reports:
             raise CollectError("no_annual_report_found")
+        downloaded = 0
         for report in sorted(reports, key=lambda r: r["announcement_id"]):
-            await ctx.fetch(
+            # 一份年报取不到（太大、超时、对方出错）不让整个批次失败：
+            # 别的年报与报表数据照常采，这一份记为跳过（2026-09-28 批量实测）
+            content = await ctx.fetch_optional(
                 FetchRequest(
                     source=SourceCode.CNINFO,
                     kind=ItemKind.REPORT_FILE,
                     url=f"{_STATIC}/{report.pop('adjunct_url')}",
                     name=f"annual-{report['fiscal_year']}-{report['announcement_id']}.pdf",
                     meta=report,
-                    max_bytes=_MAX_REPORT_BYTES,
+                    max_bytes=self._max_report_bytes,
+                    timeout_seconds=self._report_timeout_seconds,
                 )
             )
+            downloaded += content is not None
+        if downloaded == 0:
+            raise CollectError("no_annual_report_downloaded")
 
     async def _org_id(self, code: SecurityCode, ctx: CollectContext) -> str:
         content = await ctx.fetch(

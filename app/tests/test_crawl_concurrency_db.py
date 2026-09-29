@@ -15,8 +15,8 @@ from test_info_delivery_db import MemoryStorage
 
 from app.application.collectors.base import CollectedLink
 from app.application.services import info_crawl_service as service
-from app.application.services.durable_tasks import DurableTasks
 from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+from app.infrastructure.messaging.durable_tasks import DurableTasks
 from app.infrastructure.storage.crawl_concurrency import (
     CrawlSourceBusy,
     crawl_source_slot,

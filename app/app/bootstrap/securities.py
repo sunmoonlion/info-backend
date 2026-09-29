@@ -23,9 +23,9 @@ from app.application.securities.ingestion_service import SecurityIngestionServic
 from app.application.securities.registration_service import (
     DatasetRegistrationService,
 )
-from app.application.services.durable_tasks import enqueue_task
 from app.domain.securities import SecurityCode
 from app.infrastructure.external.knowledge_app import ServiceTokenProvider
+from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.securities import SecurityIngestion
 from app.infrastructure.securities import (
     CrawlHttpFetcher,

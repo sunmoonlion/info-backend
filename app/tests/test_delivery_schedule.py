@@ -22,8 +22,8 @@ from test_durable_delivery_db import (
 )
 
 from app.application.dto.outbox import NOT_BEFORE_HEADER, OutboxEvent
-from app.application.services.durable_tasks import DurableTasks, enqueue_task
 from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
+from app.infrastructure.messaging.durable_tasks import DurableTasks, enqueue_task
 from app.infrastructure.repositories.outbox import SqlOutboxRepository
 from app.tasks.durable_delivery import pump
 

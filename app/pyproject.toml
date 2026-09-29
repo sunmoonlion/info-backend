@@ -97,13 +97,12 @@ forbidden_modules = [
 ]
 # 旧账的放行清单：只减不增，还掉一条删一条。
 ignore_imports = [
-    # 模板带来的（三个后端一样）：登录服务、可靠投递。账本 A6。
+    # 模板带来的（三个后端一样）：登录服务。账本 A6 乙。
     "app.application.services.auth_service -> app.infrastructure.security",
     "app.application.services.auth_service -> app.infrastructure.storage.postgres",
     "app.application.services.auth_service -> app.infrastructure.storage.redis",
-    "app.application.services.durable_tasks -> app.infrastructure.messaging.delivery_schedule",
-    "app.application.services.durable_tasks -> app.infrastructure.messaging.durable_delivery",
-    "app.application.services.durable_tasks -> app.infrastructure.repositories.outbox",
+    # 模板带来的（三个后端一样）：可靠投递的旧路径，只为部署目录里的集成测试留着。账本 H15。
+    "app.application.services.durable_tasks -> app.infrastructure.messaging.durable_tasks",
     # 本仓的（2026-09-13 之前）：采集器、采集服务、投递、原件对账。账本 A7。
     "app.application.collectors.api -> app.infrastructure.external.crawl_http",
     "app.application.collectors.rss -> app.infrastructure.external.crawl_http",
@@ -159,12 +158,8 @@ forbidden_modules = [
 allow_indirect_imports = true
 # 旧账的放行清单：只减不增，还掉一条删一条。
 ignore_imports = [
-    # 模板带来的（三个后端一样）：登录服务、可靠投递。账本 A6。
+    # 模板带来的（三个后端一样）：登录服务。账本 A6 乙。
     "app.application.services.auth_service -> sqlalchemy",
-    "app.application.services.durable_tasks -> sqlalchemy",
-    # 模板带来的（三个后端一样）：outbox 端口的签名里有数据库会话；审计上下文读请求对象。账本 H8、H9。
-    "app.application.ports.outbox -> sqlalchemy",
-    "app.application.audit_context -> starlette",
     # 本仓的（2026-09-27）：数据集文件的写入实现放在了应用层。账本 H11。
     "app.application.securities.dataset.sqlite_writer -> sqlite3",
     # 本仓的（2026-09-13 之前）：采集器、采集服务、投递、原件对账。账本 A7。

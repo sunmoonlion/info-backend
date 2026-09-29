@@ -21,11 +21,11 @@ from test_security_ingestion_db import build as ingestion_service
 from app.application.securities.registration_service import (
     DatasetRegistrationService,
 )
-from app.application.services.durable_tasks import DurableTasks
 from app.bootstrap import securities as wiring
 from app.domain.securities import IngestionStatus, RawResponse, SecurityCode
 from app.domain.securities.registration import RegistrationError
 from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+from app.infrastructure.messaging.durable_tasks import DurableTasks
 from app.infrastructure.securities import SqlDatasetRecords
 from app.infrastructure.storage import postgres as postgres_module
 

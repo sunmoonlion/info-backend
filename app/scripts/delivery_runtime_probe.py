@@ -11,7 +11,7 @@ import uuid
 
 from sqlalchemy import text
 
-from app.application.services.durable_tasks import enqueue_task
+from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.storage.postgres import get_postgres
 
 TOPIC = "gate.increment.v1"

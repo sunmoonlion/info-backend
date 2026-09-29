@@ -16,8 +16,8 @@ from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.application.services.durable_tasks import DurableTasks, enqueue_task
 from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
+from app.infrastructure.messaging.durable_tasks import DurableTasks, enqueue_task
 from app.tasks.durable_delivery import pump
 
 ROOT = Path(__file__).resolve().parents[1]

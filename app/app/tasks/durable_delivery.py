@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from app.application.services.durable_tasks import DurableTasks
 from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
 from app.infrastructure.messaging.durable_delivery import (
     DeliveryLeaseLost,
     DurableDelivery,
 )
+from app.infrastructure.messaging.durable_tasks import DurableTasks
 from app.infrastructure.storage.postgres import get_postgres
 from app.worker import celery_app
 

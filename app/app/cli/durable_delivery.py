@@ -9,8 +9,8 @@ import uuid
 
 from sqlalchemy import text
 
-from app.application.services.durable_tasks import DurableTasks
 from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+from app.infrastructure.messaging.durable_tasks import DurableTasks
 from app.infrastructure.storage.postgres import get_postgres
 
 

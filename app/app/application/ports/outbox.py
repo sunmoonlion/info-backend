@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.outbox import ClaimedOutboxEvent, OutboxEvent
 
+# The caller's open database transaction. The port hands it to the implementation
+# untouched, so the intent commits together with the caller's own state.
+Transaction = Any
+
 
 class OutboxRepository(Protocol):
-    async def enqueue(self, session: AsyncSession, event: OutboxEvent) -> UUID: ...
+    async def enqueue(self, session: Transaction, event: OutboxEvent) -> UUID: ...
 
     async def claim_batch(
         self,
-        session: AsyncSession,
+        session: Transaction,
         *,
         owner: str,
         limit: int,

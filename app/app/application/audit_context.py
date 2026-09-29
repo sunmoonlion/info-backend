@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Mapping
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
-
-from starlette.requests import Request
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _MAX_REASON_LENGTH = 500
@@ -38,12 +37,12 @@ def _safe_reason(value: str | None) -> str | None:
     return normalized
 
 
-def from_request(request: Request) -> AuditContext:
+def from_headers(headers: Mapping[str, str]) -> AuditContext:
+    """Caller passes the request headers; lookup must be case-insensitive there."""
     return AuditContext(
-        correlation_id=_safe_id(request.headers.get("X-Correlation-ID"))
-        or str(uuid.uuid4()),
-        operation_id=_safe_id(request.headers.get("X-Operation-ID")),
-        reason=_safe_reason(request.headers.get("X-Audit-Reason")),
+        correlation_id=_safe_id(headers.get("X-Correlation-ID")) or str(uuid.uuid4()),
+        operation_id=_safe_id(headers.get("X-Operation-ID")),
+        reason=_safe_reason(headers.get("X-Audit-Reason")),
     )
 
 

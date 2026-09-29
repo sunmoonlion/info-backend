@@ -9,12 +9,12 @@ from sqlalchemy import text
 from test_durable_delivery_db import TOPIC, increment, request, runtime, sql
 from test_durable_delivery_db import db as db
 
-from app.application.services.durable_tasks import DurableTasks
 from app.infrastructure.messaging.delivery_observation import (
     collect_delivery_snapshot,
     render_prometheus,
 )
 from app.infrastructure.messaging.durable_delivery import DurableDelivery
+from app.infrastructure.messaging.durable_tasks import DurableTasks
 
 
 async def progress(db, policy=None):

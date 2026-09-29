@@ -23,12 +23,12 @@ from test_durable_delivery_db import (
 )
 from test_durable_delivery_db import db as db
 
-from app.application.services.durable_tasks import enqueue_task
 from app.cli import delivery_metrics as cli
 from app.infrastructure.messaging import delivery_observation as observation
 from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
 from app.infrastructure.messaging.delivery_observers import get_delivery_observers
 from app.infrastructure.messaging.durable_delivery import DurableDelivery
+from app.infrastructure.messaging.durable_tasks import enqueue_task
 
 
 async def collect(db, delivery=None):

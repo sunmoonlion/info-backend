@@ -100,8 +100,8 @@ async def test_index_intent_failure_does_not_leave_a_committed_version(db, monke
 
 
 async def test_distribution_retries_preserve_remote_business_identity(db, monkeypatch):
-    from app.application.services.durable_tasks import DurableTasks
     from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+    from app.infrastructure.messaging.durable_tasks import DurableTasks
 
     async with db() as s:
         version = await upload(s, monkeypatch)
@@ -141,8 +141,8 @@ async def test_distribution_retries_preserve_remote_business_identity(db, monkey
 async def test_duplicate_crawl_after_terminal_commit_does_not_fetch_again(
     db, monkeypatch
 ):
-    from app.application.services.durable_tasks import DurableTasks
     from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+    from app.infrastructure.messaging.durable_tasks import DurableTasks
 
     async with db() as s:
         job = await service.create_crawl_job(
@@ -165,9 +165,9 @@ async def test_duplicate_crawl_after_terminal_commit_does_not_fetch_again(
 async def test_interrupted_crawl_does_not_commit_a_terminal_result(
     db, monkeypatch, failure
 ):
-    from app.application.services.durable_tasks import DurableTasks
     from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
     from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
+    from app.infrastructure.messaging.durable_tasks import DurableTasks
 
     monkeypatch.setattr(service, "get_object_storage", MemoryStorage)
     async with db() as s:
@@ -203,9 +203,9 @@ async def test_interrupted_crawl_does_not_commit_a_terminal_result(
 async def test_forbidden_crawl_records_failure_without_network_or_artifact(
     db, monkeypatch
 ):
-    from app.application.services.durable_tasks import DurableTasks
     from app.infrastructure.external import crawl_http
     from app.infrastructure.messaging.delivery_handlers import get_delivery_handlers
+    from app.infrastructure.messaging.durable_tasks import DurableTasks
 
     def no_client(**kwargs):
         raise AssertionError("private target must be rejected before connecting")
@@ -369,7 +369,7 @@ async def test_legacy_migration_preserves_id_and_completed_receipt(db, monkeypat
 
     from sqlalchemy.exc import DBAPIError
 
-    from app.application.services.durable_tasks import enqueue_task
+    from app.infrastructure.messaging.durable_tasks import enqueue_task
 
     # A command accepted after cutover must survive downgrade and re-upgrade.
     async with db() as s, s.begin():

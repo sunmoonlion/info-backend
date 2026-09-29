@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.application.audit_context import (
-    from_request,
+    from_headers,
     get_context,
     reset_context,
     set_context,
@@ -77,7 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.middleware("http")
     async def request_context_middleware(request: Request, call_next):
-        context = from_request(request)
+        context = from_headers(request.headers)
         token = set_context(context)
         request.state.audit_context = context
         status_code = 500

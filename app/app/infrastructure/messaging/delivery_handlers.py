@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from app.application.services.durable_tasks import Handler
+from app.infrastructure.messaging.durable_tasks import Handler
 
 logger = logging.getLogger(__name__)
 

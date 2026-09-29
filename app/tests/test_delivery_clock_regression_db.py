@@ -8,13 +8,13 @@ from sqlalchemy import event
 from test_durable_delivery_db import TOPIC, request, runtime, sql
 from test_durable_delivery_db import db as db
 
-from app.application.services.durable_tasks import (
+from app.infrastructure.messaging.delivery_observation import collect_delivery_snapshot
+from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
+from app.infrastructure.messaging.durable_tasks import (
     DurableTasks,
     assert_execution_current,
     enqueue_task,
 )
-from app.infrastructure.messaging.delivery_observation import collect_delivery_snapshot
-from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
 
 
 @contextmanager

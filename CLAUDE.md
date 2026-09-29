@@ -51,6 +51,9 @@ app/
 | 规则 | 后果 |
 | --- | --- |
 | `app/application/` 不得出现 `app.interfaces` 字符串 | `test_kernel_invariants` 失败 |
+| 领域层不引用任何外层；应用层不引用基础设施层、接口层、组装层 | `test_layering` 失败 |
+| 应用层与领域层不直接引用数据库、网络、消息这类库（`sqlalchemy`、`httpx`、`redis`、`celery`、`fastapi` 等） | `test_layering` 失败 |
+| 接口层的三个面（`http/admin`、`http/web`、`http/internal`）互不引用 | `test_layering` 失败 |
 | 改迁移必须同步改 `tests/test_kernel_invariants.py` 里的文件名清单 | 测试失败（清单是逐字比对的） |
 | 迁移链必须单链线性，恰好一个 `down_revision = None` | 测试失败 |
 | `pyproject.toml` 与 `uv.lock` 的 version 必须同为 `2.0.0` | 测试主动断言，须与正式发布别名一致 |
@@ -69,6 +72,18 @@ uv run ruff check .
 uv run pyright
 uv run pytest -q
 ```
+
+## 分层的自动检查
+
+契约在 `app/pyproject.toml` 的 `[tool.importlinter]`，共四条；`pytest` 会跑它，也可以单独跑：
+
+```bash
+cd app
+uv run lint-imports
+```
+
+要用数据库或外部服务：先在 `app/application/ports/` 写接口，实现放 `app/infrastructure/`，
+在 `app/bootstrap/` 里接上。不要往 `ignore_imports` 里加新的条目——那是旧账的放行清单，只减不增。
 
 ## 动手前
 

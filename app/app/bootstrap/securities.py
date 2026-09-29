@@ -35,6 +35,7 @@ from app.infrastructure.securities import (
     SqlDatasetRecords,
     SqlDatasetStore,
     SqlIngestionStore,
+    SqliteDatasetFileWriter,
 )
 from app.infrastructure.securities.pdf_words import PdfPlumberWordsReader
 from app.infrastructure.storage.object_storage import get_object_storage
@@ -136,6 +137,7 @@ def build_security_dataset_service(
         store=SqlDatasetStore(
             session_factory=session_factory, storage=storage, clock=_now
         ),
+        files=SqliteDatasetFileWriter(),
         today=lambda: datetime.now(_SHANGHAI).date(),
         hard_years=settings.security_quality_hard_years,
     )

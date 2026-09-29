@@ -4,12 +4,15 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from app.application.collectors.base import CollectedLink
-from app.infrastructure.external.crawl_http import fetch_crawl_url
+from app.application.ports.crawl import CrawlFetch
 from core.config import get_settings
 
 
 class ApiCollectorAdapter:
     collector_type = "api"
+
+    def __init__(self, fetch: CrawlFetch) -> None:
+        self._fetch = fetch
 
     async def discover(self, *, url: str, config: dict) -> list[CollectedLink]:
         settings = get_settings()
@@ -19,7 +22,7 @@ class ApiCollectorAdapter:
         )
         headers = dict(config.get("headers") or {})
         headers.setdefault("User-Agent", settings.crawl_user_agent)
-        response = await fetch_crawl_url(
+        response = await self._fetch(
             url,
             timeout_seconds=timeout,
             max_bytes=settings.crawl_max_bytes,

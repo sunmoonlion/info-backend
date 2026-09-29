@@ -5,12 +5,15 @@ from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
 
 from app.application.collectors.base import CollectedLink
-from app.infrastructure.external.crawl_http import fetch_crawl_url
+from app.application.ports.crawl import CrawlFetch
 from core.config import get_settings
 
 
 class RssCollectorAdapter:
     collector_type = "rss"
+
+    def __init__(self, fetch: CrawlFetch) -> None:
+        self._fetch = fetch
 
     async def discover(self, *, url: str, config: dict) -> list[CollectedLink]:
         settings = get_settings()
@@ -18,7 +21,7 @@ class RssCollectorAdapter:
             float(config.get("timeout_seconds", settings.crawl_timeout_seconds)),
             settings.crawl_timeout_seconds,
         )
-        response = await fetch_crawl_url(
+        response = await self._fetch(
             url,
             timeout_seconds=timeout,
             max_bytes=settings.crawl_max_bytes,

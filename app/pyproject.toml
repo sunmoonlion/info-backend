@@ -99,10 +99,7 @@ forbidden_modules = [
 ignore_imports = [
     # 模板带来的（三个后端一样）：可靠投递的旧路径，只为部署目录里的集成测试留着。账本 H15。
     "app.application.services.durable_tasks -> app.infrastructure.messaging.durable_tasks",
-    # 本仓的（2026-09-13 之前）：采集器、采集服务、投递、原件对账。账本 A7。
-    "app.application.collectors.api -> app.infrastructure.external.crawl_http",
-    "app.application.collectors.rss -> app.infrastructure.external.crawl_http",
-    "app.application.services.artifact_reconciliation -> app.infrastructure.models.info",
+    # 本仓的（2026-09-13 之前）：采集服务与它的投递。账本 A7 乙。
     "app.application.services.delivery_outbox -> app.infrastructure.models.info",
     "app.application.services.info_crawl_service -> app.infrastructure.external.crawl_http",
     "app.application.services.info_crawl_service -> app.infrastructure.external.knowledge_app",
@@ -154,13 +151,9 @@ forbidden_modules = [
 allow_indirect_imports = true
 # 旧账的放行清单：只减不增，还掉一条删一条。
 ignore_imports = [
-    # 本仓的（2026-09-27）：数据集文件的写入实现放在了应用层。账本 H11。
-    "app.application.securities.dataset.sqlite_writer -> sqlite3",
-    # 本仓的（2026-09-13 之前）：采集器、采集服务、投递、原件对账。账本 A7。
-    "app.application.services.artifact_reconciliation -> botocore",
-    "app.application.services.artifact_reconciliation -> sqlalchemy",
+    # 本仓的（2026-09-13 之前）：采集服务与它的投递。账本 A7 乙。
     "app.application.services.delivery_outbox -> sqlalchemy",
     "app.application.services.info_crawl_service -> sqlalchemy",
-    # 本仓的：领域层的身份校验直接用了 httpx。账本 H10。
+    # 不是旧账，是例外：冻结的身份规则（迁移 0008 也用它）只用 httpx.URL 解析地址，不发请求。换解析器会改变文档的身份。账本 H10，等所有者定。
     "app.domain.info_identity_v1 -> httpx",
 ]

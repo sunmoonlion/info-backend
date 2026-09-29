@@ -36,7 +36,10 @@ from app.domain.securities.financial_catalog import (
     RECONCILIATION_RULES,
     STATEMENT_FIELDS,
 )
-from app.infrastructure.securities import PdfPlumberReportReader
+from app.infrastructure.securities import (
+    PdfPlumberReportReader,
+    SqliteDatasetFileWriter,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "securities" / "dataset"
 CODE = SecurityCode("600009")
@@ -798,7 +801,12 @@ class FakeDatasets:
 
 def build_service(batches: FakeBatches, store: FakeDatasets, **options):
     return SecurityDatasetService(
-        batches=batches, reports=batches, store=store, today=lambda: TODAY, **options
+        batches=batches,
+        reports=batches,
+        store=store,
+        files=SqliteDatasetFileWriter(),
+        today=lambda: TODAY,
+        **options,
     )
 
 

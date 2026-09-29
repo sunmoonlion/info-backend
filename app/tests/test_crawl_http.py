@@ -286,11 +286,32 @@ async def test_invalid_limits(network, limit):
 async def test_discovery_collectors_use_same_fetch_boundary(network):
     from app.application.collectors.api import ApiCollectorAdapter
     from app.application.collectors.rss import RssCollectorAdapter
+    from app.application.services.info_crawl_service import get_collector_adapter
 
-    for adapter in (ApiCollectorAdapter(), RssCollectorAdapter()):
+    # The adapters as production builds them, not as a test would like them.
+    adapters = [get_collector_adapter(kind) for kind in ("api", "rss", "atom")]
+    assert [type(adapter) for adapter in adapters] == [
+        ApiCollectorAdapter,
+        RssCollectorAdapter,
+        RssCollectorAdapter,
+    ]
+    for adapter in adapters:
         with pytest.raises(crawl_http.CrawlFetchError, match="address_forbidden"):
             await adapter.discover(url="http://127.0.0.1/feed", config={})
     assert network[0] == []
+
+
+def test_a_fetching_collector_cannot_be_built_without_naming_its_fetch():
+    import inspect
+
+    from app.application.collectors import api, registry, rss
+
+    with pytest.raises(TypeError):
+        registry.get_collector_adapter("rss")  # type: ignore[call-arg]
+    for module in (api, rss, registry):
+        source = inspect.getsource(module)
+        assert "httpx" not in source and "AsyncClient" not in source
+        assert "app.infrastructure" not in source
 
 
 def test_document_crawler_uses_shared_info_fetch_boundary():

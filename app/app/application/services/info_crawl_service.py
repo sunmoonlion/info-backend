@@ -16,7 +16,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.audit_context import get_context
-from app.application.collectors import get_collector_adapter
+from app.application.collectors import CollectorAdapter
+from app.application.collectors import get_collector_adapter as _build_collector_adapter
 from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.services.delivery_outbox import ensure_distribution_dispatch_outbox
 from app.application.services.durable_tasks import (
@@ -68,6 +69,11 @@ except (
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def get_collector_adapter(collector_type: str) -> CollectorAdapter:
+    """Discovery collectors always fetch through the shared, hardened boundary."""
+    return _build_collector_adapter(collector_type, fetch=fetch_crawl_url)
 
 
 async def _get_document_for_mutation(

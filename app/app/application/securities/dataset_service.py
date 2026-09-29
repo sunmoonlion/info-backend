@@ -13,6 +13,7 @@ from decimal import Decimal
 from app.application.ports.securities import (
     BatchItem,
     BatchReader,
+    DatasetFileWriter,
     DatasetStore,
     LoadedBatch,
     ReportReader,
@@ -26,17 +27,16 @@ from app.application.securities.dataset.quality import (
     run_checks,
     screen,
 )
-from app.application.securities.dataset.sqlite_writer import (
-    EXPORT_VERSION,
-    build_tables,
-    content_fingerprint,
-    dataset_id,
-    write_sqlite,
-)
 from app.application.securities.dataset.statement_figures import (
     figures_from_statements,
 )
 from app.application.securities.dataset.statements import parse_statement
+from app.application.securities.dataset.tables import (
+    EXPORT_VERSION,
+    build_tables,
+    content_fingerprint,
+    dataset_id,
+)
 from app.application.securities.report_extraction import extract_statements
 from app.domain.securities import IngestionStatus, ItemKind, SecurityCode, SourceCode
 from app.domain.securities.dataset import (
@@ -85,6 +85,7 @@ class SecurityDatasetService:
         batches: BatchReader,
         reports: ReportReader,
         store: DatasetStore,
+        files: DatasetFileWriter,
         today: Callable[[], date],
         hard_years: int = DEFAULT_HARD_YEARS,
         words: ReportWordsReader | None = None,
@@ -96,6 +97,7 @@ class SecurityDatasetService:
         # 给了它，「主要会计数据」表认不出来的年报就改从合并报表取关键数字；不给就和以前一样
         self._words = words
         self._store = store
+        self._files = files
         self._today = today
         self._hard_years = hard_years
 
@@ -140,7 +142,7 @@ class SecurityDatasetService:
         version = f"{identity}-{fingerprint[:16]}"
         metadata["data_snapshot_id"] = version
         metadata["source_fingerprint"] = fingerprint
-        content = await asyncio.to_thread(write_sqlite, tables, metadata)
+        content = await asyncio.to_thread(self._files.write, tables, metadata)
         built = BuiltDataset(
             dataset_id=identity,
             data_version=version,

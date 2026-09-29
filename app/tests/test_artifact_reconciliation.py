@@ -11,7 +11,7 @@ from botocore.stub import Stubber
 from test_durable_delivery_db import db as db
 from test_durable_delivery_db import sql
 
-from app.application.services.artifact_reconciliation import PREFIX, reconcile_page
+from app.infrastructure.storage.artifact_reconciliation import PREFIX, reconcile_page
 from app.infrastructure.storage.object_storage import ObjectStorage
 from core.config import get_settings
 

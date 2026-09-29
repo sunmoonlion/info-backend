@@ -1,4 +1,5 @@
 from app.infrastructure.securities.batch_reader import SqlBatchReader
+from app.infrastructure.securities.dataset_file import SqliteDatasetFileWriter
 from app.infrastructure.securities.dataset_records import SqlDatasetRecords
 from app.infrastructure.securities.dataset_store import SqlDatasetStore, dataset_prefix
 from app.infrastructure.securities.fetcher import CrawlHttpFetcher
@@ -13,6 +14,7 @@ __all__ = [
     "KnowledgeDatasetRegistrar",
     "PdfPlumberReportReader",
     "SqlBatchReader",
+    "SqliteDatasetFileWriter",
     "SqlDatasetRecords",
     "SqlDatasetStore",
     "SqlIngestionStore",

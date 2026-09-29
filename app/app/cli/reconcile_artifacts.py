@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import json
 
-from app.application.services.artifact_reconciliation import reconcile_page
+from app.infrastructure.storage.artifact_reconciliation import reconcile_page
 from app.infrastructure.storage.object_storage import get_object_storage
 from app.infrastructure.storage.postgres import get_postgres
 

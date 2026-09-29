@@ -1,4 +1,4 @@
-"""把解析与检查的结果写成一个 SQLite 数据集文件。
+"""把解析与检查的结果排成数据集的各张表。写成文件由基础设施层做（端口 `DatasetFileWriter`）。
 
 表的形状与知识服务现有的数据集一致（知识服务的查询类能直接读）：
 dataset_metadata 里有 data_snapshot_id、start_date、end_date；口径表叫 metric_dictionary。
@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
-import tempfile
 from collections.abc import Sequence
-from pathlib import Path
 
 from app.domain.securities import SecurityCode
 from app.domain.securities.dataset import (
@@ -243,26 +240,3 @@ def content_fingerprint(tables: dict[str, tuple[list, list]]) -> str:
         default=list,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def write_sqlite(
-    tables: dict[str, tuple[list, list]], metadata: dict[str, str]
-) -> bytes:
-    with tempfile.TemporaryDirectory(prefix="security-dataset-") as directory:
-        path = Path(directory) / "dataset.sqlite"
-        connection = sqlite3.connect(path)
-        try:
-            for name, (columns, rows) in tables.items():
-                spec = ", ".join(f'"{c}" {t}' for c, t in columns)
-                connection.execute(f'CREATE TABLE "{name}" ({spec})')
-                marks = ", ".join("?" for _ in columns)
-                connection.executemany(f'INSERT INTO "{name}" VALUES ({marks})', rows)
-            connection.execute("CREATE TABLE dataset_metadata (key TEXT, value TEXT)")
-            connection.executemany(
-                "INSERT INTO dataset_metadata VALUES (?, ?)", sorted(metadata.items())
-            )
-            connection.commit()
-            connection.execute("VACUUM")
-        finally:
-            connection.close()
-        return path.read_bytes()

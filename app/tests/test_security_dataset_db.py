@@ -30,6 +30,7 @@ from app.infrastructure.securities import (
     SqlBatchReader,
     SqlDatasetStore,
     SqlIngestionStore,
+    SqliteDatasetFileWriter,
 )
 from app.infrastructure.storage.object_storage import StoredObject
 
@@ -143,6 +144,7 @@ def service(db, storage, reader: Reports, **limits) -> SecurityDatasetService:
         batches=SqlBatchReader(session_factory=sessions, storage=storage, **limits),
         reports=reader,
         store=SqlDatasetStore(session_factory=sessions, storage=storage, clock=clock),
+        files=SqliteDatasetFileWriter(),
         today=lambda: date(2026, 9, 27),
     )
 

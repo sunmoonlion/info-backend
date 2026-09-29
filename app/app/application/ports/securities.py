@@ -109,6 +109,14 @@ class ReportWordsReader(Protocol):
         ...
 
 
+class DatasetFileWriter(Protocol):
+    def write(
+        self, tables: dict[str, tuple[list, list]], metadata: dict[str, str]
+    ) -> bytes:
+        """把各张表与自述写成一个数据集文件，返回文件内容。同样的输入得到同样的字节。"""
+        ...
+
+
 class DatasetStore(Protocol):
     async def save(self, dataset: BuiltDataset, *, ingestion_id: str) -> str:
         """留存数据集文件、清单与质量报告，并登记。同一版本重复保存是幂等的。"""

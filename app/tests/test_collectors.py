@@ -56,13 +56,17 @@ def test_parse_atom_feed() -> None:
     assert links[0].metadata["id"] == "tag:example.com,2026:item"
 
 
+async def never_fetch(url: str, **_: object):
+    raise AssertionError(f"this test must not fetch {url}")
+
+
 def test_collector_registry_rejects_unknown_type() -> None:
     with pytest.raises(ValueError, match="unsupported collector type"):
-        get_collector_adapter("unknown")
+        get_collector_adapter("unknown", fetch=never_fetch)
 
 
 def test_scrapy_adapter_is_explicit_placeholder() -> None:
-    adapter = get_collector_adapter("scrapy")
+    adapter = get_collector_adapter("scrapy", fetch=never_fetch)
     assert adapter.collector_type == "scrapy"
 
 

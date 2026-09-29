@@ -7,7 +7,7 @@ from fastapi import APIRouter, Cookie, Depends, Query, Response
 from fastapi.responses import RedirectResponse
 
 from app.application.errors.exceptions import AppException
-from app.application.services.auth_service import AuthService
+from app.bootstrap.auth import build_auth_service
 from app.domain.security import BrowserSession
 from app.interfaces.http.auth_common import (
     frontend_redirect,
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 profile = settings.browser_profile("admin")
 router = APIRouter(prefix="/auth/admin", tags=["Admin authentication"])
-auth_service = AuthService("admin", settings)
+auth_service = build_auth_service("admin", settings)
 
 
 @router.get("/login", summary="Start Admin OIDC login")

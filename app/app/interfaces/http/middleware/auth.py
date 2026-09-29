@@ -8,6 +8,7 @@ from fastapi import Cookie, Depends, Header, Request
 from app.application.audit_context import set_actor
 from app.application.errors.exceptions import UnauthorizedError
 from app.application.services.auth_service import AuthService
+from app.bootstrap.auth import build_auth_service
 from app.domain.security import BrowserSession, Principal
 from app.infrastructure.security import ServiceIdentityVerifier
 from core.config import get_settings
@@ -15,8 +16,8 @@ from core.config import get_settings
 _settings = get_settings()
 _admin_profile = _settings.browser_profile("admin")
 _web_profile = _settings.browser_profile("web")
-admin_auth_service = AuthService("admin", _settings)
-web_auth_service = AuthService("web", _settings)
+admin_auth_service = build_auth_service("admin", _settings)
+web_auth_service = build_auth_service("web", _settings)
 service_identity_verifier = ServiceIdentityVerifier(_settings)
 
 

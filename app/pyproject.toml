@@ -97,10 +97,6 @@ forbidden_modules = [
 ]
 # 旧账的放行清单：只减不增，还掉一条删一条。
 ignore_imports = [
-    # 模板带来的（三个后端一样）：登录服务。账本 A6 乙。
-    "app.application.services.auth_service -> app.infrastructure.security",
-    "app.application.services.auth_service -> app.infrastructure.storage.postgres",
-    "app.application.services.auth_service -> app.infrastructure.storage.redis",
     # 模板带来的（三个后端一样）：可靠投递的旧路径，只为部署目录里的集成测试留着。账本 H15。
     "app.application.services.durable_tasks -> app.infrastructure.messaging.durable_tasks",
     # 本仓的（2026-09-13 之前）：采集器、采集服务、投递、原件对账。账本 A7。
@@ -158,8 +154,6 @@ forbidden_modules = [
 allow_indirect_imports = true
 # 旧账的放行清单：只减不增，还掉一条删一条。
 ignore_imports = [
-    # 模板带来的（三个后端一样）：登录服务。账本 A6 乙。
-    "app.application.services.auth_service -> sqlalchemy",
     # 本仓的（2026-09-27）：数据集文件的写入实现放在了应用层。账本 H11。
     "app.application.securities.dataset.sqlite_writer -> sqlite3",
     # 本仓的（2026-09-13 之前）：采集器、采集服务、投递、原件对账。账本 A7。

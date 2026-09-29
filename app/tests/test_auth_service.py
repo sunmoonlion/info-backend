@@ -6,10 +6,11 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-import app.application.services.auth_service as auth_module
+import app.infrastructure.storage.session_store as session_store_module
 from app.application.errors.exceptions import ForbiddenError, UnauthorizedError
 from app.application.services.auth_service import AuthService
 from app.domain.security import BrowserSession, Principal
+from app.infrastructure.storage.session_store import RedisSessionStore
 from core.config import Settings
 
 
@@ -55,6 +56,21 @@ class FakeOidc:
         }
 
 
+class NoUserDirectory:
+    async def upsert(self, **_: object) -> dict[str, object]:
+        raise AssertionError("the user directory must not be reached in this test")
+
+
+def build(cls: type[AuthService], surface: str, config: Settings) -> AuthService:
+    return cls(
+        surface,  # type: ignore[arg-type]
+        config,
+        FakeOidc(),
+        sessions=RedisSessionStore(),
+        users=NoUserDirectory(),
+    )
+
+
 class StubAuthService(AuthService):
     async def _load_or_create_user(
         self, issuer: str, subject: str, claims: dict[str, object]
@@ -92,10 +108,12 @@ async def test_surface_transaction_and_session_namespaces_cannot_cross(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
-    monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
+    monkeypatch.setattr(
+        session_store_module, "get_redis", lambda: FakeRedisHolder(redis)
+    )
     config = settings()
-    admin = StubAuthService("admin", config, FakeOidc())  # type: ignore[arg-type]
-    web = StubAuthService("web", config, FakeOidc())  # type: ignore[arg-type]
+    admin = build(StubAuthService, "admin", config)
+    web = build(StubAuthService, "web", config)
 
     start = await admin.begin_login("/settings")
     state = parse_qs(urlsplit(start.authorization_url).query)["state"][0]
@@ -123,15 +141,13 @@ async def test_admin_signup_is_forbidden_but_web_signup_is_supported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
-    monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
+    monkeypatch.setattr(
+        session_store_module, "get_redis", lambda: FakeRedisHolder(redis)
+    )
     config = settings()
     with pytest.raises(UnauthorizedError):
-        await StubAuthService(
-            "admin", config, FakeOidc()  # type: ignore[arg-type]
-        ).begin_login(mode="signup")
-    result = await StubAuthService(
-        "web", config, FakeOidc()  # type: ignore[arg-type]
-    ).begin_login(mode="signup")
+        await build(StubAuthService, "admin", config).begin_login(mode="signup")
+    result = await build(StubAuthService, "web", config).begin_login(mode="signup")
     assert result.transaction_id
 
 
@@ -140,10 +156,10 @@ async def test_csrf_is_bound_to_each_surface_origin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
-    monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
-    service = StubAuthService(
-        "web", settings(), FakeOidc()  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        session_store_module, "get_redis", lambda: FakeRedisHolder(redis)
     )
+    service = build(StubAuthService, "web", settings())
     start = await service.begin_login()
     state = parse_qs(urlsplit(start.authorization_url).query)["state"][0]
     created, _ = await service.complete_login(
@@ -171,7 +187,9 @@ async def test_policy_or_surface_change_invalidates_existing_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis = FakeRedis()
-    monkeypatch.setattr(auth_module, "get_redis", lambda: FakeRedisHolder(redis))
+    monkeypatch.setattr(
+        session_store_module, "get_redis", lambda: FakeRedisHolder(redis)
+    )
     config = settings()
     profile = config.browser_profile("web")
     now = datetime.now(UTC)
@@ -191,15 +209,13 @@ async def test_policy_or_surface_change_invalidates_existing_session(
         csrf_token="csrf-token-with-at-least-thirty-two-characters",
     )
     redis.values[f"{profile.session_key_prefix}wrong"] = session.model_dump_json()
-    service = AuthService("web", config, FakeOidc())  # type: ignore[arg-type]
+    service = build(AuthService, "web", config)
     assert await service.get_browser_session("wrong") is None
     assert not redis.values
 
 
 def test_provider_claims_are_filtered_by_surface_local_allowlist() -> None:
-    service = AuthService(
-        "web", settings(), FakeOidc()  # type: ignore[arg-type]
-    )
+    service = build(AuthService, "web", settings())
     assert service._allowed_claims(
         (["editor", "provider-admin"],), service.profile.role_allowlist
     ) == ["editor"]

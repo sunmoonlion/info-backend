@@ -8,7 +8,7 @@ from fastapi import APIRouter, Cookie, Depends, Query, Response
 from fastapi.responses import RedirectResponse
 
 from app.application.errors.exceptions import AppException
-from app.application.services.auth_service import AuthService
+from app.bootstrap.auth import build_auth_service
 from app.domain.security import BrowserSession
 from app.interfaces.http.auth_common import (
     frontend_redirect,
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 profile = settings.browser_profile("web")
 router = APIRouter(prefix="/auth/web", tags=["Web authentication"])
-auth_service = AuthService("web", settings)
+auth_service = build_auth_service("web", settings)
 
 
 def _login_error_redirect(reason: str) -> str:

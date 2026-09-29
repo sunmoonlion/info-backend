@@ -7,19 +7,15 @@ import json
 import re
 import secrets
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import text
 
 from app.application.errors.exceptions import ForbiddenError, UnauthorizedError
+from app.application.ports.auth import IdentityProvider, SessionStore, UserDirectory
 from app.domain.security import BrowserSession, LoginStart, Principal, SessionStart
-from app.infrastructure.security import OidcProviderClient
-from app.infrastructure.storage.postgres import get_postgres
-from app.infrastructure.storage.redis import get_redis
-from core.config import BrowserSurface, BrowserSurfaceProfile, Settings, get_settings
+from core.config import BrowserSurface, BrowserSurfaceProfile, Settings
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -30,12 +26,17 @@ class AuthService:
     def __init__(
         self,
         surface: BrowserSurface,
-        settings: Settings | None = None,
-        oidc_client: OidcProviderClient | None = None,
+        settings: Settings,
+        identity_provider: IdentityProvider,
+        *,
+        sessions: SessionStore,
+        users: UserDirectory,
     ) -> None:
-        self._settings = settings or get_settings()
+        self._settings = settings
         self._profile = self._settings.browser_profile(surface)
-        self._oidc = oidc_client or OidcProviderClient(self._settings, self._profile)
+        self._oidc = identity_provider
+        self._sessions = sessions
+        self._users = users
 
     @property
     def surface(self) -> BrowserSurface:
@@ -96,11 +97,10 @@ class AuthService:
             "created_at": int(time.time()),
         }
         key = f"{self._profile.transaction_key_prefix}{transaction_id}"
-        stored = await get_redis().client.set(
+        stored = await self._sessions.create(
             key,
             json.dumps(transaction, separators=(",", ":")),
-            ex=self._settings.auth_transaction_ttl_seconds,
-            nx=True,
+            ttl_seconds=self._settings.auth_transaction_ttl_seconds,
         )
         if not stored:
             raise UnauthorizedError(
@@ -115,7 +115,7 @@ class AuthService:
                 mode=mode,
             )
         except Exception:
-            await get_redis().client.delete(key)
+            await self._sessions.delete(key)
             raise
         return LoginStart(
             authorization_url=authorization_url,
@@ -132,7 +132,7 @@ class AuthService:
         if not transaction_id or len(transaction_id) > 256:
             raise self._transaction_error()
         key = f"{self._profile.transaction_key_prefix}{transaction_id}"
-        raw = await get_redis().client.getdel(key)
+        raw = await self._sessions.take(key)
         if not raw:
             raise self._transaction_error()
         try:
@@ -165,11 +165,10 @@ class AuthService:
             csrf_token=self._new_secret(),
         )
         ttl = max(1, int((principal.expires_at - datetime.now(UTC)).total_seconds()))
-        stored = await get_redis().client.set(
+        stored = await self._sessions.create(
             f"{self._profile.session_key_prefix}{session_id}",
             browser_session.model_dump_json(),
-            ex=ttl,
-            nx=True,
+            ttl_seconds=ttl,
         )
         if not stored:
             raise UnauthorizedError(
@@ -242,42 +241,15 @@ class AuthService:
             (claims.get("scope"), claims.get("scp"), claims.get("permissions")),
             self._profile.scope_allowlist,
         )
-        statement = text(
-            """
-            INSERT INTO auth_user (
-                id, issuer, subject, username, email, display_name, roles, scopes
-            )
-            VALUES (
-                :id, :issuer, :subject, :username, :email, :display_name,
-                CAST(:roles AS jsonb), CAST(:scopes AS jsonb)
-            )
-            ON CONFLICT (issuer, subject) DO UPDATE SET
-                username = EXCLUDED.username,
-                email = EXCLUDED.email,
-                display_name = EXCLUDED.display_name,
-                roles = EXCLUDED.roles,
-                scopes = EXCLUDED.scopes,
-                updated_at = NOW()
-            RETURNING id, email, display_name, roles, scopes
-            """
+        return await self._users.upsert(
+            issuer=issuer,
+            subject=subject,
+            username=username,
+            email=email,
+            display_name=display_name,
+            roles=roles,
+            scopes=scopes,
         )
-        async with get_postgres().session_factory() as session:
-            result = await session.execute(
-                statement,
-                {
-                    "id": uuid.uuid4(),
-                    "issuer": issuer,
-                    "subject": subject,
-                    "username": username,
-                    "email": email,
-                    "display_name": display_name,
-                    "roles": json.dumps(roles, separators=(",", ":")),
-                    "scopes": json.dumps(scopes, separators=(",", ":")),
-                },
-            )
-            row = result.mappings().one()
-            await session.commit()
-        return dict(row)
 
     @staticmethod
     def _allowed_claims(
@@ -316,17 +288,17 @@ class AuthService:
         if not session_id or len(session_id) > 256:
             return None
         key = f"{self._profile.session_key_prefix}{session_id}"
-        raw = await get_redis().client.get(key)
+        raw = await self._sessions.read(key)
         if not raw:
             return None
         try:
             session = BrowserSession.model_validate_json(raw)
         except PydanticValidationError:
-            await get_redis().client.delete(key)
+            await self._sessions.delete(key)
             return None
         principal = session.principal
         if principal.expires_at <= datetime.now(UTC):
-            await get_redis().client.delete(key)
+            await self._sessions.delete(key)
             return None
         if (
             principal.app != self._settings.app_slug
@@ -334,19 +306,19 @@ class AuthService:
             or principal.audience != self._profile.client_id
             or principal.policy_version != self._profile.policy_version
         ):
-            await get_redis().client.delete(key)
+            await self._sessions.delete(key)
             return None
         return session
 
     async def delete_session(self, session_id: str | None) -> None:
         if session_id and len(session_id) <= 256:
-            await get_redis().client.delete(
+            await self._sessions.delete(
                 f"{self._profile.session_key_prefix}{session_id}"
             )
 
     async def cancel_login(self, transaction_id: str | None) -> None:
         if transaction_id and len(transaction_id) <= 256:
-            await get_redis().client.delete(
+            await self._sessions.delete(
                 f"{self._profile.transaction_key_prefix}{transaction_id}"
             )
 

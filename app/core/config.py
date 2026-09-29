@@ -171,6 +171,21 @@ class Settings(BaseSettings):
     security_quality_hard_years: int = Field(
         default=10, ge=1, le=60, validation_alias="SECURITY_QUALITY_HARD_YEARS"
     )
+    # 采集申请（0008-info-intake）。一个人同时未完成的申请数，所有者 2026-09-29 定为 5。
+    security_request_max_open: int = Field(
+        default=5, ge=1, le=50, validation_alias="SECURITY_REQUEST_MAX_OPEN"
+    )
+    # 哪些应用可以把用户带到申请页，各自的回跳地址。JSON：
+    #   {"investment": {"return_url": "https://…/zh-CN/workbench?ref={ref}"}, "knowledge": {}}
+    # 回跳地址只从这里取，从不从链接里取；没写回跳地址的应用，页面上不显示「回到原处」。
+    security_request_sources_json: str = Field(
+        default='{"investment": {}, "knowledge": {}}',
+        validation_alias="SECURITY_REQUEST_SOURCES_JSON",
+    )
+    # knowledge 网页端的地址，用来拼「去看这个数据集」的链接；不配就不显示这个链接。
+    knowledge_web_base_url: str | None = Field(
+        default=None, validation_alias="KNOWLEDGE_WEB_BASE_URL"
+    )
     # 年报的「主要会计数据」表认不出来时，改从年报的合并报表取关键数字。
     # 关掉就和 2026-09-28 之前一样：那些公司一个关键数字都取不到，数据集不发布。
     security_statement_fallback_enabled: bool = Field(
@@ -337,6 +352,72 @@ class Settings(BaseSettings):
         ):
             raise ValueError(f"{field} must contain origin-only HTTP(S) URLs")
         return f"{parsed.scheme}://{parsed.hostname}{port}"
+
+    @field_validator("security_request_sources_json")
+    @classmethod
+    def _validate_request_sources(cls, value: str) -> str:
+        cls._parse_request_sources(value)
+        return value
+
+    @field_validator("knowledge_web_base_url")
+    @classmethod
+    def _validate_knowledge_web_base_url(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        return cls._validate_link_target(value, field="KNOWLEDGE_WEB_BASE_URL")
+
+    @staticmethod
+    def _validate_link_target(value: str, *, field: str) -> str:
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or any(ord(c) <= 32 or ord(c) == 127 for c in value)
+            or "\\" in value
+            or len(value) > 1024
+        ):
+            raise ValueError(f"{field} must be an absolute http(s) URL")
+        return value
+
+    @classmethod
+    def _parse_request_sources(cls, value: str) -> dict[str, dict[str, str]]:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("SECURITY_REQUEST_SOURCES_JSON is not JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("SECURITY_REQUEST_SOURCES_JSON must be an object")
+        sources: dict[str, dict[str, str]] = {}
+        for name, entry in parsed.items():
+            if (
+                not isinstance(name, str)
+                or not name
+                or len(name) > 32
+                or not name[0].isalpha()
+                or not all(c.islower() or c.isdigit() or c == "-" for c in name)
+                or not name.isascii()
+            ):
+                raise ValueError("SECURITY_REQUEST_SOURCES_JSON has an invalid name")
+            if not isinstance(entry, dict) or set(entry) - {"return_url"}:
+                raise ValueError("SECURITY_REQUEST_SOURCES_JSON has an invalid entry")
+            target = entry.get("return_url")
+            if target is None:
+                sources[name] = {}
+                continue
+            if not isinstance(target, str):
+                raise ValueError("SECURITY_REQUEST_SOURCES_JSON return_url is invalid")
+            cls._validate_link_target(
+                target.replace("{ref}", "x"), field="SECURITY_REQUEST_SOURCES_JSON"
+            )
+            if target.count("{ref}") > 1 or "{" in target.replace("{ref}", ""):
+                raise ValueError("SECURITY_REQUEST_SOURCES_JSON return_url is invalid")
+            sources[name] = {"return_url": target}
+        return sources
+
+    def security_request_sources(self) -> dict[str, dict[str, str]]:
+        return self._parse_request_sources(self.security_request_sources_json)
 
     @staticmethod
     def _validate_relative_path(value: str, *, field: str) -> str:

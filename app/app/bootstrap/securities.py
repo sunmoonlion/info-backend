@@ -94,13 +94,12 @@ def build_security_ingestion_service(
     )
 
 
-async def request_security_ingestion(
+async def start_security_ingestion(
     session: AsyncSession,
     session_factory: async_sessionmaker[AsyncSession],
-    raw_code: str,
+    code: SecurityCode,
 ) -> SecurityIngestion:
-    """登记批次并排队执行；两件事在同一个事务里提交。"""
-    code = SecurityCode(raw_code)
+    """在调用方的事务里登记批次并排队；不提交。调用方把自己的改动和它一起提交。"""
     service = build_security_ingestion_service(session_factory)
     batch = await build_store(session_factory).start_in(
         session, code, sources=service.sources
@@ -112,9 +111,28 @@ async def request_security_ingestion(
         payload={"ingestion_id": str(batch.id)},
         deduplication_key=f"info.security.ingest:{batch.id}:v1",
     )
+    return batch
+
+
+async def request_security_ingestion(
+    session: AsyncSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    raw_code: str,
+) -> SecurityIngestion:
+    """登记批次并排队执行；两件事在同一个事务里提交。"""
+    batch = await start_security_ingestion(
+        session, session_factory, SecurityCode(raw_code)
+    )
     await session.commit()
     await session.refresh(batch)
     return batch
+
+
+async def record_dataset_build_refusal(
+    session_factory: async_sessionmaker[AsyncSession], ingestion_id: str, code: str
+) -> None:
+    """建库被拒绝时记在批次上。申请的进度靠它知道「不会再有数据集了」。"""
+    await build_store(session_factory).record_build_refusal(ingestion_id, code)
 
 
 def build_security_dataset_service(

@@ -63,6 +63,7 @@ async def build_security_dataset(session, payload):
         build_dataset_registration_service,
         build_security_dataset_service,
         enqueue_dataset_registration,
+        record_dataset_build_refusal,
     )
     from app.domain.securities.dataset import DatasetBuildError
     from app.infrastructure.storage.postgres import get_postgres
@@ -74,6 +75,9 @@ async def build_security_dataset(session, payload):
         )
     except DatasetBuildError as exc:
         logger.warning("security dataset build refused code=%s", exc.code)
+        await record_dataset_build_refusal(
+            sessions, str(payload["ingestion_id"]), exc.code
+        )
         return
     if summary.status != PUBLISHED:
         return  # 质量检查没过的不发布（F-INFO-07）

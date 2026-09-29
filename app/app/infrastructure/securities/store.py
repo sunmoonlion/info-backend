@@ -110,6 +110,20 @@ class SqlIngestionStore:
         await session.flush()
         return batch
 
+    async def record_build_refusal(self, ingestion_id: str, code: str) -> None:
+        """建库被拒绝：原文不足以建库，重投也不会变好。记在批次上。"""
+        try:
+            key = uuid.UUID(ingestion_id)
+        except ValueError:
+            return
+        async with self._sessions() as session:
+            batch = await session.get(SecurityIngestion, key)
+            if batch is None:
+                return
+            batch.dataset_build_error = code[:80]
+            batch.dataset_build_refused_at = self._clock()
+            await session.commit()
+
     async def begin(self, ingestion_id: str) -> SecurityCode | None:
         try:
             key = uuid.UUID(ingestion_id)

@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -42,6 +43,10 @@ class SecurityIngestion(UUIDMixin, TimestampMixin, Base):
     summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     error_code: Mapped[str | None] = mapped_column(String(120))
     error_detail: Mapped[str | None] = mapped_column(Text)
+    dataset_build_error: Mapped[str | None] = mapped_column(String(80))
+    dataset_build_refused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -126,3 +131,91 @@ class SecurityDataset(UUIDMixin, TimestampMixin, Base):
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_security_dataset_sha256"),
         Index("ix_security_dataset_code_built", "security_code", "built_at"),
     )
+
+
+class SecurityRequest(UUIDMixin, TimestampMixin, Base):
+    """对一家公司的一次采集请求（0008-info-intake）。可以有多个申请人。"""
+
+    __tablename__ = "security_request"
+
+    security_code: Mapped[str] = mapped_column(String(6), nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    open: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    ingestion_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("security_ingestion.id")
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(64))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(Text)
+    outcome: Mapped[str | None] = mapped_column(String(30))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "security_code ~ '^[0-9]{6}$'", name="ck_security_request_code"
+        ),
+        CheckConstraint(
+            "kind IN ('initial', 'refresh')", name="ck_security_request_kind"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'withdrawn')",
+            name="ck_security_request_status",
+        ),
+        Index(
+            "uq_security_request_open_code",
+            "security_code",
+            unique=True,
+            postgresql_where=text("open"),
+        ),
+        Index("ix_security_request_status_created", "status", "created_at"),
+    )
+
+
+class SecurityRequestRequester(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "security_request_requester"
+
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("security_request.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    source_app: Mapped[str | None] = mapped_column(String(32))
+    source_ref: Mapped[str | None] = mapped_column(String(128))
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "request_id", "actor_id", name="uq_security_request_requester_actor"
+        ),
+        Index("ix_security_request_requester_actor", "actor_id", "requested_at"),
+    )
+
+
+class SecurityWatchlist(TimestampMixin, Base):
+    """关注清单的现状。增减的流水在 security_watchlist_log。"""
+
+    __tablename__ = "security_watchlist"
+
+    security_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    added_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_by: Mapped[str | None] = mapped_column(String(64))
+    removal_note: Mapped[str | None] = mapped_column(Text)
+
+
+class SecurityWatchlistLog(UUIDMixin, Base):
+    __tablename__ = "security_watchlist_log"
+
+    security_code: Mapped[str] = mapped_column(String(6), nullable=False)
+    action: Mapped[str] = mapped_column(String(10), nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

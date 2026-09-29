@@ -31,7 +31,7 @@ def build_security_request_service(
         store=SqlRequestStore(session, start_ingestion=start),
         watchlist=SqlWatchlist(session),
         clock=_now,
-        known_apps=frozenset(settings.security_request_sources()),
+        known_apps=frozenset(settings.cross_app_sources()),
         max_open=settings.security_request_max_open,
         registration_enabled=settings.knowledge_app_dataset_enabled,
     )

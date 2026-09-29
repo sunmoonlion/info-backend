@@ -6,17 +6,15 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from app.domain.cross_app import Origin
+
 MAX_REASON_CHARS = 500
 DEFAULT_MAX_OPEN_REQUESTS = 5
 SYSTEM_WATCHLIST = "system:watchlist"
-
-_REF = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
-_APP = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 
 
 class RequestError(Exception):
@@ -68,25 +66,6 @@ FINAL: frozenset[Progress] = frozenset(
         Progress.REGISTRATION_FAILED,
     }
 )
-
-
-@dataclass(frozen=True)
-class Origin:
-    """申请是从哪个应用带过来的。只存、只原样显示，不解释 `ref`。"""
-
-    app: str
-    ref: str | None = None
-
-
-def clean_origin(
-    app: str | None, ref: str | None, *, known_apps: frozenset[str]
-) -> Origin | None:
-    """链接带来的参数不可信：不认识的应用、不合规则的引用，都当作没带。"""
-    if not isinstance(app, str) or not _APP.fullmatch(app) or app not in known_apps:
-        return None
-    if not isinstance(ref, str) or not _REF.fullmatch(ref):
-        ref = None
-    return Origin(app=app, ref=ref)
 
 
 def clean_reason(reason: str | None) -> str | None:

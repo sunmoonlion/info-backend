@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import uuid
-from urllib.parse import quote
 
 from fastapi import HTTPException
 
 from app.application.securities.request_service import Availability, RequestView
+from app.domain.cross_app import Origin, return_url
 from app.domain.securities.requests import (
     DatasetState,
-    Origin,
     Progress,
     RequestError,
 )
+from app.interfaces.schemas.cross_app import OriginRead
 from app.interfaces.schemas.security_requests import (
     AvailabilityRead,
     DatasetRead,
     MineRead,
-    OriginRead,
     RequesterAdminRead,
     SecurityRequestAdminRead,
     SecurityRequestRead,
@@ -49,37 +48,23 @@ def problem(error: RequestError) -> HTTPException:
 def origin_read(origin: Origin | None, settings: Settings) -> OriginRead | None:
     if origin is None:
         return None
-    entry = settings.security_request_sources().get(origin.app)
-    if entry is None:  # 配置里已经没有这个应用了：当作没有来处
+    source = settings.cross_app_sources().get(origin.app)
+    if source is None:  # 配置里已经没有这个应用了：当作没有来处
         return None
-    template = entry.get("return_url")
     return OriginRead(
-        app=origin.app,
-        ref=origin.ref,
-        return_url=(
-            template.replace("{ref}", quote(origin.ref or "", safe=""))
-            if template
-            else None
-        ),
+        app=origin.app, ref=origin.ref, return_url=return_url(source, origin)
     )
 
 
-def dataset_read(
-    dataset: DatasetState | None, settings: Settings
-) -> DatasetRead | None:
+def dataset_read(dataset: DatasetState | None) -> DatasetRead | None:
+    """去 knowledge 看这个数据集的链接由网页端拼（只在一处拼），这里只给数据集的编号。"""
     if dataset is None:
         return None
-    base = settings.knowledge_web_base_url
     return DatasetRead(
         dataset_id=dataset.dataset_id,
         data_version=dataset.data_version,
         start_date=dataset.start_date,
         end_date=dataset.end_date,
-        catalog_url_template=(
-            f"{base.rstrip('/')}/{{locale}}/catalog/{quote(dataset.dataset_id, safe='')}"
-            if base
-            else None
-        ),
     )
 
 
@@ -110,7 +95,7 @@ def user_read(
         rejection_note=(
             request.decision_note if view.progress is Progress.REJECTED else None
         ),
-        dataset=dataset_read(view.dataset, settings),
+        dataset=dataset_read(view.dataset),
     )
 
 
@@ -121,7 +106,7 @@ def availability_read(
         security_code=found.security_code,
         market=found.market,
         in_watchlist=found.in_watchlist,
-        dataset=dataset_read(found.dataset, settings),
+        dataset=dataset_read(found.dataset),
         open_request=(
             user_read(found.open_request, actor_id=actor_id, settings=settings)
             if found.open_request
@@ -164,5 +149,5 @@ def admin_read(
             )
             for one in request.requesters
         ],
-        dataset=dataset_read(view.dataset, settings),
+        dataset=dataset_read(view.dataset),
     )

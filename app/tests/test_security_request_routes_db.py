@@ -28,6 +28,7 @@ from app.interfaces.http.middleware.auth import (
     get_web_current_user,
     require_info_admin,
 )
+from app.interfaces.http.web import cross_app as cross_app_routes
 from app.interfaces.http.web import security_requests as web_routes
 from app.main import app as real_app
 from core.config import Settings
@@ -62,8 +63,10 @@ async def api(db, monkeypatch):
     sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
     config = Settings(
         _env_file=None,
-        SECURITY_REQUEST_SOURCES_JSON=SOURCES,
-        KNOWLEDGE_WEB_BASE_URL="https://knowledge.example.test",
+        cross_app_sources_json=SOURCES,
+        cross_app_targets_json=(
+            '{"knowledge": {"web_base_url": "https://knowledge.example.test"}}'
+        ),
     )
 
     async def session():
@@ -86,6 +89,8 @@ async def api(db, monkeypatch):
     app = FastAPI()
     app.include_router(web_routes.router, prefix="/api")
     app.include_router(admin_routes.router, prefix="/api")
+    app.include_router(cross_app_routes.router, prefix="/api")
+    app.dependency_overrides[cross_app_routes.cross_app_settings] = lambda: config
     app.dependency_overrides[get_db_session] = session
     app.dependency_overrides[get_web_current_user] = web_user
     app.dependency_overrides[require_info_admin] = admin_user
@@ -186,7 +191,7 @@ async def test_a_user_sees_nothing_about_other_people(api):
 async def test_origin_is_resolved_from_configuration_only(api, params, expected):
     """AT-INFO-12、F-INFO-32"""
     response = await api.client.get(
-        "/api/web/v1/security-request-origin", params=params, headers=as_(ALICE)
+        "/api/web/v1/cross-app/origin", params=params, headers=as_(ALICE)
     )
     assert response.status_code == 200
     body = response.json()
@@ -203,7 +208,7 @@ async def test_origin_is_resolved_from_configuration_only(api, params, expected)
 async def test_a_return_address_in_the_link_is_ignored(api):
     """AT-INFO-13"""
     response = await api.client.get(
-        "/api/web/v1/security-request-origin",
+        "/api/web/v1/cross-app/origin",
         params={
             "from": "investment",
             "ref": "t1",
@@ -318,10 +323,9 @@ async def test_owner_approves_and_the_user_sees_the_data_arrive(api):
         "data_version": "sz000001-financials-aaaa",
         "start_date": "2016-12-31",
         "end_date": "2025-12-31",
-        "catalog_url_template": (
-            "https://knowledge.example.test/{locale}/catalog/sz000001-financials"
-        ),
     }
+    # 去 knowledge 看这个数据集的链接由网页端拼，后端不给地址
+    assert "knowledge.example.test" not in seen.text
     assert "secret" not in seen.text  # 对象存储的位置不给用户
     now = await api.client.get(
         "/api/web/v1/securities/000001/availability", headers=as_(BOB)
@@ -400,7 +404,7 @@ async def test_unknown_requests_are_not_found(api):
 
 # ---------------------------------------------------------------- 谁进得来
 WEB_PATHS = [
-    ("GET", "/api/web/v1/security-request-origin"),
+    ("GET", "/api/web/v1/cross-app/origin"),
     ("GET", "/api/web/v1/securities/600519/availability"),
     ("POST", "/api/web/v1/security-requests"),
     ("GET", "/api/web/v1/security-requests"),

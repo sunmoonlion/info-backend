@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from app.domain.cross_app import Origin
 from app.domain.securities import SecurityCode
 from app.domain.securities.requests import (
     DatasetState,
     IngestionState,
-    Origin,
     Progress,
     RequestKind,
     RequestStatus,

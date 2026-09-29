@@ -18,11 +18,11 @@ from app.application.ports.security_requests import (
     OpenRequestExists,
     WatchlistEntry,
 )
+from app.domain.cross_app import Origin
 from app.domain.securities import SecurityCode
 from app.domain.securities.requests import (
     DatasetState,
     IngestionState,
-    Origin,
     Progress,
     Requester,
     RequestKind,

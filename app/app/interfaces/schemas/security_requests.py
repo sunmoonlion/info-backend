@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.interfaces.schemas.cross_app import OriginRead
+
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -47,14 +49,6 @@ class DatasetRead(BaseModel):
     start_date: str
     end_date: str
     # 去 knowledge 看这个数据集的地址，语言段留给页面填；没配就是空
-    catalog_url_template: str | None = None
-
-
-class OriginRead(BaseModel):
-    app: str
-    ref: str | None = None
-    # 回到原处的地址。只从 info 自己的配置里来，从不从链接里来；没配就是空
-    return_url: str | None = None
 
 
 class MineRead(BaseModel):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from security_requests_support import ALICE, BOB, OWNER, build, dataset
 
+from app.domain.cross_app import clean_origin
 from app.domain.securities.requests import (
     SYSTEM_WATCHLIST,
     DatasetState,
@@ -13,7 +14,6 @@ from app.domain.securities.requests import (
     RequestError,
     RequestKind,
     RequestStatus,
-    clean_origin,
     clean_reason,
     progress_after_approval,
 )
@@ -424,45 +424,10 @@ async def test_watchlist_changes_leave_a_trace():
 
 
 # ---------------------------------------------------------------- 配置
-def test_request_sources_configuration_is_checked_at_start():
+def test_request_settings():
+    """谁可以把用户带到申请页、各自的回跳地址，是跨应用跳转的配置（tests/test_cross_app.py）。"""
     from core.config import Settings
 
-    good = Settings(
-        _env_file=None,
-        SECURITY_REQUEST_SOURCES_JSON=(
-            '{"investment": {"return_url": "https://i.example.test/back?ref={ref}"},'
-            ' "knowledge": {}}'
-        ),
-        KNOWLEDGE_WEB_BASE_URL="https://k.example.test",
-    )
-    assert good.security_request_sources() == {
-        "investment": {"return_url": "https://i.example.test/back?ref={ref}"},
-        "knowledge": {},
-    }
-    assert Settings(_env_file=None).security_request_max_open == 5
-    assert set(Settings(_env_file=None).security_request_sources()) == {
-        "investment",
-        "knowledge",
-    }
-    assert (
-        Settings(_env_file=None, KNOWLEDGE_WEB_BASE_URL="").knowledge_web_base_url
-        is None
-    )
-    for bad in (
-        "not json",
-        "[]",
-        '{"Investment": {}}',
-        '{"a b": {}}',
-        '{"investment": {"return_url": "javascript:alert(1)"}}',
-        '{"investment": {"return_url": "https://u:p@i.example.test/"}}',
-        '{"investment": {"return_url": "/relative"}}',
-        '{"investment": {"return_url": "https://i.example.test/{other}"}}',
-        '{"investment": {"return_url": "https://i.example.test/{ref}{ref}"}}',
-        '{"investment": {"callback": "https://i.example.test/"}}',
-        '{"investment": "https://i.example.test/"}',
-    ):
-        with pytest.raises(ValueError):
-            Settings(_env_file=None, SECURITY_REQUEST_SOURCES_JSON=bad)
-    for bad in ("ftp://k.example.test", "k.example.test", "https://u:p@k.example.test"):
-        with pytest.raises(ValueError):
-            Settings(_env_file=None, KNOWLEDGE_WEB_BASE_URL=bad)
+    blank = Settings(_env_file=None)
+    assert blank.security_request_max_open == 5
+    assert set(blank.cross_app_sources()) == {"investment", "knowledge"}

@@ -16,6 +16,7 @@ from app.application.ports.security_requests import (
     Watchlist,
     WatchlistEntry,
 )
+from app.domain.cross_app import clean_origin
 from app.domain.securities import InvalidSecurityCode, SecurityCode
 from app.domain.securities.requests import (
     DEFAULT_MAX_OPEN_REQUESTS,
@@ -28,7 +29,6 @@ from app.domain.securities.requests import (
     RequestKind,
     RequestStatus,
     SecurityRequest,
-    clean_origin,
     clean_reason,
     progress_after_approval,
 )

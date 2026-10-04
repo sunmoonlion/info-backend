@@ -34,6 +34,8 @@ class Postgres:
             self._session_factory = async_sessionmaker(
                 autocommit=False,
                 autoflush=False,
+                # Async services read committed receipts without implicit database IO.
+                expire_on_commit=False,
                 bind=self._engine,
             )
             logger.info("Postgres初始化成功")

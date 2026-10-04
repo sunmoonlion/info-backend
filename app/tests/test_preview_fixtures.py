@@ -21,7 +21,6 @@ from fastapi import FastAPI, Request
 from preview_recorder import Recorder
 from security_requests_support import ALICE, BOB, OWNER
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_durable_delivery_db import db as db  # noqa: F401
 from test_security_dataset_db import MemoryStorage
 from test_security_request_routes_db import principal
@@ -45,7 +44,7 @@ NEWCOMER = "00000000-0000-4000-8000-00000000000c"
 
 @pytest.fixture
 async def served(db, monkeypatch):  # noqa: F811
-    sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    sessions = db
     config = Settings(
         _env_file=None,
         cross_app_sources_json=(

@@ -14,7 +14,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 import app.infrastructure.repositories.auth_user as auth_user_module
 import app.infrastructure.storage.session_store as session_store_module
@@ -22,6 +22,7 @@ from app.application.services.auth_service import AuthService
 from app.bootstrap.auth import build_auth_service
 from app.infrastructure.repositories.auth_user import SqlUserDirectory
 from app.infrastructure.security import OidcProviderClient
+from app.infrastructure.storage.postgres import make_session_factory
 from app.infrastructure.storage.session_store import RedisSessionStore
 from tests.test_auth_service import settings
 
@@ -127,7 +128,7 @@ async def db():
                 text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public')
             )
             await c.run_sync(migrate)
-        yield async_sessionmaker(engine, expire_on_commit=False)
+        yield make_session_factory(engine)
     finally:
         async with engine.begin() as c:
             await c.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))

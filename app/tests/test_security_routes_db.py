@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_durable_delivery_db import db as db
 from test_durable_delivery_db import sql
 from test_security_dataset_db import MemoryStorage, Reports, clock, ingested
@@ -27,7 +26,7 @@ from app.interfaces.http.admin import securities as routes
 
 @pytest.fixture
 async def api(db, monkeypatch):
-    sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    sessions = db
     parts = SimpleNamespace(
         storage=MemoryStorage(), reader=Reports(), registrar=Registrar(), db=db
     )

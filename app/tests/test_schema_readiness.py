@@ -19,10 +19,11 @@ from alembic.script import ScriptDirectory
 from alembic.util import CommandError
 from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.bootstrap import api
 from app.infrastructure.storage import schema_readiness as readiness
+from app.infrastructure.storage.postgres import make_session_factory
 
 ROOT = Path(__file__).resolve().parents[1]
 READY_PATHS = ("/health/ready", "/ready", "/api/health")
@@ -72,7 +73,7 @@ async def schema_db():
             )
             await c.run_sync(migrate)
         yield SimpleNamespace(
-            sessions=async_sessionmaker(engine, expire_on_commit=False),
+            sessions=make_session_factory(engine),
             engine=engine,
             schema=schema,
         )
@@ -280,9 +281,7 @@ async def test_database_lock_timeout_releases_connection_and_recovers(
         monkeypatch.setattr(
             api,
             "get_redis",
-            lambda: SimpleNamespace(
-                client=SimpleNamespace(ping=healthy_but_slow_ping)
-            ),
+            lambda: SimpleNamespace(client=SimpleNamespace(ping=healthy_but_slow_ping)),
         )
     await assert_status(client, 200)
 

@@ -138,6 +138,34 @@ async def test_crawl_alias_reuses_current_version_for_unchanged_content(
     assert await sql(db, "SELECT count(*) FROM info_document_version") == 1
 
 
+async def test_a_crawl_with_a_source_survives_its_own_commit(db, monkeypatch):
+    """2026-10-04 真链路上的故障：任务先提交「运行中」，之后还要读来源的属性。
+
+    会话在提交后让对象过期时，这里报 `MissingGreenlet`，任务停在半路，连「失败」
+    都记不下来。以前的采集测试都不带来源，所以没有撞上。
+    """
+    fake_crawl(monkeypatch)
+    monkeypatch.setattr(
+        service, "_extract_html", lambda html, url: ("Title", "Body", "Body", None)
+    )
+    async with db() as s:
+        source = await service.create_source(
+            s,
+            code="demo",
+            name="Demo",
+            source_type="web",
+            base_url="https://example.com",
+        )
+        source_id = source.id
+    async with db() as s:
+        job = await service.create_crawl_job(
+            s, target_url="https://example.com/a", source_id=source_id, enqueue=False
+        )
+        result = await service.process_crawl_job(s, job.id)
+        assert (result.status, result.error_message) == ("succeeded", None)
+    assert await sql(db, "SELECT source_id::text FROM info_document") == str(source_id)
+
+
 async def test_row_lock_refreshes_preloaded_current_version(db):
     async with db() as seed:
         doc = await document(seed)

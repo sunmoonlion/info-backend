@@ -11,7 +11,6 @@ import pytest
 from fastapi import FastAPI, Request
 from security_requests_support import ALICE, BOB, OWNER
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_auth_routes_security import FakeAuthService
 from test_auth_routes_security import session as browser_session
 from test_durable_delivery_db import db as db
@@ -60,7 +59,7 @@ def principal(actor: str, surface: str = "web") -> Principal:
 
 @pytest.fixture
 async def api(db, monkeypatch):
-    sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    sessions = db
     config = Settings(
         _env_file=None,
         cross_app_sources_json=SOURCES,

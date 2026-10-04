@@ -5,10 +5,10 @@ import re
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.bootstrap.worker import celery_app as celery_app
-from app.infrastructure.storage.postgres import Postgres
+from app.infrastructure.storage.postgres import Postgres, make_session_factory
 from app.tasks import durable_delivery
 
 TOPIC = "test.counter.v1"
@@ -30,7 +30,7 @@ class TestPostgres(Postgres):
             connect_args={"server_settings": {"search_path": schema + ",public"}},
             hide_parameters=True,
         )
-        self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
+        self._session_factory = make_session_factory(self._engine)
 
 
 async def increment(session, payload):

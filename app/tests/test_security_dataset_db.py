@@ -7,7 +7,6 @@ import json
 from datetime import UTC, date, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_durable_delivery_db import db as db
 from test_durable_delivery_db import sql
 from test_security_dataset import STATEMENTS, pages_of, payloads, reports
@@ -92,7 +91,7 @@ def clock() -> datetime:
 
 async def ingested(db, storage, reader: Reports, *, damage=None, status=None) -> str:
     """把夹具当作一个已经采完的批次登记进库。"""
-    sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    sessions = db
     store = SqlIngestionStore(session_factory=sessions, storage=storage, clock=clock)
     ingestion_id = await store.start(CODE, sources=["cninfo", "eastmoney-f10"])
     assert await store.begin(ingestion_id) == CODE
@@ -139,7 +138,7 @@ async def ingested(db, storage, reader: Reports, *, damage=None, status=None) ->
 
 
 def service(db, storage, reader: Reports, **limits) -> SecurityDatasetService:
-    sessions = async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    sessions = db
     return SecurityDatasetService(
         batches=SqlBatchReader(session_factory=sessions, storage=storage, **limits),
         reports=reader,

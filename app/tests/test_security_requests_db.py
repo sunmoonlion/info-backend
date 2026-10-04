@@ -10,7 +10,6 @@ import pytest
 from security_requests_support import ALICE, BOB, OWNER, Clock
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_durable_delivery_db import db as db
 from test_durable_delivery_db import sql
 from test_security_dataset_db import MemoryStorage
@@ -50,7 +49,7 @@ FIRST_TEN = [
 @pytest.fixture
 def sessions(db, monkeypatch):
     monkeypatch.setattr(wiring, "get_object_storage", MemoryStorage)
-    return async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    return db
 
 
 def service_on(session, sessions, **options) -> SecurityRequestService:

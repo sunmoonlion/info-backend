@@ -13,6 +13,21 @@ from core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def make_session_factory(bind: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """这个应用所有数据库会话的唯一做法。测试也从这里取，生产和测试才是同一种会话。
+
+    `expire_on_commit=False`：异步会话里，提交之后再读已加载对象的属性不能触发隐式
+    查库（那会报 `MissingGreenlet`）。提交不让对象过期；要别的事务写进去的新值，
+    显式 `refresh` 或重新查询。
+    """
+    return async_sessionmaker(
+        bind=bind,
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+
 class Postgres:
     def __init__(self):
         self._engine: AsyncEngine | None = None
@@ -31,11 +46,7 @@ class Postgres:
                 hide_parameters=True,
                 pool_pre_ping=True,
             )
-            self._session_factory = async_sessionmaker(
-                autocommit=False,
-                autoflush=False,
-                bind=self._engine,
-            )
+            self._session_factory = make_session_factory(self._engine)
             logger.info("Postgres初始化成功")
         except Exception as exc:
             logger.error("postgres_initialization_failed type=%s", type(exc).__name__)

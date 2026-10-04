@@ -10,7 +10,6 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_durable_delivery_db import db as db
 from test_durable_delivery_db import sql
 from test_security_dataset_db import MemoryStorage, Reports, clock, ingested
@@ -34,7 +33,7 @@ REGISTER = "info.security.dataset.register.v1"
 
 
 def production_like(db):
-    return async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    return db
 
 
 class Registrar:

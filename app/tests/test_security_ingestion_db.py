@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_durable_delivery_db import db as db
 from test_durable_delivery_db import sql
 from test_security_ingestion import FakeFetcher
@@ -54,8 +53,8 @@ def clock() -> datetime:
 
 
 def production_like(db):
-    """生产的会话在提交后让对象过期；夹具的会话不会。用和生产一样的配置来测。"""
-    return async_sessionmaker(db.kw["bind"], autocommit=False, autoflush=False)
+    """夹具的会话就是生产的那一种（`make_session_factory`）。"""
+    return db
 
 
 def build(db, storage, fetcher=None):

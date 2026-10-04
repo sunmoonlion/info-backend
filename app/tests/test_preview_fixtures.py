@@ -304,6 +304,8 @@ async def build_full(world: World) -> None:
         ("一个申请：被拒绝", "rejected"),
         ("一个申请：已撤回", "withdrawn"),
     ):
+        # 这一页要取的那个申请也录下来。漏过「等批准」这一个：预览里那一页打不开
+        await rec.get(http, f"/api/web/v1/security-requests/{world.requests[name]}")
         rec.page(title, f"/zh-CN/requests/{world.requests[name]}")
 
 
@@ -373,6 +375,13 @@ async def test_the_full_world(served, tmp_path):
         ]
     )
     assert len(manifest["pages"]) == 17
+    # 每一个「一个申请」的页，它要取的那个申请都有样例
+    sampled = {r["path"] for r in manifest["responses"] if r["method"] == "GET"}
+    for page in manifest["pages"]:
+        request = page["path"].removeprefix("/zh-CN/requests/")
+        if "/" not in request and "?" not in request and request not in ("", "new"):
+            if page["path"] != "/zh-CN/requests":
+                assert f"/api/web/v1/security-requests/{request}" in sampled, page
     refused = [r for r in manifest["responses"] if r["status"] == 409]
     assert len(refused) == 1
 

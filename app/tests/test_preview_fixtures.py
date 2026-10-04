@@ -30,6 +30,7 @@ from app.bootstrap import securities as wiring
 from app.bootstrap import security_requests as request_wiring
 from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session
+from app.interfaces.http.admin import securities as securities_admin_routes
 from app.interfaces.http.admin import security_requests as admin_routes
 from app.interfaces.http.middleware.auth import (
     get_web_current_user,
@@ -82,6 +83,8 @@ async def served(db, monkeypatch):  # noqa: F811
     app = FastAPI()
     app.include_router(web_routes.router, prefix="/api")
     app.include_router(admin_routes.router, prefix="/api")
+    # 证券采集的管理接口：正式环境里是挂在管理面下、要求 info 管理员的
+    app.include_router(securities_admin_routes.router, prefix="/api")
     app.include_router(cross_app_routes.router, prefix="/api")
     app.dependency_overrides[cross_app_routes.cross_app_settings] = lambda: config
     app.dependency_overrides[get_db_session] = session
@@ -332,15 +335,52 @@ SCENARIOS = {
 }
 
 
+async def record_admin(world: World, out: Path) -> tuple[Path, dict[str, Any]]:
+    """管理端要的返回：待批准与已处理的申请、关注清单、某几家公司的批次与数据集。
+
+    管理端还没有预览（账本 H46），这些样例先用来核对管理端手写的契约。
+    """
+    rec = Recorder(
+        "full",
+        title="管理端：什么都有",
+        description="十一个申请各在一种进度上；关注清单里是第一批十家。",
+    )
+    http = world.http
+    await rec.get(http, "/api/admin/security-requests")
+    await rec.get(http, "/api/admin/security-requests", open="true")
+    await rec.get(http, "/api/admin/security-requests", status="rejected")
+    await rec.get(http, "/api/admin/security-watchlist")
+    await rec.get(http, "/api/admin/security-watchlist", include_removed="true")
+    for code in ("002594", "600436", "601318"):
+        batches = await rec.get(http, f"/api/admin/securities/{code}/ingestions")
+        await rec.get(http, f"/api/admin/securities/{code}/datasets")
+        for batch in batches[:1]:
+            await rec.get(http, f"/api/admin/security-ingestions/{batch['id']}")
+    rec.page("申请审批", "/zh-CN/info/requests")
+    rec.page("证券采集", "/zh-CN/info/securities")
+    rec.page("关注清单", "/zh-CN/info/watchlist")
+    directory = rec.write(out)
+    return directory, json.loads((directory / "manifest.json").read_text())
+
+
 def where_to(tmp_path: Path) -> Path:
     wanted = os.environ.get("PREVIEW_FIXTURES_OUT")
     return Path(wanted) if wanted else tmp_path
 
 
-async def record(scenario: str, served, out: Path) -> tuple[Path, dict[str, Any]]:
+async def record(
+    scenario: str, served, out: Path, *, admin_out: Path | None = None
+) -> tuple[Path, dict[str, Any]]:
     title, description, build = SCENARIOS[scenario]
     recorder = Recorder(scenario, title=title, description=description)
-    await build(World(served, recorder))
+    world = World(served, recorder)
+    await build(world)
+    if admin_out is not None:
+        admin_dir, admin_manifest = await record_admin(world, admin_out)
+        for response in admin_manifest["responses"]:
+            body = (admin_dir / response["file"]).read_text()
+            # 管理端看得到谁申请的、谁批的；但对象存储的位置、密钥仍然不该出现
+            assert "preview-bucket" not in body and "preview-not-a-secret" not in body
     directory = recorder.write(out)
     manifest = json.loads((directory / "manifest.json").read_text())
     for response in manifest["responses"]:
@@ -352,7 +392,15 @@ async def record(scenario: str, served, out: Path) -> tuple[Path, dict[str, Any]
 
 
 async def test_the_full_world(served, tmp_path):
-    directory, manifest = await record("full", served, where_to(tmp_path))
+    wanted = os.environ.get("PREVIEW_ADMIN_FIXTURES_OUT")
+    admin_out = Path(wanted) if wanted else tmp_path / "admin"
+    directory, manifest = await record(
+        "full", served, where_to(tmp_path), admin_out=admin_out
+    )
+    admin = json.loads((admin_out / "full" / "manifest.json").read_text())
+    assert len(admin["responses"]) >= 12 and all(
+        r["status"] == 200 for r in admin["responses"]
+    )
     listed = next(
         r
         for r in manifest["responses"]

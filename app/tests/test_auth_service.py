@@ -48,6 +48,7 @@ class FakeOidc:
         return {
             "iss": "https://identity.example.test",
             "sub": "user-123",
+            "owner": "built-in",
             "iat": now,
             "exp": now + 600,
             "name": "Test User",
@@ -222,3 +223,99 @@ def test_provider_claims_are_filtered_by_surface_local_allowlist() -> None:
     assert service._allowed_claims(
         ("profile:read root:all",), service.profile.scope_allowlist
     ) == ["profile:read"]
+
+
+class OwnerOidc(FakeOidc):
+    def __init__(self, owner: object) -> None:
+        self.owner = owner
+
+    async def exchange_authorization_code(self, **values: str) -> dict[str, object]:
+        claims = await super().exchange_authorization_code(**values)
+        if self.owner is None:
+            claims.pop("owner")
+        else:
+            claims["owner"] = self.owner
+        return claims
+
+
+async def _login_as(
+    surface: str, owner: object, config: Settings, monkeypatch: pytest.MonkeyPatch
+) -> object:
+    redis = FakeRedis()
+    monkeypatch.setattr(
+        session_store_module, "get_redis", lambda: FakeRedisHolder(redis)
+    )
+    service = StubAuthService(
+        surface,  # type: ignore[arg-type]
+        config,
+        OwnerOidc(owner),
+        sessions=RedisSessionStore(),
+        users=NoUserDirectory(),
+    )
+    start = await service.begin_login()
+    state = parse_qs(urlsplit(start.authorization_url).query)["state"][0]
+    return await service.complete_login(
+        code="code", state=state, transaction_id=start.transaction_id
+    )
+
+
+def user_org_settings() -> Settings:
+    return settings().model_copy(
+        update={
+            "casdoor_organization": "built-in",
+            "web_casdoor_organizations": "sunmoonai,partner",
+        }
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["sunmoonai", "partner", None, 7, ""])
+async def test_admin_surface_only_accepts_the_administrator_organization(
+    owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ForbiddenError, match="cannot sign in here"):
+        await _login_as("admin", owner, user_org_settings(), monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_admin_surface_accepts_built_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    session_start, _ = await _login_as(
+        "admin", "built-in", user_org_settings(), monkeypatch
+    )  # type: ignore[misc]
+    assert session_start.session_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["sunmoonai", "partner"])
+async def test_web_surface_accepts_every_listed_user_organization(
+    owner: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session_start, _ = await _login_as("web", owner, user_org_settings(), monkeypatch)  # type: ignore[misc]
+    assert session_start.session_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["built-in", "other", None])
+async def test_web_surface_rejects_organizations_outside_the_list(
+    owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ForbiddenError, match="cannot sign in here"):
+        await _login_as("web", owner, user_org_settings(), monkeypatch)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("web_casdoor_organizations", ""),
+        ("web_casdoor_organizations", " , "),
+        ("web_casdoor_organizations", "sunmoonai,bad name"),
+        ("casdoor_organization", ""),
+        ("casdoor_organization", "built-in,sunmoonai"),
+    ],
+)
+def test_browser_identity_requires_valid_organizations(field: str, value: str) -> None:
+    config = settings().model_copy(
+        update={"casdoor_endpoint": "https://identity.example.test", field: value}
+    )
+    with pytest.raises(ValueError, match="ORGANIZATION"):
+        config.require_browser_identity()

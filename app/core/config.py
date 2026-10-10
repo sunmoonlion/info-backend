@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
@@ -70,7 +71,10 @@ class Settings(BaseSettings):
     casdoor_endpoint: str = ""
     casdoor_discovery_url: str | None = None
     casdoor_backchannel_endpoint: str | None = None
+    # 管理端只认这个组织（Casdoor built-in，全局管理员所在）；网页端认下面的列表。
+    # 两者分开，是为了让普通用户（单独的用户组织）永远拿不到管理端会话。
     casdoor_organization: str = "built-in"
+    web_casdoor_organizations: str = "built-in"
     casdoor_verify_ssl: bool = True
 
     admin_casdoor_client_id: str = ""
@@ -507,10 +511,31 @@ class Settings(BaseSettings):
             )
         )
 
+    def allowed_organizations(self, surface: BrowserSurface) -> frozenset[str]:
+        if surface == "admin":
+            return frozenset(self._split_csv(self.casdoor_organization))
+        return frozenset(self._split_csv(self.web_casdoor_organizations))
+
     def require_browser_identity(self, surface: BrowserSurface | None = None) -> None:
         surfaces: tuple[BrowserSurface, ...] = (
             (surface,) if surface is not None else ("admin", "web")
         )
+        for item in surfaces:
+            organizations = self.allowed_organizations(item)
+            if not organizations or any(
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", name)
+                for name in organizations
+            ):
+                field = (
+                    "CASDOOR_ORGANIZATION"
+                    if item == "admin"
+                    else "WEB_CASDOOR_ORGANIZATIONS"
+                )
+                raise ValueError(f"{field} must name at least one valid organization")
+            if item == "admin" and len(organizations) != 1:
+                raise ValueError(
+                    "CASDOOR_ORGANIZATION must name exactly one organization"
+                )
         provider_origin = self._strict_origin(
             self.casdoor_endpoint, field="CASDOOR_ENDPOINT"
         )

@@ -201,6 +201,15 @@ class AuthService:
                 "The identity token is invalid",
                 code="token_invalid",
             )
+        # Casdoor 的 JWT 带用户所属组织（owner）。管理端只收管理员组织，网页端只收
+        # 配置的用户组织；哪怕 Casdoor 里应用的组织被改错，普通用户也进不了管理端。
+        organization = claims.get("owner")
+        if not isinstance(
+            organization, str
+        ) or organization not in self._settings.allowed_organizations(self.surface):
+            raise ForbiddenError(
+                "This account cannot sign in here", code="organization_not_allowed"
+            )
         local_user = await self._load_or_create_user(issuer, subject, claims)
         return Principal(
             actor_type="user",

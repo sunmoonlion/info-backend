@@ -40,8 +40,8 @@ def test_one_settings_root_exposes_isolated_browser_profiles() -> None:
     assert admin.client_secret != web.client_secret
     assert admin.redirect_uri.endswith("/api/auth/admin/callback")
     assert web.redirect_uri.endswith("/api/auth/web/callback")
-    assert admin.session_cookie_name == "sunmoonai_info_admin_sid"
-    assert web.session_cookie_name == "sunmoonai_info_web_sid"
+    assert admin.session_cookie_name == "sunmoonai_knowfeed_admin_sid"
+    assert web.session_cookie_name == "sunmoonai_knowfeed_web_sid"
     assert admin.session_key_prefix != web.session_key_prefix
     assert settings.frontend_origin_list == (
         "https://admin.example.test",
@@ -142,23 +142,23 @@ def test_same_backend_downstream_target_is_rejected() -> None:
 
 def test_service_identity_bindings_are_explicit_and_fail_closed() -> None:
     settings = production_settings(
-        service_auth_audience="knowledge-internal",
+        service_auth_audience="knowbase-internal",
         service_auth_subject_bindings_json=(
-            '{"research-agent-worker":["knowledge:retrieve"]}'
+            '{"research-agent-worker":["knowbase:retrieve"]}'
         ),
     )
     settings.require_service_identity()
     assert settings.service_auth_subject_bindings == {
-        "research-agent-worker": frozenset({"knowledge:retrieve"})
+        "research-agent-worker": frozenset({"knowbase:retrieve"})
     }
 
     with pytest.raises(ValueError, match="valid JSON"):
         production_settings(
-            service_auth_audience="knowledge-internal",
+            service_auth_audience="knowbase-internal",
             service_auth_subject_bindings_json="not-json",
         ).require_service_identity()
     with pytest.raises(ValueError, match="cannot be empty"):
         production_settings(
-            service_auth_audience="knowledge-internal",
+            service_auth_audience="knowbase-internal",
             service_auth_subject_bindings_json="{}",
         ).require_service_identity()

@@ -28,8 +28,8 @@ from app.infrastructure.messaging.durable_tasks import DurableTasks
 from app.infrastructure.securities import SqlDatasetRecords
 from app.infrastructure.storage import postgres as postgres_module
 
-BUILD = "info.security.dataset.build.v1"
-REGISTER = "info.security.dataset.register.v1"
+BUILD = "knowfeed.security.dataset.build.v1"
+REGISTER = "knowfeed.security.dataset.register.v1"
 
 
 def production_like(db):
@@ -175,7 +175,7 @@ async def test_a_succeeded_ingestion_queues_the_dataset_build(db, world):
         batch = await wiring.request_security_ingestion(s, sessions, "600009")
         ingestion_id = str(batch.id)
     assert await queued(db, BUILD) == 0
-    assert await runtime(db).consume(await message(db, "info.security.ingest.v1"))
+    assert await runtime(db).consume(await message(db, "knowfeed.security.ingest.v1"))
     assert await sql(db, "SELECT status FROM security_ingestion") == "succeeded"
     assert (
         await sql(
@@ -195,7 +195,7 @@ async def test_a_failed_ingestion_queues_nothing(db, world):
     sessions = production_like(db)
     async with sessions() as s:
         await wiring.request_security_ingestion(s, sessions, "600009")
-    assert await runtime(db).consume(await message(db, "info.security.ingest.v1"))
+    assert await runtime(db).consume(await message(db, "knowfeed.security.ingest.v1"))
     assert await sql(db, "SELECT status FROM security_ingestion") == "failed"
     assert await queued(db, BUILD) == 0
 
@@ -204,7 +204,7 @@ async def test_a_redelivered_ingestion_does_not_queue_a_second_build(db, world):
     sessions = production_like(db)
     async with sessions() as s:
         await wiring.request_security_ingestion(s, sessions, "600009")
-    message_id = await message(db, "info.security.ingest.v1")
+    message_id = await message(db, "knowfeed.security.ingest.v1")
     assert await runtime(db).consume(message_id)
     assert await runtime(db).consume(message_id) is False
     assert await queued(db, BUILD) == 1
@@ -352,7 +352,7 @@ async def test_the_whole_chain_from_a_code_to_a_registered_dataset(db, world):
     sessions = production_like(db)
     async with sessions() as s:
         await wiring.request_security_ingestion(s, sessions, "600009")
-    assert await runtime(db).consume(await message(db, "info.security.ingest.v1"))
+    assert await runtime(db).consume(await message(db, "knowfeed.security.ingest.v1"))
     assert await queued(db, BUILD) == 1
     record_id = await built_from_second_batch(db, world)
     assert await runtime(db).consume(await message(db, REGISTER))

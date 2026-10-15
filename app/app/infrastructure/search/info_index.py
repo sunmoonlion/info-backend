@@ -8,7 +8,7 @@ import httpx
 
 from core.config import get_settings
 
-INFO_INFORMATION_INDEX_MAPPING: dict[str, Any] = {
+KNOWFEED_INFORMATION_INDEX_MAPPING: dict[str, Any] = {
     "mappings": {
         "dynamic": "false",
         "properties": {
@@ -136,7 +136,7 @@ class InfoSearchIndex:
             if response.status_code == 404:
                 create_response = await client.put(
                     f"{self.base_url.rstrip('/')}/{self.index_name}",
-                    json=INFO_INFORMATION_INDEX_MAPPING,
+                    json=KNOWFEED_INFORMATION_INDEX_MAPPING,
                 )
                 create_response.raise_for_status()
                 return True

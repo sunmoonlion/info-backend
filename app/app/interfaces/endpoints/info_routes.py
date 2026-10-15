@@ -19,7 +19,7 @@ from app.application.services import info_crawl_service
 from app.domain.security import Principal
 from app.infrastructure.storage.crawl_concurrency import CrawlSourceBusy
 from app.infrastructure.storage.postgres import get_db_session
-from app.interfaces.http.middleware.auth import require_info_admin
+from app.interfaces.http.middleware.auth import require_knowfeed_admin
 from app.interfaces.schemas.info import (
     CollectorCreate,
     CollectorDiscoverRequest,
@@ -188,7 +188,7 @@ async def get_document(
 async def review_document(
     document_id: uuid.UUID,
     payload: DocumentReviewRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -208,7 +208,7 @@ async def review_document(
 async def mark_document_relation(
     document_id: uuid.UUID,
     payload: DocumentRelationRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -229,7 +229,7 @@ async def mark_document_relation(
 async def update_document_entity_links(
     document_id: uuid.UUID,
     payload: DocumentEntityLinksRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -252,7 +252,7 @@ async def update_document_entity_links(
 async def update_document_summary_profile(
     document_id: uuid.UUID,
     payload: DocumentSummaryProfileRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:
@@ -288,7 +288,7 @@ async def review_document_version(
     document_id: uuid.UUID,
     version_id: uuid.UUID,
     payload: DocumentVersionReviewRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     try:

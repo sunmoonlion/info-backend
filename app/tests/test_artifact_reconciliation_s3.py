@@ -103,7 +103,7 @@ async def test_db_failure_leaves_recoverable_inventory_then_successful_retry(
     with pytest.raises(RuntimeError):
         await upload(db)
     assert await sql(db, "SELECT count(*) FROM raw_artifact") == 0
-    assert await sql(db, "SELECT count(*) FROM info_document_version") == 0
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 0
     assert await sql(db, "SELECT count(*) FROM outbox_message") == 0
     recent = await scan(db, s3)
     assert recent["counts"] == {"unregistered_recent": 3}

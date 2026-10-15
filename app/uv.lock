@@ -708,7 +708,7 @@ wheels = [
 ]
 
 [[package]]
-name = "info-backend"
+name = "knowfeed-backend"
 version = "2.0.0"
 source = { virtual = "." }
 dependencies = [

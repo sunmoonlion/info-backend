@@ -178,25 +178,25 @@ async def test_client_credentials_use_explicit_service_identity() -> None:
         transport=httpx.MockTransport(handler),
     )
     await oidc.exchange_client_credentials(
-        scope="knowledge:read",
+        scope="knowbase:read",
         client_id="service-client",
         client_secret="service-secret",
     )
     assert observed["client_id"] == ["service-client"]
-    assert observed["scope"] == ["knowledge:read"]
+    assert observed["scope"] == ["knowbase:read"]
 
 
 @pytest.mark.asyncio
 async def test_workload_access_token_requires_exact_audience_and_signature() -> None:
     key = RSAKey.generate_key(parameters={"kid": "test-key"})
-    oidc = client("admin", token(key, "knowledge-internal"), key)
+    oidc = client("admin", token(key, "knowbase-internal"), key)
     claims = await oidc.verify_access_token(
-        token(key, "knowledge-internal", scope="knowledge:retrieve"),
-        audience="knowledge-internal",
+        token(key, "knowbase-internal", scope="knowbase:retrieve"),
+        audience="knowbase-internal",
     )
     assert claims["sub"] == "user-123"
     with pytest.raises(UnauthorizedError) as error:
         await oidc.verify_access_token(
-            token(key, "wrong-audience"), audience="knowledge-internal"
+            token(key, "wrong-audience"), audience="knowbase-internal"
         )
     assert error.value.code == "audience_mismatch"

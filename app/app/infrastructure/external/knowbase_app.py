@@ -13,7 +13,7 @@ from app.infrastructure.security import OidcProviderClient
 from core.config import Settings, get_settings
 
 
-class KnowledgeAppNotConfiguredError(RuntimeError):
+class KnowbaseAppNotConfiguredError(RuntimeError):
     pass
 
 
@@ -23,7 +23,7 @@ class ServiceTokenProvider:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         service_discovery_url = (
-            settings.knowledge_app_service_discovery_url
+            settings.knowbase_app_service_discovery_url
             or settings.casdoor_discovery_endpoint
         )
         service_endpoint = settings.casdoor_endpoint
@@ -38,7 +38,7 @@ class ServiceTokenProvider:
                 "casdoor_endpoint": service_endpoint,
                 "casdoor_discovery_url": service_discovery_url,
                 "casdoor_backchannel_endpoint": (
-                    settings.knowledge_app_service_backchannel_endpoint
+                    settings.knowbase_app_service_backchannel_endpoint
                 ),
             }
         )
@@ -51,10 +51,10 @@ class ServiceTokenProvider:
         self._lock = asyncio.Lock()
 
     async def get_token(self) -> str:
-        client_id = self._settings.knowledge_app_service_client_id
-        client_secret = self._settings.knowledge_app_service_client_secret
+        client_id = self._settings.knowbase_app_service_client_id
+        client_secret = self._settings.knowbase_app_service_client_secret
         if not client_id or not client_secret:
-            raise KnowledgeAppNotConfiguredError(
+            raise KnowbaseAppNotConfiguredError(
                 "Knowledge service client credentials are not configured"
             )
         now = time.time()
@@ -66,7 +66,7 @@ class ServiceTokenProvider:
             if self._access_token and self._expires_at > now + 30:
                 return self._access_token
             body = await self._oidc.exchange_client_credentials(
-                scope=self._settings.knowledge_app_service_scope,
+                scope=self._settings.knowbase_app_service_scope,
                 client_id=client_id,
                 client_secret=client_secret,
             )
@@ -82,7 +82,7 @@ class ServiceTokenProvider:
 
 
 @dataclass
-class KnowledgeAppClient:
+class KnowbaseAppClient:
     ingest_url: str | None
     token_provider: ServiceTokenProvider | None
     timeout_seconds: float
@@ -93,7 +93,7 @@ class KnowledgeAppClient:
 
     async def ingest_document(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.ingest_url or not self.token_provider:
-            raise KnowledgeAppNotConfiguredError(
+            raise KnowbaseAppNotConfiguredError(
                 "Knowledge service client credentials or ingest URL are not configured"
             )
         token = await self.token_provider.get_token()
@@ -115,14 +115,14 @@ class KnowledgeAppClient:
 
 
 @lru_cache(maxsize=1)
-def get_knowledge_app_client() -> KnowledgeAppClient:
+def get_knowbase_app_client() -> KnowbaseAppClient:
     settings = get_settings()
-    return KnowledgeAppClient(
-        ingest_url=settings.knowledge_app_ingest_url,
+    return KnowbaseAppClient(
+        ingest_url=settings.knowbase_app_ingest_url,
         token_provider=(
             ServiceTokenProvider(settings)
-            if settings.knowledge_app_ingest_enabled
+            if settings.knowbase_app_ingest_enabled
             else None
         ),
-        timeout_seconds=settings.knowledge_app_timeout_seconds,
+        timeout_seconds=settings.knowbase_app_timeout_seconds,
     )

@@ -4,13 +4,13 @@ from core.config import get_settings
 def test_database_url_uses_asyncpg_and_drops_sslmode(monkeypatch) -> None:
     monkeypatch.setenv(
         "DATABASE_URL",
-        "postgresql://info:secret@postgresql:5432/info_admin?sslmode=disable&application_name=info",
+        "postgresql://knowfeed:secret@postgresql:5432/info_admin?sslmode=disable&application_name=info",
     )
     get_settings.cache_clear()
     settings = get_settings()
     try:
         assert settings.database_url == (
-            "postgresql+asyncpg://info:secret@postgresql:5432/"
+            "postgresql+asyncpg://knowfeed:secret@postgresql:5432/"
             "info_admin?application_name=info"
         )
     finally:

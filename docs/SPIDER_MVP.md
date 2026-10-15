@@ -1,14 +1,14 @@
 # Info Admin Backend Spider MVP
 
-本目录实现 `info-app` 第一阶段采集闭环：
+本目录实现 `knowfeed-app` 第一阶段采集闭环：
 
 ```text
-URL -> crawl_job -> raw artifact -> extracted content -> info_document -> document_version
+URL -> crawl_job -> raw artifact -> extracted content -> knowfeed_document -> document_version
 ```
 
 ## 1. 数据库迁移
 
-在 `info-backend/app` 下通过独立迁移进程执行：
+在 `knowfeed-backend/app` 下通过独立迁移进程执行：
 
 ```bash
 uv sync --frozen
@@ -23,14 +23,14 @@ uv run python -m app.bootstrap.migration upgrade head
 
 ```text
 STORAGE_BACKEND=local
-STORAGE_LOCAL_ROOT=.local-storage/info-originals
-S3_BUCKET=development-info-originals
+STORAGE_LOCAL_ROOT=.local-storage/knowfeed-originals
+S3_BUCKET=development-knowfeed-originals
 ```
 
 产物会写入：
 
 ```text
-.local-storage/info-originals/development-info-originals/
+.local-storage/knowfeed-originals/development-knowfeed-originals/
 ```
 
 平台 S3 已用本机 kind MinIO/AIStor 验证：`STORAGE_BACKEND=s3` 下 crawl job
@@ -57,7 +57,7 @@ Elasticsearch/OpenSearch 是可重建读模型，默认关闭：
 ```text
 SEARCH_BACKEND=disabled
 ELASTICSEARCH_URL=https://localhost:9200
-ELASTICSEARCH_INDEX=info-information
+ELASTICSEARCH_INDEX=knowfeed-information
 ELASTICSEARCH_TIMEOUT_SECONDS=10
 ```
 
@@ -73,7 +73,7 @@ SEARCH_BACKEND=elasticsearch
 curl -X POST 'http://localhost:8000/api/admin/search-index/rebuild?limit=200'
 ```
 
-重建入口持久排队 `info.index.v1`，返回 `queued`（已排队数量）；`indexed=0`
+重建入口持久排队 `knowfeed.index.v1`，返回 `queued`（已排队数量）；`indexed=0`
 不表示后台已完成。Worker 执行时才创建索引并写入。新 `document_version` 与索引
 命令在同一数据库事务提交；broker 不可用时命令仍保留，由 Scheduler 恢复投递。
 
@@ -171,7 +171,7 @@ curl -X POST http://localhost:8000/api/documents/{document_id}/versions/{version
   -d '{"extraction_status":"reviewed","reviewer":"alice","reason":"正文抽取可用"}'
 ```
 
-创建待分发到 `knowledge-app` 的记录：
+创建待分发到 `knowbase-app` 的记录：
 
 ```bash
 curl -X POST http://localhost:8000/api/admin/distributions/knowledge \
@@ -186,17 +186,17 @@ curl 'http://localhost:8000/api/admin/distributions?status=failed'
 
 curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/status \
   -H 'Content-Type: application/json' \
-  -d '{"status":"failed","last_error":"knowledge-app timeout","metadata":{"remote_id":"abc"}}'
+  -d '{"status":"failed","last_error":"knowbase-app timeout","metadata":{"remote_id":"abc"}}'
 
 curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/retry
 ```
 
-配置 `knowledge-app` ingestion API 后，可手动触发投递：
+配置 `knowbase-app` ingestion API 后，可手动触发投递：
 
 ```text
-KNOWLEDGE_APP_INGEST_URL=http://knowledge-admin-backend:8000/api/knowledge/ingestions
-KNOWLEDGE_APP_API_KEY=optional-shared-secret
-KNOWLEDGE_APP_TIMEOUT_SECONDS=20
+KNOWBASE_APP_INGEST_URL=http://knowbase-admin-backend:8000/api/knowledge/ingestions
+KNOWBASE_APP_API_KEY=optional-shared-secret
+KNOWBASE_APP_TIMEOUT_SECONDS=20
 ```
 
 ```bash
@@ -204,7 +204,7 @@ curl -X POST http://localhost:8000/api/admin/distributions/{distribution_id}/dis
 ```
 
 也可在创建记录时设置 `"dispatch": true`，与记录同事务写入持久命令，之后由
-Scheduler/Worker 投递执行。未配置 `KNOWLEDGE_APP_INGEST_URL` 时记录保持
+Scheduler/Worker 投递执行。未配置 `KNOWBASE_APP_INGEST_URL` 时记录保持
 `pending`，并在 `last_error` / `payload.status_history` 里标记跳过原因。
 
 分发请求遵循 Knowledge Provider 的 Artifact Contract v1：仅发送带 S3 对象版本、
@@ -213,7 +213,7 @@ SHA-256、大小和 media type 的不可变 `s3://` 引用。Knowledge 使用自
 
 ## 5. Celery
 
-`POST /api/admin/crawl-jobs` 的 `enqueue=true` 将采集与 `info.crawl.v1`
+`POST /api/admin/crawl-jobs` 的 `enqueue=true` 将采集与 `knowfeed.crawl.v1`
 命令同事务保存；`enqueue=false` 仅建单。`POST /api/admin/crawl-jobs/{job_id}/run`
 请求持久排队，返回当前作业状态，不在 HTTP 请求内同步采集。失败作业再次请求时
 递增执行代次；成功作业不会重新抓取。
@@ -223,7 +223,7 @@ SHA-256、大小和 media type 的不可变 `s3://` 引用。Knowledge 使用自
 `dispatch_distribution` Celery 入口拒绝绕过公共消费者。运维、迁移与回滚见
 [可靠投递](durable-delivery-luna.md)。
 
-历史版本曾验证平台 RabbitMQ 默认队列路由：`info.admin.default` 使用同名 direct exchange
+历史版本曾验证平台 RabbitMQ 默认队列路由：`knowfeed.admin.default` 使用同名 direct exchange
 和 routing key。验证 job `a14ebe20-2bf1-422a-8637-fc9178ebff9c` 由 API 投递后被
 本地 worker 消费，采集成功，并继续投递/执行 `app.tasks.index_document_version`。
 
@@ -242,15 +242,15 @@ SHA-256、大小和 media type 的不可变 `s3://` 引用。Knowledge 使用自
 - 已实现实体/主题关联标注 API：可记录公司、证券、行业、主题到 `metadata_json.entity_links`，并保留标注历史。
 - 已实现摘要、标签和重要性评分标注 API：写入 `metadata_json.summary_profile`，并保留 `summary_history`。
 - 已实现统一人工治理审计日志：review、relation、entity-links、summary-profile 都会追加 `metadata_json.audit_log`。
-- 已实现 Info App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
+- 已实现 Knowfeed App `information` 搜索索引 mapping、Elasticsearch/OpenSearch 写入 adapter 和手动重建入口。
 - 已实现 `document_version` 与索引命令同事务提交，后台可靠消费；搜索关闭时消费记为跳过。
 - 搜索 adapter 已支持平台注入的 `ELASTICSEARCH_USERNAME`、`ELASTICSEARCH_PASSWORD`、`ELASTICSEARCH_CA_CERT_PATH` 和 `ELASTICSEARCH_ALIASES`，会优先写入 `information.write` alias。
 - 已通过平台 Elasticsearch Secret/CA 和 `development-info-app-information-write` alias 验证真实写入权限；验证文档写入后已删除。
 - 历史版本通过过平台 RabbitMQ 的旧后台任务链；当前公共可靠投递需独立运行证据。
-- 已实现 `knowledge-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
+- 已实现 `knowbase-app` 分发记录、payload 生成、状态对账、失败重试和可配置 ingestion API 投递。
 - 已实现文档和抽取版本审核状态调整，审核记录保存在 `metadata_json.review_history`。
 - 已在本机 kind PostgreSQL / Redis 和本地对象存储配置下执行 migration，并通过本机 HTTP 页面验证同步 crawl job 成功路径。
 - 已实现 Scrapy 和 Playwright 外部结果导入 adapter；真实 Scrapy/Playwright 执行仍由后续专用 crawler worker 承担。
-- 已新增管理前端最小页面 `info-admin-frontend/src/pages/info/crawl.vue`，并通过 `pnpm type-check` 与 `pnpm build-only` 验证。
+- 已新增管理前端最小页面 `knowfeed-admin-frontend/src/pages/knowfeed/crawl.vue`，并通过 `pnpm type-check` 与 `pnpm build-only` 验证。
 - 当前本机外网抓取 `https://example.com` 超时，API 已能记录为 crawl job 业务失败，不再返回 500。
 - 尚未实现完整反爬策略。

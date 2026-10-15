@@ -121,7 +121,7 @@ async def _resolve(host: str, port: int) -> list[str]:
             pass  # Caller timed out and its event loop has already closed.
 
     try:
-        threading.Thread(target=lookup, name="info-crawl-dns", daemon=True).start()
+        threading.Thread(target=lookup, name="knowfeed-crawl-dns", daemon=True).start()
     except RuntimeError:
         _DNS_SLOTS.release()
         raise CrawlFetchError("crawl_dns_unavailable") from None

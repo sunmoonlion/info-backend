@@ -19,7 +19,7 @@ from sqlalchemy import select, text
 
 from app.infrastructure.models.info import ExtractedContent, RawArtifact
 
-PREFIX = "info/original/"
+PREFIX = "knowfeed/original/"
 MAX_PAGE = 100
 
 

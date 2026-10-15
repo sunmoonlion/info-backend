@@ -37,7 +37,7 @@ def source_lock_key(source_id: uuid.UUID | None, url: str) -> int:
         # Invalid URLs still reach the fetch validator and its durable failure
         # path. Never use a unique random key that would bypass source admission.
         identity = "host:" + host if host else "invalid-url"
-    digest = hashlib.sha256(("info.crawl.source.v1:" + identity).encode()).digest()
+    digest = hashlib.sha256(("knowfeed.crawl.source.v1:" + identity).encode()).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 

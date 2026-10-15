@@ -25,9 +25,9 @@ def settings() -> Settings:
     return Settings(
         _env_file=None,
         casdoor_endpoint="https://identity.example.test",
-        service_auth_audience="knowledge-internal",
+        service_auth_audience="knowbase-internal",
         service_auth_subject_bindings_json=(
-            '{"research-agent-worker":["knowledge:retrieve","profile:read"]}'
+            '{"research-agent-worker":["knowbase:retrieve","profile:read"]}'
         ),
     )
 
@@ -37,10 +37,10 @@ def claims(**overrides: object) -> dict[str, object]:
     result: dict[str, object] = {
         "iss": "https://identity.example.test",
         "sub": "research-agent-worker",
-        "aud": "knowledge-internal",
+        "aud": "knowbase-internal",
         "iat": now,
         "exp": now + 300,
-        "scope": "knowledge:retrieve",
+        "scope": "knowbase:retrieve",
     }
     result.update(overrides)
     return result
@@ -51,12 +51,12 @@ async def test_service_identity_enforces_subject_and_scope_binding() -> None:
     fake = FakeOidcClient(claims())
     verifier = ServiceIdentityVerifier(settings(), oidc_client=fake)  # type: ignore[arg-type]
     principal = await verifier.verify(
-        "signed-token", required_scopes=frozenset({"knowledge:retrieve"})
+        "signed-token", required_scopes=frozenset({"knowbase:retrieve"})
     )
     assert principal.actor_type == "service"
     assert principal.surface == "internal"
     assert principal.subject == "research-agent-worker"
-    assert fake.audience == "knowledge-internal"
+    assert fake.audience == "knowbase-internal"
 
 
 @pytest.mark.asyncio
@@ -71,11 +71,11 @@ async def test_service_identity_rejects_unbound_or_escalated_scope() -> None:
     escalated = ServiceIdentityVerifier(  # type: ignore[arg-type]
         settings(),
         oidc_client=FakeOidcClient(
-            claims(scope="knowledge:retrieve knowledge:admin")
+            claims(scope="knowbase:retrieve knowbase:admin")
         ),
     )
     with pytest.raises(ForbiddenError) as error:
         await escalated.verify(
-            "signed-token", required_scopes=frozenset({"knowledge:retrieve"})
+            "signed-token", required_scopes=frozenset({"knowbase:retrieve"})
         )
     assert error.value.code == "service_scope_denied"

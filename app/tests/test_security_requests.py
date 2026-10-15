@@ -18,7 +18,7 @@ from app.domain.securities.requests import (
     progress_after_approval,
 )
 
-KNOWN = frozenset({"investment", "knowledge"})
+KNOWN = frozenset({"investment", "knowbase"})
 
 
 # ---------------------------------------------------------------- 进度怎么推
@@ -430,4 +430,4 @@ def test_request_settings():
 
     blank = Settings(_env_file=None)
     assert blank.security_request_max_open == 5
-    assert set(blank.cross_app_sources()) == {"investment", "knowledge"}
+    assert set(blank.cross_app_sources()) == {"investment", "knowbase"}

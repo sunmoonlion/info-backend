@@ -3,8 +3,8 @@ from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 LEGACY_INFRASTRUCTURE_NAMES = (
-    "info-admin-backend",
-    "info-web-backend",
+    "knowfeed-admin-backend",
+    "knowfeed-web-backend",
     "info_admin_backend",
     "info_admin_user",
 )
@@ -16,9 +16,9 @@ def test_access_declarations_use_unified_info_backend_identity() -> None:
         "storage-access-bootstrap/config/access.json",
     ):
         declaration = json.loads((BACKEND_ROOT / relative_path).read_text())
-        assert declaration["metadata"]["name"] == "info-backend"
-        assert declaration["spec"]["app"] == "info-app"
-        assert declaration["spec"]["backend"] == "info-backend"
+        assert declaration["metadata"]["name"] == "knowfeed-backend"
+        assert declaration["spec"]["app"] == "knowfeed-app"
+        assert declaration["spec"]["backend"] == "knowfeed-backend"
 
 
 def test_database_bootstrap_has_no_legacy_identity_or_committed_password() -> None:
@@ -37,6 +37,6 @@ def test_database_bootstrap_has_no_legacy_identity_or_committed_password() -> No
 
 def test_build_uses_unified_backend_identity() -> None:
     build_conf = (BACKEND_ROOT / "mybuild" / "build.conf").read_text()
-    assert 'BACKEND_IMAGE="info-backend"' in build_conf
+    assert 'BACKEND_IMAGE="knowfeed-backend"' in build_conf
     assert 'BACKEND_TAG="architecture-v2-dev"' in build_conf
     assert "ADMIN_BACKEND_IMAGE" not in build_conf

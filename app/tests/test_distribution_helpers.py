@@ -17,29 +17,29 @@ from app.application.services.info_crawl_service import (
     _knowledge_ingestion_payload,
     _select_distribution_artifact,
 )
-from app.infrastructure.external.knowledge_app import (
-    KnowledgeAppClient,
-    KnowledgeAppNotConfiguredError,
+from app.infrastructure.external.knowbase_app import (
+    KnowbaseAppClient,
+    KnowbaseAppNotConfiguredError,
 )
 
 
 def _provider_contract_path() -> Path:
-    configured = os.environ.get("KNOWLEDGE_ARTIFACT_CONTRACT_PATH")
+    configured = os.environ.get("KNOWBASE_ARTIFACT_CONTRACT_PATH")
     if configured:
         return Path(configured)
     return (
         Path(__file__).resolve().parents[4]
-        / "knowledge-app/contracts/artifact/v1/info-knowledge-artifact.schema.json"
+        / "knowbase-app/contracts/artifact/v1/knowfeed-knowbase-artifact.schema.json"
     )
 
 
 def _consumer_contract_lock() -> dict[str, Any]:
-    configured = os.environ.get("KNOWLEDGE_PROVIDER_LOCK_PATH")
+    configured = os.environ.get("KNOWBASE_PROVIDER_LOCK_PATH")
     lock_path = (
         Path(configured)
         if configured
         else Path(__file__).resolve().parents[3]
-        / "contracts/knowledge-provider-lock.json"
+        / "contracts/knowbase-provider-lock.json"
     )
     return json.loads(lock_path.read_text())
 
@@ -135,8 +135,8 @@ def test_artifact_contract_payload_validates_against_provider_schema() -> None:
             Any,
             SimpleNamespace(
                 artifact_type="clean_markdown",
-                bucket="development-info-originals",
-                object_key="info/original/doc/clean file.md",
+                bucket="development-knowfeed-originals",
+                object_key="knowfeed/original/doc/clean file.md",
                 version_id="version-1",
                 sha256="a" * 64,
                 size_bytes=12,
@@ -185,11 +185,11 @@ async def test_distribution_rejects_unversioned_artifact() -> None:
 
 @pytest.mark.asyncio
 async def test_knowledge_app_client_requires_ingest_url() -> None:
-    client = KnowledgeAppClient(
+    client = KnowbaseAppClient(
         ingest_url=None,
         token_provider=None,
         timeout_seconds=1.0,
     )
 
-    with pytest.raises(KnowledgeAppNotConfiguredError):
+    with pytest.raises(KnowbaseAppNotConfiguredError):
         await client.ingest_document({"source_document_id": "doc-1"})

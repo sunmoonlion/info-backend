@@ -22,7 +22,7 @@
 命令行，登记并立即执行：
 
 ```bash
-cd info-backend/app
+cd knowfeed-backend/app
 uv run python -m app.cli.security_ingest --code 600009
 ```
 
@@ -36,7 +36,7 @@ GET  /api/admin/securities/{code}/ingestions        → 该代码的批次列表
 GET  /api/admin/security-ingestions/{ingestion_id}  → 批次与每个条目
 ```
 
-后台任务的主题是 `info.security.ingest.v1`。批次失败是批次的终态，不触发重新投递；同一批次被重复投递时不会再跑，上次执行被打断的批次记为 `interrupted`。
+后台任务的主题是 `knowfeed.security.ingest.v1`。批次失败是批次的终态，不触发重新投递；同一批次被重复投递时不会再跑，上次执行被打断的批次记为 `interrupted`。
 
 ## 放在哪
 
@@ -51,7 +51,7 @@ GET  /api/admin/security-ingestions/{ingestion_id}  → 批次与每个条目
 
 数据表：`security_ingestion`（批次）、`security_ingestion_item`（条目），迁移 `20260927_0010`。每个请求另有一条 `crawl_job`（请求记录）；响应原文是一条 `raw_artifact`。
 
-对象键由内容决定：`info/securities/code=<代码>/source=<来源>/sha256=<前两位>/<sha256>/<文件名>`。同一内容重采不新增对象，条目的 `reused` 为真。
+对象键由内容决定：`knowfeed/securities/code=<代码>/source=<来源>/sha256=<前两位>/<sha256>/<文件名>`。同一内容重采不新增对象，条目的 `reused` 为真。
 
 ## 取数边界的两处扩展
 
@@ -115,7 +115,7 @@ GET  /api/admin/security-ingestions/{ingestion_id}  → 批次与每个条目
 ## 怎么用
 
 ```bash
-cd info-backend/app
+cd knowfeed-backend/app
 uv run python -m app.cli.security_dataset --code 600009            # 用最近一个成功的批次
 uv run python -m app.cli.security_dataset --ingestion <批次标识> --out ./sh600009.sqlite
 ```
@@ -280,11 +280,11 @@ uv run python -m app.cli.security_dataset --ingestion <批次标识> --out ./sh6
 # 向知识服务登记，以及三步任务链
 
 > 设计：k8s 库 `tree-build/SDD/modules/0008-info.md`「数据集文件进对象存储，向知识服务登记」。2026-09-27。
-> 对方的接口说明在 knowledge-backend 的 `docs/dataset-registry.md`。
+> 对方的接口说明在 knowbase-backend 的 `docs/dataset-registry.md`。
 
 ## 做什么
 
-数据集建好并通过质量检查之后，把它的**位置与校验值**登记到知识服务。文件不经 info 传过去：
+数据集建好并通过质量检查之后，把它的**位置与校验值**登记到知识服务。文件不经 knowfeed 传过去：
 知识服务按登记的桶、对象键、对象版本、sha256 自己去对象存储取，取到的内容对不上就不用。
 
 ## 三步任务链
@@ -294,9 +294,9 @@ uv run python -m app.cli.security_dataset --ingestion <批次标识> --out ./sh6
 
 | 任务 | 做什么 | 什么时候排下一步 | 失败怎么办 |
 | --- | --- | --- | --- |
-| `info.security.ingest.v1` | 采集一个批次 | 批次成功 | 采集失败是批次的终态，不重投 |
-| `info.security.dataset.build.v1` | 从批次建数据集 | 质量检查通过，且知识服务已配置 | 原文有问题（缺表等）记日志后结束；存储、数据库故障由投递机制重试 |
-| `info.security.dataset.register.v1` | 向知识服务登记 | 无 | 对方不可达、限流、5xx：重试；被拒绝（冲突、不合规、身份不对、对方没开登记）：记下错误码，不重试 |
+| `knowfeed.security.ingest.v1` | 采集一个批次 | 批次成功 | 采集失败是批次的终态，不重投 |
+| `knowfeed.security.dataset.build.v1` | 从批次建数据集 | 质量检查通过，且知识服务已配置 | 原文有问题（缺表等）记日志后结束；存储、数据库故障由投递机制重试 |
+| `knowfeed.security.dataset.register.v1` | 向知识服务登记 | 无 | 对方不可达、限流、5xx：重试；被拒绝（冲突、不合规、身份不对、对方没开登记）：记下错误码，不重试 |
 
 质量检查没过的数据集不登记（`F-INFO-07`）；任务这一层和登记服务自身各拦一次。
 
@@ -304,13 +304,13 @@ uv run python -m app.cli.security_dataset --ingestion <批次标识> --out ./sh6
 
 | 环境变量 | 含义 |
 | --- | --- |
-| `KNOWLEDGE_APP_DATASET_URL` | 知识服务登记接口的完整地址，`…/api/internal/v1/knowledge/datasets` |
-| `KNOWLEDGE_APP_SERVICE_CLIENT_ID`、`KNOWLEDGE_APP_SERVICE_CLIENT_SECRET` | 与文档入库用同一个服务身份，权限 `knowledge:ingest` |
+| `KNOWBASE_APP_DATASET_URL` | 知识服务登记接口的完整地址，`…/api/internal/v1/knowledge/datasets` |
+| `KNOWBASE_APP_SERVICE_CLIENT_ID`、`KNOWBASE_APP_SERVICE_CLIENT_SECRET` | 与文档入库用同一个服务身份，权限 `knowbase:ingest` |
 
 三项不全时视为没配置：建好数据集后不排登记任务，手动登记返回 `registrar_not_configured`。
 
-部署时还要两件事（段五）：知识服务打开 `knowledge_dataset_registry_enabled`，把 info 的桶写进
-`knowledge_dataset_allowed_buckets`；知识服务的存储账号对 info 的桶有只读权限。
+部署时还要两件事（段五）：知识服务打开 `knowbase_dataset_registry_enabled`，把 knowfeed 的桶写进
+`knowbase_dataset_allowed_buckets`；知识服务的存储账号对 knowfeed 的桶有只读权限。
 
 ## 怎么用
 
@@ -344,8 +344,8 @@ POST /api/admin/security-datasets/{数据集记录标识}/registration
 
 ## 还没在真实环境验过的
 
-本机没有对象存储服务，所以「info 登记 → 知识服务从对象存储取回文件」这一段只在两边各自用替身验过：
-info 发出的请求体与知识服务的接口定义逐项对应；知识服务用 info 实建的 600009 数据集原件验证读得了。
+本机没有对象存储服务，所以「knowfeed 登记 → 知识服务从对象存储取回文件」这一段只在两边各自用替身验过：
+knowfeed 发出的请求体与知识服务的接口定义逐项对应；知识服务用 knowfeed 实建的 600009 数据集原件验证读得了。
 两个服务连起来跑要等段五。
 
 ## 测试

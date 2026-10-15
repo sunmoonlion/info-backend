@@ -1,4 +1,4 @@
-"""给网页端的预览造样例（info-web-frontend `preview/fixtures/`）。
+"""给网页端的预览造样例（knowfeed-web-frontend `preview/fixtures/`）。
 
 各种进度由真的申请服务、真的库、真的接口造出来；采集与建库走到哪一步，
 是往采集批次、数据集这两张表里直接写出来的（和接口的测试同一个做法）。
@@ -33,7 +33,7 @@ from app.interfaces.http.admin import securities as securities_admin_routes
 from app.interfaces.http.admin import security_requests as admin_routes
 from app.interfaces.http.middleware.auth import (
     get_web_current_user,
-    require_info_admin,
+    require_knowfeed_admin,
 )
 from app.interfaces.http.web import cross_app as cross_app_routes
 from app.interfaces.http.web import security_requests as web_routes
@@ -49,17 +49,17 @@ async def served(db, monkeypatch):  # noqa: F811
         _env_file=None,
         cross_app_sources_json=(
             '{"investment": {"return_url":'
-            ' "http://localhost:3100/zh-CN/workbench?ref={ref}"}, "knowledge": {}}'
+            ' "http://localhost:3100/zh-CN/workbench?ref={ref}"}, "knowbase": {}}'
         ),
         cross_app_targets_json=(
-            '{"knowledge": {"web_base_url": "http://localhost:3120"}}'
+            '{"knowbase": {"web_base_url": "http://localhost:3120"}}'
         ),
         # 打开「向知识服务登记」：这样才有「登记中」「登记失败」这两种进度
-        KNOWLEDGE_APP_DATASET_URL="http://knowledge.invalid/api/internal/datasets",
-        KNOWLEDGE_APP_SERVICE_CLIENT_ID="preview",
-        KNOWLEDGE_APP_SERVICE_CLIENT_SECRET="preview-not-a-secret",
+        KNOWBASE_APP_DATASET_URL="http://knowledge.invalid/api/internal/datasets",
+        KNOWBASE_APP_SERVICE_CLIENT_ID="preview",
+        KNOWBASE_APP_SERVICE_CLIENT_SECRET="preview-not-a-secret",
     )
-    assert config.knowledge_app_dataset_enabled
+    assert config.knowbase_app_dataset_enabled
     who = {"actor": ALICE}
 
     async def session():
@@ -82,15 +82,15 @@ async def served(db, monkeypatch):  # noqa: F811
     app = FastAPI()
     app.include_router(web_routes.router, prefix="/api")
     app.include_router(admin_routes.router, prefix="/api")
-    # 证券采集的管理接口：正式环境里是挂在管理面下、要求 info 管理员的
+    # 证券采集的管理接口：正式环境里是挂在管理面下、要求 knowfeed 管理员的
     app.include_router(securities_admin_routes.router, prefix="/api")
     app.include_router(cross_app_routes.router, prefix="/api")
     app.dependency_overrides[cross_app_routes.cross_app_settings] = lambda: config
     app.dependency_overrides[get_db_session] = session
     app.dependency_overrides[get_web_current_user] = web_user
-    app.dependency_overrides[require_info_admin] = admin_user
+    app.dependency_overrides[require_knowfeed_admin] = admin_user
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://info"
+        transport=httpx.ASGITransport(app=app), base_url="http://knowfeed"
     ) as client:
         yield SimpleNamespace(http=client, db=db, who=who)
 
@@ -289,7 +289,7 @@ async def build_full(world: World) -> None:
         "/zh-CN/requests/new?code=600585&from=investment&ref=task:42",
     )
     rec.page(
-        "申请入库（这家已经有数据）", "/zh-CN/requests/new?code=002594&from=knowledge"
+        "申请入库（这家已经有数据）", "/zh-CN/requests/new?code=002594&from=knowbase"
     )
     rec.page("申请入库（我已经申请过）", "/zh-CN/requests/new?code=601012")
     rec.page("申请入库（代码不对）", "/zh-CN/requests/new?code=12345")
@@ -355,9 +355,9 @@ async def record_admin(world: World, out: Path) -> tuple[Path, dict[str, Any]]:
         await rec.get(http, f"/api/admin/securities/{code}/datasets")
         for batch in batches[:1]:
             await rec.get(http, f"/api/admin/security-ingestions/{batch['id']}")
-    rec.page("申请审批", "/zh-CN/info/requests")
-    rec.page("证券采集", "/zh-CN/info/securities")
-    rec.page("关注清单", "/zh-CN/info/watchlist")
+    rec.page("申请审批", "/zh-CN/knowfeed/requests")
+    rec.page("证券采集", "/zh-CN/knowfeed/securities")
+    rec.page("关注清单", "/zh-CN/knowfeed/watchlist")
     directory = rec.write(out)
     return directory, json.loads((directory / "manifest.json").read_text())
 

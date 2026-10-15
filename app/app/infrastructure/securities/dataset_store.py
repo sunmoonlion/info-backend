@@ -16,7 +16,7 @@ from app.infrastructure.storage.object_storage import ObjectStorage
 
 
 def dataset_prefix(*, code: str, data_version: str) -> str:
-    return f"info/securities/code={code}/datasets/{data_version}"
+    return f"knowfeed/securities/code={code}/datasets/{data_version}"
 
 
 class SqlDatasetStore:

@@ -1,7 +1,7 @@
 # storage-access-bootstrap (unified backend)
 
 This directory declares and provisions standard S3 access for
-`info-backend`.
+`knowfeed-backend`.
 
 It is disabled by default. Enable it only when this Backend owns a distinct
 set of object data inside the App domain.
@@ -17,14 +17,14 @@ The declaration contains no credentials. The Data Platform provisioner creates
 an IAM identity and writes these resources to the target Namespace:
 
 ```text
-Secret:    info-backend-s3
-ConfigMap: info-backend-s3
+Secret:    knowfeed-backend-s3
+ConfigMap: knowfeed-backend-s3
 ```
 
 The Backend Deployment should reference both resources with `envFrom`.
 The architecture-v2 deployment generator must reference both resources with
 `envFrom`. The exact Deployment wiring is established during R5; do not copy
-the legacy `info-admin-backend` K8s scaffold into the unified Backend.
+the legacy `knowfeed-admin-backend` K8s scaffold into the unified Backend.
 
 ## Commands
 

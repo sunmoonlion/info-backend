@@ -209,7 +209,7 @@ def build(*watched: str, **options):
         store=store,
         watchlist=watchlist,
         clock=Clock(),
-        known_apps=frozenset({"investment", "knowledge"}),
+        known_apps=frozenset({"investment", "knowbase"}),
         **options,
     )
     return service, store, watchlist

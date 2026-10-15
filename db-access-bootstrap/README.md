@@ -1,6 +1,6 @@
 # db-access-bootstrap (unified backend)
 
-用于架构 v2 的统一 `info-backend` 数据库接入脚手架。Admin 与 Web
+用于架构 v2 的统一 `knowfeed-backend` 数据库接入脚手架。Admin 与 Web
 应用层共用该 Backend，不再维护第二套 Web Backend 数据库脚手架。
 
 **执行环境**：Git Bash（Windows）或 Linux/macOS 的 `bash`（脚本依赖 `sed`、`grep` 等）。
@@ -36,7 +36,7 @@
 
 - **`ENABLE_POSTGRESQL` / `ENABLE_REDIS` / `ENABLE_MONGODB`**：管理端不用 Mongo，一般 **`ENABLE_MONGODB=false`**。
 - **`OUT_ENV`**：默认 **`${SCRIPT_DIR}/.env.local.db`**。
-- **`DBCTL_BIN`**：未设置时解析为 **`info-backend/db-provisioner/bin/dbctl`**（相对 `db-access-bootstrap` 的上一级）；使用仓库外二进制时用环境变量覆盖（Windows 可用 `/c/...`）。
+- **`DBCTL_BIN`**：未设置时解析为 **`knowfeed-backend/db-provisioner/bin/dbctl`**（相对 `db-access-bootstrap` 的上一级）；使用仓库外二进制时用环境变量覆盖（Windows 可用 `/c/...`）。
 
 ---
 
@@ -45,7 +45,7 @@
 一条命令：**（可选）provision → 合并 `../app/.env` → 写 `.env.reference`**。
 
 ```bash
-cd info-backend/db-access-bootstrap
+cd knowfeed-backend/db-access-bootstrap
 chmod +x merge-and-generate-app-env.sh setup-external-db-access.sh setup-k8s-db-access.sh   # 如需
 
 ./merge-and-generate-app-env.sh              # 默认 = external

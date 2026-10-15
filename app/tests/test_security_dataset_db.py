@@ -153,7 +153,7 @@ async def test_dataset_is_archived_registered_and_traceable_to_its_batch(db):
     ingestion_id = await ingested(db, storage, reader)
     summary = await service(db, storage, reader).build_latest("600009")
     assert summary.status == PUBLISHED and summary.ingestion_id == ingestion_id
-    prefix = f"info/securities/code=600009/datasets/{summary.data_version}"
+    prefix = f"knowfeed/securities/code=600009/datasets/{summary.data_version}"
     file = storage.objects[f"{prefix}/sh600009-financials.sqlite"]
     assert hashlib.sha256(file).hexdigest() == summary.sha256
     assert file.startswith(b"SQLite format 3")
@@ -226,7 +226,7 @@ async def test_a_damaged_batch_is_registered_as_failed(db):
         await sql(db, "SELECT quality->'failed_blocking'->>0 FROM security_dataset")
         == "Q-R01"
     )
-    prefix = f"info/securities/code=600009/datasets/{summary.data_version}"
+    prefix = f"knowfeed/securities/code=600009/datasets/{summary.data_version}"
     assert json.loads(storage.objects[f"{prefix}/manifest.json"])["status"] == (
         "quality_failed"
     )

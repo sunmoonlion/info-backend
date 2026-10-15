@@ -1,5 +1,5 @@
 [project]
-name = "info-backend"
+name = "knowfeed-backend"
 version = "2.0.0"
 description = "Admin 与 Web 共用的生产级 FastAPI 后端模板"
 requires-python = ">=3.12"
@@ -102,7 +102,7 @@ ignore_imports = [
     # 本仓的（2026-09-13 之前）：采集服务与它的投递。账本 A7 乙。
     "app.application.services.delivery_outbox -> app.infrastructure.models.info",
     "app.application.services.info_crawl_service -> app.infrastructure.external.crawl_http",
-    "app.application.services.info_crawl_service -> app.infrastructure.external.knowledge_app",
+    "app.application.services.info_crawl_service -> app.infrastructure.external.knowbase_app",
     "app.application.services.info_crawl_service -> app.infrastructure.messaging.durable_delivery",
     "app.application.services.info_crawl_service -> app.infrastructure.models.info",
     "app.application.services.info_crawl_service -> app.infrastructure.search",

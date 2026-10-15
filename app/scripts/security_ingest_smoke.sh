@@ -3,9 +3,9 @@
 # 采两次同一个代码，从磁盘上的文件复算每条原文的校验值，再从批次建两次数据集。
 # 可选：DATASET_OUT=<路径> 把建出的数据集文件另存一份。
 #
-# 用法：在 info-backend/app 下
+# 用法：在 knowfeed-backend/app 下
 #   DATABASE_URL=postgresql://<用户>:<口令>@127.0.0.1:<端口>/<库> \
-#   STORAGE_LOCAL_ROOT=$HOME/info-smoke-storage \
+#   STORAGE_LOCAL_ROOT=$HOME/knowfeed-smoke-storage \
 #   bash scripts/security_ingest_smoke.sh 600009
 # 前提：库已建好并装了 uuid-ossp；脚本自己跑迁移。库与存储目录应是一次性的。
 # 输出不含口令；结果写 scripts/results/security-ingest-smoke.<时间>.txt。

@@ -43,21 +43,21 @@ class Settings(BaseSettings):
 
     env: str = "development"
     log_level: str = "INFO"
-    service_name: str = "info-backend"
+    service_name: str = "knowfeed-backend"
     deployment_id: str = "local"
-    app_slug: str = "info"
+    app_slug: str = "knowfeed"
 
     # 跨应用跳转（app/domain/cross_app.py）。都可不配：不配就是不带人来、也不带人去。
     # 哪些应用可以把用户带到这里，各自的回跳地址。回跳地址只从这里取，从不从链接里取。
     #   {"investment": {"return_url": "https://…/zh-CN/workbench?ref={ref}"},
-    #    "knowledge": {}}
-    # info 默认认 investment 与 knowledge，都没有回跳地址：页面上不显示「回到原处」。
-    cross_app_sources_json: str = '{"investment": {}, "knowledge": {}}'
+    #    "knowbase": {}}
+    # knowfeed 默认认 investment 与 knowbase，都没有回跳地址：页面上不显示「回到原处」。
+    cross_app_sources_json: str = '{"investment": {}, "knowbase": {}}'
     # 这个应用会把用户带去哪些应用，各自网页端的地址。
-    #   {"knowledge": {"web_base_url": "https://knowledge.example"}}
+    #   {"knowbase": {"web_base_url": "https://knowbase.example"}}
     cross_app_targets_json: str = "{}"
 
-    database_url: str = "postgresql+asyncpg://info:info@localhost:5432/info"
+    database_url: str = "postgresql+asyncpg://knowfeed:knowfeed@localhost:5432/knowfeed"
     migration_database_url: str | None = None
 
     redis_host: str = "localhost"
@@ -80,8 +80,8 @@ class Settings(BaseSettings):
     admin_casdoor_client_id: str = ""
     admin_casdoor_client_secret: str = ""
     admin_casdoor_redirect_uri: str = ""
-    admin_casdoor_application: str = "sunmoonai-info-admin"
-    admin_auth_policy_version: str = "info-admin-v2"
+    admin_casdoor_application: str = "sunmoonai-knowfeed-admin"
+    admin_auth_policy_version: str = "knowfeed-admin-v2"
     admin_auth_role_allowlist: str = ""
     admin_auth_scope_allowlist: str = ""
     admin_frontend_base_url: str = "http://localhost:5173"
@@ -92,8 +92,8 @@ class Settings(BaseSettings):
     web_casdoor_client_id: str = ""
     web_casdoor_client_secret: str = ""
     web_casdoor_redirect_uri: str = ""
-    web_casdoor_application: str = "sunmoonai-info-web"
-    web_auth_policy_version: str = "info-web-v2"
+    web_casdoor_application: str = "sunmoonai-knowfeed-web"
+    web_auth_policy_version: str = "knowfeed-web-v2"
     web_auth_role_allowlist: str = ""
     web_auth_scope_allowlist: str = ""
     web_frontend_base_url: str = "http://localhost:3000"
@@ -134,7 +134,7 @@ class Settings(BaseSettings):
         default=None, validation_alias="CELERY_BROKER_URL"
     )
     celery_queue: str = Field(
-        default="info.default",
+        default="knowfeed.default",
         validation_alias=AliasChoices("CELERY_QUEUE", "CELERY_TASK_DEFAULT_QUEUE"),
     )
     celery_result_backend: str | None = Field(
@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     # Info domain: original-document object storage.
     storage_backend: str = Field(default="local", validation_alias="STORAGE_BACKEND")
     storage_local_root: str = Field(
-        default=".local-storage/info-originals",
+        default=".local-storage/knowfeed-originals",
         validation_alias="STORAGE_LOCAL_ROOT",
     )
     s3_endpoint: str | None = Field(default=None, validation_alias="S3_ENDPOINT")
@@ -160,7 +160,7 @@ class Settings(BaseSettings):
         default=None, validation_alias="S3_SECRET_ACCESS_KEY"
     )
     s3_bucket: str = Field(
-        default="development-info-originals", validation_alias="S3_BUCKET"
+        default="development-knowfeed-originals", validation_alias="S3_BUCKET"
     )
     s3_force_path_style: bool = Field(
         default=True, validation_alias="S3_FORCE_PATH_STYLE"
@@ -203,7 +203,7 @@ class Settings(BaseSettings):
         validation_alias="SECURITY_REPORT_TIMEOUT_SECONDS",
     )
     crawl_user_agent: str = Field(
-        default="SunmoonAI InfoAppBot/0.1",
+        default="SunmoonAI KnowfeedBot/0.1",
         validation_alias="CRAWL_USER_AGENT",
     )
 
@@ -213,7 +213,7 @@ class Settings(BaseSettings):
         default=None, validation_alias="ELASTICSEARCH_URL"
     )
     elasticsearch_index: str = Field(
-        default="info-information", validation_alias="ELASTICSEARCH_INDEX"
+        default="knowfeed-information", validation_alias="ELASTICSEARCH_INDEX"
     )
     elasticsearch_timeout_seconds: float = Field(
         default=10.0, validation_alias="ELASTICSEARCH_TIMEOUT_SECONDS"
@@ -234,37 +234,37 @@ class Settings(BaseSettings):
         default=None, validation_alias="ELASTICSEARCH_ALIASES"
     )
 
-    # Info -> Knowledge workload identity and ingestion relation.
-    knowledge_app_ingest_url: str | None = Field(
-        default=None, validation_alias="KNOWLEDGE_APP_INGEST_URL"
+    # Knowfeed -> Knowbase workload identity and ingestion relation.
+    knowbase_app_ingest_url: str | None = Field(
+        default=None, validation_alias="KNOWBASE_APP_INGEST_URL"
     )
     # 数据集登记接口（0008-info 段二 → 段三）；与入库用同一个服务身份。
-    knowledge_app_dataset_url: str | None = Field(
-        default=None, validation_alias="KNOWLEDGE_APP_DATASET_URL"
+    knowbase_app_dataset_url: str | None = Field(
+        default=None, validation_alias="KNOWBASE_APP_DATASET_URL"
     )
-    knowledge_app_service_application: str = Field(
-        default="sunmoonai-info-knowledge-ingest",
-        validation_alias="KNOWLEDGE_APP_SERVICE_APPLICATION",
+    knowbase_app_service_application: str = Field(
+        default="sunmoonai-knowfeed-knowbase-ingest",
+        validation_alias="KNOWBASE_APP_SERVICE_APPLICATION",
     )
-    knowledge_app_service_discovery_url: str | None = Field(
+    knowbase_app_service_discovery_url: str | None = Field(
         default=None,
-        validation_alias="KNOWLEDGE_APP_SERVICE_DISCOVERY_URL",
+        validation_alias="KNOWBASE_APP_SERVICE_DISCOVERY_URL",
     )
-    knowledge_app_service_backchannel_endpoint: str | None = Field(
+    knowbase_app_service_backchannel_endpoint: str | None = Field(
         default=None,
-        validation_alias="KNOWLEDGE_APP_SERVICE_BACKCHANNEL_ENDPOINT",
+        validation_alias="KNOWBASE_APP_SERVICE_BACKCHANNEL_ENDPOINT",
     )
-    knowledge_app_service_client_id: str | None = Field(
-        default=None, validation_alias="KNOWLEDGE_APP_SERVICE_CLIENT_ID"
+    knowbase_app_service_client_id: str | None = Field(
+        default=None, validation_alias="KNOWBASE_APP_SERVICE_CLIENT_ID"
     )
-    knowledge_app_service_client_secret: str | None = Field(
-        default=None, validation_alias="KNOWLEDGE_APP_SERVICE_CLIENT_SECRET"
+    knowbase_app_service_client_secret: str | None = Field(
+        default=None, validation_alias="KNOWBASE_APP_SERVICE_CLIENT_SECRET"
     )
-    knowledge_app_service_scope: str = Field(
-        default="knowledge:ingest", validation_alias="KNOWLEDGE_APP_SERVICE_SCOPE"
+    knowbase_app_service_scope: str = Field(
+        default="knowbase:ingest", validation_alias="KNOWBASE_APP_SERVICE_SCOPE"
     )
-    knowledge_app_timeout_seconds: float = Field(
-        default=20.0, validation_alias="KNOWLEDGE_APP_TIMEOUT_SECONDS"
+    knowbase_app_timeout_seconds: float = Field(
+        default=20.0, validation_alias="KNOWBASE_APP_TIMEOUT_SECONDS"
     )
 
     @field_validator("cross_app_sources_json")
@@ -694,19 +694,19 @@ class Settings(BaseSettings):
         )
 
     @property
-    def knowledge_app_ingest_enabled(self) -> bool:
+    def knowbase_app_ingest_enabled(self) -> bool:
         return bool(
-            self.knowledge_app_ingest_url
-            and self.knowledge_app_service_client_id
-            and self.knowledge_app_service_client_secret
+            self.knowbase_app_ingest_url
+            and self.knowbase_app_service_client_id
+            and self.knowbase_app_service_client_secret
         )
 
     @property
-    def knowledge_app_dataset_enabled(self) -> bool:
+    def knowbase_app_dataset_enabled(self) -> bool:
         return bool(
-            self.knowledge_app_dataset_url
-            and self.knowledge_app_service_client_id
-            and self.knowledge_app_service_client_secret
+            self.knowbase_app_dataset_url
+            and self.knowbase_app_service_client_id
+            and self.knowbase_app_service_client_secret
         )
 
     @property

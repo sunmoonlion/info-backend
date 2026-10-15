@@ -128,7 +128,7 @@ async def test_sources_are_registered_with_their_real_copyright_status(db):
     assert (
         await sql(
             db,
-            "SELECT trust_level || '/' || copyright_status FROM info_source "
+            "SELECT trust_level || '/' || copyright_status FROM knowfeed_source "
             "WHERE code='cninfo'",
         )
         == "official/public_disclosure"
@@ -136,12 +136,12 @@ async def test_sources_are_registered_with_their_real_copyright_status(db):
     assert (
         await sql(
             db,
-            "SELECT trust_level || '/' || copyright_status FROM info_source "
+            "SELECT trust_level || '/' || copyright_status FROM knowfeed_source "
             "WHERE code='eastmoney-f10'",
         )
         == "third_party/unconfirmed_internal_only"
     )
-    assert await sql(db, "SELECT count(*) FROM info_source") == 2
+    assert await sql(db, "SELECT count(*) FROM knowfeed_source") == 2
 
 
 async def test_second_batch_references_existing_objects(db):
@@ -164,7 +164,7 @@ async def test_second_batch_references_existing_objects(db):
         )
         == 21
     )
-    assert await sql(db, "SELECT count(*) FROM info_source") == 2
+    assert await sql(db, "SELECT count(*) FROM knowfeed_source") == 2
 
 
 async def test_changed_content_becomes_a_new_object(db):
@@ -252,7 +252,7 @@ async def test_request_commits_the_batch_and_the_task_together(db, monkeypatch):
     assert await sql(
         db,
         "SELECT aggregate_key FROM outbox_message "
-        "WHERE topic='info.security.ingest.v1'",
+        "WHERE topic='knowfeed.security.ingest.v1'",
     ) == str(batch.id)
     assert await sql(db, "SELECT count(*) FROM security_ingestion") == 1
 
@@ -280,7 +280,7 @@ async def test_request_refuses_an_invalid_code_before_touching_the_database(
         async with db() as s:
             await wiring.request_security_ingestion(s, db, "900901")
     assert await sql(db, "SELECT count(*) FROM security_ingestion") == 0
-    assert await sql(db, "SELECT count(*) FROM info_source") == 0
+    assert await sql(db, "SELECT count(*) FROM knowfeed_source") == 0
 
 
 def test_object_key_is_decided_by_content_and_cannot_escape_its_prefix():
@@ -289,6 +289,6 @@ def test_object_key_is_decided_by_content_and_cannot_escape_its_prefix():
         code="600009", source="cninfo", sha256=sha, name="../../etc/passwd"
     )
     assert key == (
-        f"info/securities/code=600009/source=cninfo/sha256=ab/{sha}/..-..-etc-passwd"
+        f"knowfeed/securities/code=600009/source=cninfo/sha256=ab/{sha}/..-..-etc-passwd"
     )
     assert "/../" not in key and key.count("/") == 6

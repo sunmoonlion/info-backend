@@ -2,29 +2,29 @@
   "apiVersion": "storage.sunmoonai.com/v1alpha1",
   "kind": "ObjectStorageAccess",
   "metadata": {
-    "name": "info-backend"
+    "name": "knowfeed-backend"
   },
   "spec": {
     "provider": "platform-s3",
     "environment": "development",
-    "app": "info-app",
-    "backend": "info-backend",
+    "app": "knowfeed-app",
+    "backend": "knowfeed-backend",
     "namespace": "app-platform-dev",
-    "secretName": "info-backend-s3",
-    "configMapName": "info-backend-s3",
+    "secretName": "knowfeed-backend-s3",
+    "configMapName": "knowfeed-backend-s3",
     "region": "us-east-1",
     "forcePathStyle": true,
     "useTLS": false,
     "deletionPolicy": "Retain",
     "buckets": [
       {
-        "name": "development-info-originals",
+        "name": "development-knowfeed-originals",
         "permissions": ["read", "write", "delete", "list"],
         "versioning": true,
         "objectLock": false
       },
       {
-        "name": "development-info-derived",
+        "name": "development-knowfeed-derived",
         "permissions": ["read", "write", "delete", "list"],
         "versioning": true,
         "objectLock": false

@@ -11,7 +11,7 @@
                       类改名），此时 ``still_dormant`` 会因为"找不到"而假性通过。
                       这是本项目反复踩过的坑：把"没找到"当成"不存在"。
   ``still_dormant``   还休眠着吗。为 False 说明**能力已接线**，声明过期——
-                      要删掉本条，并同步更新 `repos/info-app.md`「已知未实现」。
+                      要删掉本条，并同步更新 `repos/knowfeed-app.md`「已知未实现」。
 
 **机制的边界**：它保证**已声明的条目不会变陈旧**，但**发现不了新出现的休眠能力**
 ——那需要判断"这段代码本该接线却没接"，不可机械判定。新增休眠能力时手工加一条。
@@ -68,7 +68,7 @@ def _domain_dirs() -> list[Path]:
 
 
 # 只认**共享（模板）**的 Outbox 符号。实例仓可能有自己的领域 outbox
-# （如 info 的 DeliveryOutboxMessage，它是在用的），不能一见 "outbox" 就算命中。
+# （如 knowfeed 的 DeliveryOutboxMessage，它是在用的），不能一见 "outbox" 就算命中。
 # 词边界让 \bOutboxMessage\b 不会匹配到 DeliveryOutboxMessage。
 _SHARED_OUTBOX = re.compile(
     r"\b(OutboxPublisher|OutboxRepository|SqlOutboxRepository"
@@ -123,12 +123,12 @@ DORMANT: tuple[Dormant, ...] = (
     Dormant(
         name="多下游分发",
         kind="deliberate",
-        evidence="分发目标硬编码 knowledge-app，其余 target_app 一律拒绝",
+        evidence="分发目标硬编码 knowbase-app，其余 target_app 一律拒绝",
         anchor_exists=lambda: (
             "target_app" in _read("app/application/services/info_crawl_service.py")
         ),
         still_dormant=lambda: (
-            'if record.target_app != "knowledge-app":'
+            'if record.target_app != "knowbase-app":'
             in _read("app/application/services/info_crawl_service.py")
         ),
     ),
@@ -168,7 +168,7 @@ def test_declared_dormant_capability_is_still_dormant(item: Dormant) -> None:
     assert item.still_dormant(), (
         f"休眠声明「{item.name}」已不成立——该能力看起来已接线。"
         f"请删掉本条声明，并同步更新 k8s:sunmoonai/docs/project-guide/"
-        f"repos/info-app.md 的「已知未实现」一节。依据：{item.evidence}"
+        f"repos/knowfeed-app.md 的「已知未实现」一节。依据：{item.evidence}"
     )
 
 

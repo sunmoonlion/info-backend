@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.application.services.durable_tasks import enqueue_task
 from app.infrastructure.models.info import DistributionRecord
 
-TOPIC_DISTRIBUTION_DISPATCH_V1 = "info.distribution.dispatch.v1"
+TOPIC_DISTRIBUTION_DISPATCH_V1 = "knowfeed.distribution.dispatch.v1"
 
 
 async def ensure_distribution_dispatch_outbox(session, *, distribution_id: uuid.UUID):

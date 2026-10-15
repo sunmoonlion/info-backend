@@ -8,7 +8,7 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class DatasetRecord:
-    """一个已经留存并登记在 info 的数据集版本。"""
+    """一个已经留存并登记在 knowfeed 的数据集版本。"""
 
     record_id: str
     dataset_id: str

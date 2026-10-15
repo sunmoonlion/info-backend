@@ -53,7 +53,7 @@ class FakeOidc:
             "exp": now + 600,
             "name": "Test User",
             "roles": ["editor", "provider-admin"],
-            "scope": "profile:read root:all info:admin",
+            "scope": "profile:read root:all knowfeed:admin",
         }
 
 
@@ -82,7 +82,7 @@ class StubAuthService(AuthService):
             "display_name": "Test User",
             "email": "user@example.test",
             "roles": ["editor"],
-            "scopes": ["profile:read", "info:admin"],
+            "scopes": ["profile:read", "knowfeed:admin"],
         }
 
 
@@ -94,7 +94,7 @@ def settings() -> Settings:
         admin_casdoor_redirect_uri="https://admin.example.test/api/auth/admin/callback",
         admin_frontend_base_url="https://admin.example.test",
         admin_auth_role_allowlist="editor,member",
-        admin_auth_scope_allowlist="info:admin,profile:read",
+        admin_auth_scope_allowlist="knowfeed:admin,profile:read",
         web_casdoor_client_id="tpl-web-client",
         web_casdoor_client_secret="web-secret",
         web_casdoor_redirect_uri="https://web.example.test/api/auth/web/callback",
@@ -199,7 +199,7 @@ async def test_policy_or_surface_change_invalidates_existing_session(
             actor_type="user",
             subject="user-123",
             issuer="https://identity.example.test",
-            app="info",
+            app="knowfeed",
             surface="admin",
             audience=profile.client_id,
             actor_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),

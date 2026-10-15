@@ -81,9 +81,9 @@ async def test_crawl_intent_failure_rolls_back_the_job(db, monkeypatch):
 async def test_uploaded_version_and_index_command_commit_together(db, monkeypatch):
     async with db() as s:
         version = await upload(s, monkeypatch)
-        assert await sql(db, "SELECT count(*) FROM info_document_version") == 1
+        assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 1
         assert await sql(
-            db, "SELECT aggregate_key FROM outbox_message WHERE topic='info.index.v1'"
+            db, "SELECT aggregate_key FROM outbox_message WHERE topic='knowfeed.index.v1'"
         ) == str(version.id)
 
 
@@ -95,7 +95,7 @@ async def test_index_intent_failure_does_not_leave_a_committed_version(db, monke
     with pytest.raises(RuntimeError):
         async with db() as s:
             await upload(s, monkeypatch)
-    assert await sql(db, "SELECT count(*) FROM info_document_version") == 0
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 0
     assert await sql(db, "SELECT count(*) FROM crawl_job") == 0
 
 
@@ -110,7 +110,7 @@ async def test_distribution_retries_preserve_remote_business_identity(db, monkey
         )
         record_id = record.id
     message_id = await sql(
-        db, "SELECT id FROM outbox_message WHERE topic='info.distribution.dispatch.v1'"
+        db, "SELECT id FROM outbox_message WHERE topic='knowfeed.distribution.dispatch.v1'"
     )
     calls = []
 
@@ -121,7 +121,7 @@ async def test_distribution_retries_preserve_remote_business_identity(db, monkey
                 raise ConnectionError("response lost after remote accept")
             return {"id": "same-remote-ingestion"}
 
-    monkeypatch.setattr(service, "get_knowledge_app_client", Client)
+    monkeypatch.setattr(service, "get_knowbase_app_client", Client)
     runtime = DurableTasks(db, handlers=get_delivery_handlers())
     with pytest.raises(RuntimeError, match="not_acknowledged"):
         await runtime.consume(message_id)
@@ -151,7 +151,7 @@ async def test_duplicate_crawl_after_terminal_commit_does_not_fetch_again(
         job.status = "succeeded"
         await s.commit()
     message_id = await sql(
-        db, "SELECT id FROM outbox_message WHERE topic='info.crawl.v1'"
+        db, "SELECT id FROM outbox_message WHERE topic='knowfeed.crawl.v1'"
     )
 
     async def no_network(*args, **kwargs):
@@ -179,7 +179,7 @@ async def test_interrupted_crawl_does_not_commit_a_terminal_result(
         )
         job_id = job.id
     message_id = await sql(
-        db, "SELECT id FROM outbox_message WHERE topic='info.crawl.v1'"
+        db, "SELECT id FROM outbox_message WHERE topic='knowfeed.crawl.v1'"
     )
     error = DeliveryLeaseLost if failure == "lease_lost" else asyncio.CancelledError
 
@@ -221,7 +221,7 @@ async def test_forbidden_crawl_records_failure_without_network_or_artifact(
         )
         job_id = job.id
     message_id = await sql(
-        db, "SELECT id FROM outbox_message WHERE topic='info.crawl.v1'"
+        db, "SELECT id FROM outbox_message WHERE topic='knowfeed.crawl.v1'"
     )
     assert await DurableTasks(db, handlers=get_delivery_handlers()).consume(message_id)
     assert (
@@ -253,7 +253,7 @@ async def test_rebuild_reports_queued_and_defers_remote_indexing(db, monkeypatch
     assert result["queued"] == 1
     assert result["indexed"] == 0
     assert (
-        await sql(db, "SELECT count(*) FROM outbox_message WHERE topic='info.index.v1'")
+        await sql(db, "SELECT count(*) FROM outbox_message WHERE topic='knowfeed.index.v1'")
         == 2
     )
 
@@ -321,13 +321,20 @@ async def test_legacy_migration_preserves_id_and_completed_receipt(db, monkeypat
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    rename_path = ROOT / "alembic/versions/20261015_0014_knowfeed_rename.py"
+    rename_spec = importlib.util.spec_from_file_location("rename_migration", rename_path)
+    rename = importlib.util.module_from_spec(rename_spec)
+    rename_spec.loader.exec_module(rename)
+
     async def migrate(fn):
         async with db() as s, s.begin():
             connection = await s.connection()
 
             def apply(conn):
                 with Operations.context(MigrationContext.configure(conn)):
+                    rename.downgrade()
                     fn()
+                    rename.upgrade()
 
             await connection.run_sync(apply)
 

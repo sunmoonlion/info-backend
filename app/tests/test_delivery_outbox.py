@@ -84,7 +84,7 @@ async def test_requested_distribution_writes_outbox_before_commit(
                 sha256="a" * 64,
                 content_type="text/markdown",
                 bucket="bucket",
-                object_key="info/original/a.md",
+                object_key="knowfeed/original/a.md",
             ),
         }
     )
@@ -145,7 +145,7 @@ async def test_create_only_distribution_does_not_silently_enqueue(
                 sha256="a" * 64,
                 content_type="text/markdown",
                 bucket="bucket",
-                object_key="info/original/a.md",
+                object_key="knowfeed/original/a.md",
             ),
         }
     )

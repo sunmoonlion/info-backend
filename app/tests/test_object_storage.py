@@ -15,31 +15,31 @@ def test_make_artifact_key_sanitizes_source_and_name() -> None:
         artifact_name="../raw.html",
     )
 
-    assert key == "info/original/source=a-b-c/date=2026-07-06/job=job-1/..-raw.html"
+    assert key == "knowfeed/original/source=a-b-c/date=2026-07-06/job=job-1/..-raw.html"
 
 
 def test_local_object_storage_put_bytes(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("STORAGE_BACKEND", "local")
     monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
-    monkeypatch.setenv("S3_BUCKET", "development-info-originals")
+    monkeypatch.setenv("S3_BUCKET", "development-knowfeed-originals")
     get_settings.cache_clear()
 
     try:
         storage = ObjectStorage()
         stored = storage.put_bytes(
-            object_key="info/original/test/raw.html",
+            object_key="knowfeed/original/test/raw.html",
             data=b"<html>ok</html>",
             content_type="text/html",
         )
 
-        assert stored.bucket == "development-info-originals"
-        assert stored.object_key == "info/original/test/raw.html"
+        assert stored.bucket == "development-knowfeed-originals"
+        assert stored.object_key == "knowfeed/original/test/raw.html"
         assert stored.size_bytes == 15
         assert stored.sha256
         assert (
             tmp_path
-            / "development-info-originals"
-            / "info"
+            / "development-knowfeed-originals"
+            / "knowfeed"
             / "original"
             / "test"
             / "raw.html"
@@ -51,7 +51,7 @@ def test_local_object_storage_put_bytes(tmp_path: Path, monkeypatch) -> None:
 def _local(tmp_path: Path, monkeypatch) -> ObjectStorage:
     monkeypatch.setenv("STORAGE_BACKEND", "local")
     monkeypatch.setenv("STORAGE_LOCAL_ROOT", str(tmp_path))
-    monkeypatch.setenv("S3_BUCKET", "development-info-originals")
+    monkeypatch.setenv("S3_BUCKET", "development-knowfeed-originals")
     get_settings.cache_clear()
     return ObjectStorage()
 
@@ -60,7 +60,7 @@ def test_local_get_bytes_returns_what_was_stored(tmp_path: Path, monkeypatch) ->
     try:
         storage = _local(tmp_path, monkeypatch)
         stored = storage.put_bytes(
-            object_key="info/securities/x/report.pdf",
+            object_key="knowfeed/securities/x/report.pdf",
             data=b"%PDF-1.4 body",
             content_type="application/pdf",
         )
@@ -83,11 +83,11 @@ def test_local_get_bytes_refuses_content_that_changed(
     try:
         storage = _local(tmp_path, monkeypatch)
         stored = storage.put_bytes(
-            object_key="info/securities/x/data.json",
+            object_key="knowfeed/securities/x/data.json",
             data=b'{"a": 1}',
             content_type="application/json",
         )
-        path = tmp_path / "development-info-originals" / stored.object_key
+        path = tmp_path / "development-knowfeed-originals" / stored.object_key
         path.write_bytes(b'{"a": 2}')
         with pytest.raises(RuntimeError, match="stored_object_digest_mismatch"):
             storage.get_bytes(

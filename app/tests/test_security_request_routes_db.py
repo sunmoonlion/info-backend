@@ -25,7 +25,7 @@ from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.http.admin import security_requests as admin_routes
 from app.interfaces.http.middleware.auth import (
     get_web_current_user,
-    require_info_admin,
+    require_knowfeed_admin,
 )
 from app.interfaces.http.web import cross_app as cross_app_routes
 from app.interfaces.http.web import security_requests as web_routes
@@ -35,7 +35,7 @@ from core.config import Settings
 SOURCES = (
     '{"investment": {"return_url": '
     '"https://investment.example.test/zh-CN/workbench/back?ref={ref}"},'
-    ' "knowledge": {}}'
+    ' "knowbase": {}}'
 )
 
 
@@ -45,7 +45,7 @@ def principal(actor: str, surface: str = "web") -> Principal:
         actor_type="user",
         subject="s-" + actor[-2:],
         issuer="https://identity.example.test",
-        app="info",
+        app="knowfeed",
         surface=surface,  # type: ignore[arg-type]
         audience=f"{surface}-client",
         actor_id=uuid.UUID(actor),
@@ -64,7 +64,7 @@ async def api(db, monkeypatch):
         _env_file=None,
         cross_app_sources_json=SOURCES,
         cross_app_targets_json=(
-            '{"knowledge": {"web_base_url": "https://knowledge.example.test"}}'
+            '{"knowbase": {"web_base_url": "https://knowbase.example.test"}}'
         ),
     )
 
@@ -92,9 +92,9 @@ async def api(db, monkeypatch):
     app.dependency_overrides[cross_app_routes.cross_app_settings] = lambda: config
     app.dependency_overrides[get_db_session] = session
     app.dependency_overrides[get_web_current_user] = web_user
-    app.dependency_overrides[require_info_admin] = admin_user
+    app.dependency_overrides[require_knowfeed_admin] = admin_user
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://info"
+        transport=httpx.ASGITransport(app=app), base_url="http://knowfeed"
     ) as client:
         yield SimpleNamespace(client=client, db=db)
 
@@ -179,7 +179,7 @@ async def test_a_user_sees_nothing_about_other_people(api):
     ("params", "expected"),
     [
         ({"from": "investment", "ref": "task:42"}, ("investment", "task:42", True)),
-        ({"from": "knowledge", "ref": "x"}, ("knowledge", "x", False)),
+        ({"from": "knowbase", "ref": "x"}, ("knowbase", "x", False)),
         ({"from": "investment", "ref": "bad ref"}, ("investment", None, True)),
         ({"from": "investment"}, ("investment", None, True)),
         ({"from": "unknown", "ref": "x"}, None),
@@ -296,7 +296,7 @@ async def test_owner_approves_and_the_user_sees_the_data_arrive(api):
         await sql(
             api.db,
             "SELECT aggregate_key FROM outbox_message "
-            "WHERE topic='info.security.ingest.v1'",
+            "WHERE topic='knowfeed.security.ingest.v1'",
         )
         == body["ingestion_id"]
     )
@@ -323,8 +323,8 @@ async def test_owner_approves_and_the_user_sees_the_data_arrive(api):
         "start_date": "2016-12-31",
         "end_date": "2025-12-31",
     }
-    # 去 knowledge 看这个数据集的链接由网页端拼，后端不给地址
-    assert "knowledge.example.test" not in seen.text
+    # 去 knowbase 看这个数据集的链接由网页端拼，后端不给地址
+    assert "knowbase.example.test" not in seen.text
     assert "secret" not in seen.text  # 对象存储的位置不给用户
     now = await api.client.get(
         "/api/web/v1/securities/000001/availability", headers=as_(BOB)
@@ -439,7 +439,7 @@ async def test_the_real_application_lets_nobody_in_without_the_right_session(
     web = FakeAuthService({"member": browser_session("web", "profile:read")})
     admin = FakeAuthService(
         {
-            "owner": browser_session("admin", "info:admin"),
+            "owner": browser_session("admin", "knowfeed:admin"),
             "clerk": browser_session("admin", "profile:read"),
         }
     )
@@ -451,7 +451,7 @@ async def test_the_real_application_lets_nobody_in_without_the_right_session(
         for method, path in WEB_PATHS + ADMIN_PATHS:
             assert (await client.request(method, path)).status_code == 401, path
         # 用户的会话进不了管理面
-        client.cookies.set("sunmoonai_info_web_sid", "member")
+        client.cookies.set("sunmoonai_knowfeed_web_sid", "member")
         for method, path in ADMIN_PATHS:
             assert (await client.request(method, path)).status_code == 401, path
         # 会改东西的请求还要来源与防伪令牌
@@ -460,11 +460,11 @@ async def test_the_real_application_lets_nobody_in_without_the_right_session(
                 assert (await client.request(method, path)).status_code == 403, path
         # 管理面：登录了但没有管理权限的进不来
         client.cookies.clear()
-        client.cookies.set("sunmoonai_info_admin_sid", "clerk")
+        client.cookies.set("sunmoonai_knowfeed_admin_sid", "clerk")
         for method, path in ADMIN_PATHS:
             if method == "GET":
                 assert (await client.request(method, path)).status_code == 403, path
         # 管理员的会话进不了用户面
-        client.cookies.set("sunmoonai_info_admin_sid", "owner")
+        client.cookies.set("sunmoonai_knowfeed_admin_sid", "owner")
         for method, path in WEB_PATHS:
             assert (await client.request(method, path)).status_code == 401, path

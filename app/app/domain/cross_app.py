@@ -112,7 +112,7 @@ def parse_sources(
     """哪些应用可以把用户带到这里，各自的回跳地址。
 
     例：{"investment": {"return_url": "https://…/zh-CN/workbench?ref={ref}"},
-         "knowledge": {}}
+         "knowbase": {}}
     """
     sources: dict[str, Source] = {}
     for name, entry in _entries(text, field=field, allowed={"return_url"}).items():
@@ -138,7 +138,7 @@ def parse_targets(
 ) -> dict[str, Target]:
     """这个应用会把用户带去哪些应用，各自网页端的地址。
 
-    例：{"info": {"web_base_url": "https://info.example"}}
+    例：{"knowfeed": {"web_base_url": "https://knowfeed.example"}}
     """
     targets: dict[str, Target] = {}
     for name, entry in _entries(text, field=field, allowed={"web_base_url"}).items():

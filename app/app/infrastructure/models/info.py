@@ -24,7 +24,7 @@ from app.infrastructure.models.base import Base, TimestampMixin, UUIDMixin
 
 
 class InfoSource(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "info_source"
+    __tablename__ = "knowfeed_source"
 
     code: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -46,10 +46,10 @@ class InfoSource(UUIDMixin, TimestampMixin, Base):
 
 
 class InfoCollector(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "info_collector"
+    __tablename__ = "knowfeed_collector"
 
     source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_source.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_source.id"), nullable=True
     )
     code: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -64,16 +64,16 @@ class CrawlJob(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "crawl_job"
 
     source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_source.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_source.id"), nullable=True
     )
     collector_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_collector.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_collector.id"), nullable=True
     )
     document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_document.id"), nullable=True
     )
     document_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document_version.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_document_version.id"), nullable=True
     )
     job_type: Mapped[str] = mapped_column(String(50), nullable=False, default="url")
     target_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -99,10 +99,10 @@ class RawArtifact(UUIDMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("crawl_job.id"), nullable=False
     )
     document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_document.id"), nullable=True
     )
     document_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document_version.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_document_version.id"), nullable=True
     )
     artifact_type: Mapped[str] = mapped_column(String(50), nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -120,10 +120,10 @@ class RawArtifact(UUIDMixin, TimestampMixin, Base):
 
 
 class InfoDocument(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "info_document"
+    __tablename__ = "knowfeed_document"
 
     source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_source.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("knowfeed_source.id"), nullable=True
     )
     canonical_url: Mapped[str | None] = mapped_column(Text)
     canonical_identity: Mapped[str | None] = mapped_column(String(64))
@@ -137,13 +137,13 @@ class InfoDocument(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "canonical_identity", name="uq_info_document_canonical_identity"
+            "canonical_identity", name="uq_knowfeed_document_canonical_identity"
         ),
         CheckConstraint(
             "(canonical_url IS NULL AND canonical_identity IS NULL) OR "
             "(canonical_url IS NOT NULL AND canonical_identity IS NOT NULL "
             "AND canonical_identity ~ '^[0-9a-f]{64}$')",
-            name="ck_info_document_canonical_identity",
+            name="ck_knowfeed_document_canonical_identity",
         ),
     )
 
@@ -154,10 +154,10 @@ class InfoDocument(UUIDMixin, TimestampMixin, Base):
 
 
 class InfoDocumentVersion(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "info_document_version"
+    __tablename__ = "knowfeed_document_version"
 
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("knowfeed_document.id"), nullable=False
     )
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     write_protocol_version: Mapped[int] = mapped_column(
@@ -178,12 +178,12 @@ class InfoDocumentVersion(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(
-            "write_protocol_version=1", name="ck_info_version_write_protocol"
+            "write_protocol_version=1", name="ck_knowfeed_version_write_protocol"
         ),
         UniqueConstraint(
-            "document_id", "version_no", name="uq_info_document_version_no"
+            "document_id", "version_no", name="uq_knowfeed_document_version_no"
         ),
-        Index("ix_info_document_version_hash", "content_hash"),
+        Index("ix_knowfeed_document_version_hash", "content_hash"),
     )
 
 
@@ -191,7 +191,7 @@ class ExtractedContent(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "extracted_content"
 
     document_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document_version.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("knowfeed_document_version.id"), nullable=False
     )
     content_format: Mapped[str] = mapped_column(String(30), nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -206,10 +206,10 @@ class DistributionRecord(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "distribution_record"
 
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("knowfeed_document.id"), nullable=False
     )
     document_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("info_document_version.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("knowfeed_document_version.id"), nullable=False
     )
     target_app: Mapped[str] = mapped_column(String(80), nullable=False)
     target_dataset: Mapped[str | None] = mapped_column(String(255))

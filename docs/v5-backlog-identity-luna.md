@@ -1,12 +1,12 @@
 # v5 M1-101 / B3：文档身份与并发版本
 
 日期：2026-09-12。Luna 单人实施、自测；源码候选，**未升级业务库、未部署**。
-基线 `info-backend@33f4a1f9444b89f41eaf00a2c4256d76e78b4881`；总处置清单在 k8s
+基线 `knowfeed-backend@33f4a1f9444b89f41eaf00a2c4256d76e78b4881`；总处置清单在 k8s
 的 `sunmoonai/docs/v5-backlog-disposition-luna.md`。本包只处理 Info 领域，不改模板/跨域契约。
 
 ## 身份语义与兼容边界
 
-`app/domain/info_identity_v1.py` 固定 `info.canonical.v1`。HTTP(S) 主机按当前锁定 HTTPX
+`app/domain/info_identity_v1.py` 固定 `knowfeed.canonical.v1`。HTTP(S) 主机按当前锁定 HTTPX
 的 ASCII/IDNA 表示、IP 按规范写法；scheme/主机大小写、默认端口、空路径与 fragment
 归一。路径大小写、尾斜线、百分号编码、查询参数及顺序、空查询标记、主机尾点保留。
 不去追踪参数、不排序查询、不把 HTTP/HTTPS 或不同端口合并，不采信网页 canonical 标签。
@@ -36,7 +36,7 @@ URL 为 NULL 的旧占位文档保持无键，不凭空为它推断来源。
 失败回滚不消耗版本、不留索引意图；上传、正常抓取、抽取失败记录均使用同一入口。
 未变内容的重复抓取保持复用当前版本，不把上传原本的“每次一个版本”偷偷改成去重上传。
 
-新 `info_document_version.write_protocol_version=1` 为存储写协议标记，有 **Python 默认值、
+新 `knowfeed_document_version.write_protocol_version=1` 为存储写协议标记，有 **Python 默认值、
 无数据库默认值**。迁移把既有行纳入该存储协议；这不声称历史版本由新算法创建。
 它使旧二进制向既有文档插入版本时也失败，不能只拦住首次创建文档而漏掉老版本写路径。
 新程序在旧库缺列/缺约束时同样拒绝写入，不做兼容性静默回退。
@@ -46,8 +46,8 @@ URL 为 NULL 的旧占位文档保持无键，不凭空为它推断来源。
 | 项 | 本包 |
 | --- | --- |
 | 单链 revision | `20260911_0007 → 20260912_0008` |
-| `info_document` | 新派生列、唯一/格式约束、URL/身份不可变 trigger/function |
-| `info_document_version` | 新必填写协议列及值检查；原版本唯一键不变 |
+| `knowfeed_document` | 新派生列、唯一/格式约束、URL/身份不可变 trigger/function |
+| `knowfeed_document_version` | 新必填写协议列及值检查；原版本唯一键不变 |
 | 不改 | 原 URL、ID、时间戳、内容、版本/制品/Outbox/下游引用；原 URL 普通索引保留 |
 | 所有者/消费者 | Info 单逻辑库；同一后端的 API/Worker 写入；下游契约不变 |
 | 数据量 | 本包只核查测试库；实际库行数/冲突未知，必须运行只读核查 |

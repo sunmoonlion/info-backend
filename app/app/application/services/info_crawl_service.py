@@ -26,9 +26,9 @@ from app.application.services.durable_tasks import (
 )
 from app.domain.info_identity_v1 import identity_key_v1, normalize_url_v1
 from app.infrastructure.external.crawl_http import fetch_crawl_url
-from app.infrastructure.external.knowledge_app import (
-    KnowledgeAppNotConfiguredError,
-    get_knowledge_app_client,
+from app.infrastructure.external.knowbase_app import (
+    KnowbaseAppNotConfiguredError,
+    get_knowbase_app_client,
 )
 from app.infrastructure.messaging.durable_delivery import DeliveryLeaseLost
 from app.infrastructure.models.info import (
@@ -517,7 +517,7 @@ async def _enqueue_crawl(session: AsyncSession, job: CrawlJob) -> None:
     generation = int((job.request or {}).get("delivery_generation", 0))
     await enqueue_task(
         session,
-        topic="info.crawl.v1",
+        topic="knowfeed.crawl.v1",
         key=str(job.id),
         payload={"job_id": str(job.id)},
         deduplication_key=f"info.crawl:{job.id}:v1:{generation}",
@@ -994,7 +994,7 @@ async def create_knowledge_distribution(
             select(DistributionRecord)
             .where(
                 DistributionRecord.document_version_id == version.id,
-                DistributionRecord.target_app == "knowledge-app",
+                DistributionRecord.target_app == "knowbase-app",
                 func.coalesce(
                     func.nullif(DistributionRecord.target_dataset, ""), "default"
                 )
@@ -1035,7 +1035,7 @@ async def create_knowledge_distribution(
         id=distribution_id,
         document_id=document.id,
         document_version_id=version.id,
-        target_app="knowledge-app",
+        target_app="knowbase-app",
         target_dataset=dataset_key,
         content_hash=version.content_hash,
         status="pending",
@@ -1066,7 +1066,7 @@ def _artifact_contract_payload(
         "contract_version": 1,
         "operation": "upsert",
         "distribution_id": str(distribution_id),
-        "source_app": "info-app",
+        "source_app": "knowfeed-app",
         "source_document_id": str(document.id),
         "source_document_version_id": str(version.id),
         "artifact": {
@@ -1078,7 +1078,7 @@ def _artifact_contract_payload(
             "content_type": artifact.content_type,
         },
         "dataset_key": dataset_key,
-        "idempotency_key": f"info-app:{version.id}:{dataset_key}:artifact-v1",
+        "idempotency_key": f"knowfeed-app:{version.id}:{dataset_key}:artifact-v1",
         "correlation_id": str(distribution_id),
         "causation_id": str(version.id),
         "document": {
@@ -1280,7 +1280,7 @@ async def dispatch_distribution(
     ).scalar_one_or_none()
     if record is None:
         raise ValueError(f"distribution not found: {distribution_id}")
-    if record.target_app != "knowledge-app":
+    if record.target_app != "knowbase-app":
         raise ValueError(f"unsupported distribution target: {record.target_app}")
     if record.status == "succeeded":
         return record
@@ -1298,10 +1298,10 @@ async def dispatch_distribution(
 
     await assert_execution_current(session)
     try:
-        response = await get_knowledge_app_client().ingest_document(
+        response = await get_knowbase_app_client().ingest_document(
             _knowledge_ingestion_payload(record)
         )
-    except KnowledgeAppNotConfiguredError as exc:
+    except KnowbaseAppNotConfiguredError as exc:
         record.status = "pending"
         record.last_error = str(exc)
         record.payload = _distribution_status_payload(
@@ -1457,7 +1457,7 @@ async def _enqueue_index_document_version(
 ) -> None:
     await enqueue_task(
         session,
-        topic="info.index.v1",
+        topic="knowfeed.index.v1",
         key=str(document_version_id),
         payload={"document_version_id": str(document_version_id)},
         deduplication_key=f"info.index:{document_version_id}:v1",
@@ -1494,7 +1494,7 @@ async def rebuild_search_index(session: AsyncSession, *, limit: int) -> dict:
     for version_id in version_ids:
         await enqueue_task(
             session,
-            topic="info.index.v1",
+            topic="knowfeed.index.v1",
             key=str(version_id),
             payload={"document_version_id": str(version_id)},
             deduplication_key=f"info.reindex:{request_id}:{version_id}",
@@ -1904,7 +1904,7 @@ async def _find_or_create_document(
             content_hash=content_hash,
             metadata_json={},
         )
-        .on_conflict_do_nothing(constraint="uq_info_document_canonical_identity")
+        .on_conflict_do_nothing(constraint="uq_knowfeed_document_canonical_identity")
     )
     document = (
         await session.execute(

@@ -26,7 +26,7 @@ MIGRATION = (
     / "alembic/versions/20260913_0009_distribution_identity.py"
 )
 COUNT_COMMANDS = (
-    "SELECT count(*) FROM outbox_message WHERE topic='info.distribution.dispatch.v1'"
+    "SELECT count(*) FROM outbox_message WHERE topic='knowfeed.distribution.dispatch.v1'"
 )
 
 

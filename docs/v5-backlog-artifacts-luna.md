@@ -1,6 +1,6 @@
 # v5 M1-103 / B4：Artifact 可追踪与只读对账
 
-2026-09-12；Luna 单人实施、自测。起点 `info-backend@14d57d8`。
+2026-09-12；Luna 单人实施、自测。起点 `knowfeed-backend@14d57d8`。
 本包是源码候选，未扫描业务存储、未部署、未启用周期任务，未清理任何业务对象。
 总处置清单：k8s `sunmoonai/docs/v5-backlog-disposition-luna.md`。
 
@@ -24,7 +24,7 @@
 
 ## 2. 两个方向与报告含义
 
-固定范围：现有配置的 `S3_BUCKET` 内 `info/original/`，不能通过 cursor 改 bucket/前缀。
+固定范围：现有配置的 `S3_BUCKET` 内 `knowfeed/original/`，不能通过 cursor 改 bucket/前缀。
 只操作 Info 逻辑库，不跨域查 Knowledge，也不扫描宿主机目录。
 
 | 报告分类 | 含义及处置边界 |

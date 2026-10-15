@@ -10,7 +10,7 @@ from app.interfaces.http.admin.security_requests import (
 from app.interfaces.http.internal.delivery_metrics import (
     router as delivery_metrics_router,
 )
-from app.interfaces.http.middleware.auth import require_info_admin
+from app.interfaces.http.middleware.auth import require_knowfeed_admin
 from app.interfaces.http.web.auth import router as web_auth_router
 from app.interfaces.http.web.cross_app import router as web_cross_app_router
 from app.interfaces.http.web.interactions import router as web_interactions_router
@@ -25,12 +25,12 @@ router.include_router(admin_diagnostics_router)
 router.include_router(delivery_metrics_router)
 router.include_router(web_interactions_router)
 router.include_router(web_cross_app_router)
-router.include_router(info_router, dependencies=[Depends(require_info_admin)])
+router.include_router(info_router, dependencies=[Depends(require_knowfeed_admin)])
 router.include_router(
-    admin_securities_router, dependencies=[Depends(require_info_admin)]
+    admin_securities_router, dependencies=[Depends(require_knowfeed_admin)]
 )
 router.include_router(
-    admin_security_requests_router, dependencies=[Depends(require_info_admin)]
+    admin_security_requests_router, dependencies=[Depends(require_knowfeed_admin)]
 )
 # 用户面：每个接口自己要求登录的用户（get_web_current_user）
 router.include_router(web_security_requests_router)

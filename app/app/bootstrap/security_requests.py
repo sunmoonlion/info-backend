@@ -33,5 +33,5 @@ def build_security_request_service(
         clock=_now,
         known_apps=frozenset(settings.cross_app_sources()),
         max_open=settings.security_request_max_open,
-        registration_enabled=settings.knowledge_app_dataset_enabled,
+        registration_enabled=settings.knowbase_app_dataset_enabled,
     )

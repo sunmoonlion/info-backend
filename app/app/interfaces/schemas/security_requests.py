@@ -48,7 +48,7 @@ class DatasetRead(BaseModel):
     data_version: str
     start_date: str
     end_date: str
-    # 去 knowledge 看这个数据集的地址，语言段留给页面填；没配就是空
+    # 去 knowbase 看这个数据集的地址，语言段留给页面填；没配就是空
 
 
 class MineRead(BaseModel):

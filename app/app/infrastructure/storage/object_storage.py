@@ -200,7 +200,7 @@ def make_artifact_key(
     safe_source = "".join(c if c.isalnum() or c in "-_" else "-" for c in source_code)
     safe_name = artifact_name.replace("/", "-").replace("\\", "-")
     return (
-        f"info/original/source={safe_source}/date={date_path}/job={job_id}/{safe_name}"
+        f"knowfeed/original/source={safe_source}/date={date_path}/job={job_id}/{safe_name}"
     )
 
 

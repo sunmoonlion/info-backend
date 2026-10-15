@@ -1,4 +1,4 @@
-"""证券采集与数据集的管理接口（0008-info）。挂在管理面下，要求 info 管理员。"""
+"""证券采集与数据集的管理接口（0008-info）。挂在管理面下，要求 knowfeed 管理员。"""
 
 from __future__ import annotations
 

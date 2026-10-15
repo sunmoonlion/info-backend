@@ -184,7 +184,7 @@ async def test_cross_origin_drops_all_private_headers_and_cookies(network):
             "Authorization": "Bearer secret",
             "Cookie": "private=1",
             "X-Api-Key": "secret",
-            "User-Agent": "InfoBot",
+            "User-Agent": "KnowfeedBot",
         }
     )
     assert response.content == b"ok"
@@ -192,7 +192,7 @@ async def test_cross_origin_drops_all_private_headers_and_cookies(network):
     second = network[0][1]
     assert second.headers["host"] == "other.org"
     assert second.extensions["sni_hostname"] == "other.org"
-    assert second.headers["user-agent"] == "InfoBot"
+    assert second.headers["user-agent"] == "KnowfeedBot"
     assert not {"authorization", "cookie", "x-api-key"} & set(second.headers)
     assert len(network[4]) == 2
 

@@ -24,7 +24,7 @@ from app.application.securities.registration_service import (
     DatasetRegistrationService,
 )
 from app.domain.securities import SecurityCode
-from app.infrastructure.external.knowledge_app import ServiceTokenProvider
+from app.infrastructure.external.knowbase_app import ServiceTokenProvider
 from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.securities import SecurityIngestion
 from app.infrastructure.securities import (
@@ -41,9 +41,9 @@ from app.infrastructure.securities.pdf_words import PdfPlumberWordsReader
 from app.infrastructure.storage.object_storage import get_object_storage
 from core.config import get_settings
 
-SECURITY_INGEST_TOPIC = "info.security.ingest.v1"
-SECURITY_DATASET_BUILD_TOPIC = "info.security.dataset.build.v1"
-SECURITY_DATASET_REGISTER_TOPIC = "info.security.dataset.register.v1"
+SECURITY_INGEST_TOPIC = "knowfeed.security.ingest.v1"
+SECURITY_DATASET_BUILD_TOPIC = "knowfeed.security.dataset.build.v1"
+SECURITY_DATASET_REGISTER_TOPIC = "knowfeed.security.dataset.register.v1"
 _SHANGHAI = timezone(timedelta(hours=8))
 _PAUSE_SECONDS = 0.3
 
@@ -171,13 +171,13 @@ def build_dataset_registration_service(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> DatasetRegistrationService:
     settings = get_settings()
-    enabled = settings.knowledge_app_dataset_enabled
+    enabled = settings.knowbase_app_dataset_enabled
     return DatasetRegistrationService(
         records=SqlDatasetRecords(session_factory=session_factory, clock=_now),
         registrar=KnowledgeDatasetRegistrar(
-            url=settings.knowledge_app_dataset_url if enabled else None,
+            url=settings.knowbase_app_dataset_url if enabled else None,
             tokens=_knowledge_tokens() if enabled else None,
-            timeout_seconds=settings.knowledge_app_timeout_seconds,
+            timeout_seconds=settings.knowbase_app_timeout_seconds,
         ),
     )
 

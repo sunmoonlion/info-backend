@@ -60,7 +60,7 @@ SOURCES: dict[str, dict[str, str]] = {
 def security_object_key(*, code: str, source: str, sha256: str, name: str) -> str:
     safe = _SAFE_NAME.sub("-", name)[:120] or "object"
     return (
-        f"info/securities/code={code}/source={source}/"
+        f"knowfeed/securities/code={code}/source={source}/"
         f"sha256={sha256[:2]}/{sha256}/{safe}"
     )
 

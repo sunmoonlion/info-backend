@@ -101,10 +101,10 @@ async def register_security_dataset(session, payload):
 
 def get_delivery_handlers() -> dict[str, Handler]:
     return {
-        "info.crawl.v1": crawl,
-        "info.index.v1": index,
-        "info.distribution.dispatch.v1": distribute,
-        "info.security.ingest.v1": ingest_security,
-        "info.security.dataset.build.v1": build_security_dataset,
-        "info.security.dataset.register.v1": register_security_dataset,
+        "knowfeed.crawl.v1": crawl,
+        "knowfeed.index.v1": index,
+        "knowfeed.distribution.dispatch.v1": distribute,
+        "knowfeed.security.ingest.v1": ingest_security,
+        "knowfeed.security.dataset.build.v1": build_security_dataset,
+        "knowfeed.security.dataset.register.v1": register_security_dataset,
     }

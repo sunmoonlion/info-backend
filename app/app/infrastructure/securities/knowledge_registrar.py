@@ -25,7 +25,7 @@ class KnowledgeDatasetRegistrar:
         url: str | None,
         tokens: TokenSource | None,
         timeout_seconds: float,
-        source_app: str = "info",
+        source_app: str = "knowfeed",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._url = url

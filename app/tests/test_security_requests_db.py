@@ -60,7 +60,7 @@ def service_on(session, sessions, **options) -> SecurityRequestService:
         store=SqlRequestStore(session, start_ingestion=start),
         watchlist=SqlWatchlist(session),
         clock=Clock(),
-        known_apps=frozenset({"investment", "knowledge"}),
+        known_apps=frozenset({"investment", "knowbase"}),
         **options,
     )
 
@@ -172,7 +172,7 @@ async def test_request_on_the_watchlist_is_queued_in_the_same_commit(db, session
         await sql(
             db,
             "SELECT aggregate_key FROM outbox_message "
-            "WHERE topic='info.security.ingest.v1'",
+            "WHERE topic='knowfeed.security.ingest.v1'",
         )
         == view.request.ingestion_id
     )

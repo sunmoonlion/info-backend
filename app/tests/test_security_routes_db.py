@@ -51,7 +51,7 @@ async def api(db, monkeypatch):
     app.include_router(routes.router, prefix="/api")
     app.dependency_overrides[get_db_session] = session
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://info"
+        transport=httpx.ASGITransport(app=app), base_url="http://knowfeed"
     ) as client:
         parts.client = client
         yield parts
@@ -75,7 +75,7 @@ async def test_requesting_an_ingestion_registers_the_batch_and_queues_it(api):
         await sql(
             api.db,
             "SELECT aggregate_key FROM outbox_message "
-            "WHERE topic='info.security.ingest.v1'",
+            "WHERE topic='knowfeed.security.ingest.v1'",
         )
         == body["id"]
     )

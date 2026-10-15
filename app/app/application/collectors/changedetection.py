@@ -11,7 +11,7 @@ class ChangeDetectionCollectorAdapter:
         if not watch_id:
             raise ValueError("changedetection collector requires config.watch_id")
         # changedetection.io only triggers the canonical URL here; version diff
-        # governance stays in Info App after the crawl job runs.
+        # governance stays in Knowfeed App after the crawl job runs.
         return [
             CollectedLink(
                 url=url,

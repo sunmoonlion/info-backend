@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from test_crawl_concurrency_db import fake_crawl
 from test_durable_delivery_db import db as db
@@ -21,22 +22,34 @@ from app.cli.identity_preflight import audit_database
 from app.domain.info_identity_v1 import identity_key_v1
 from app.infrastructure.models.info import InfoDocument, InfoDocumentVersion
 
-MIGRATION = (
-    Path(__file__).resolve().parents[1]
-    / "alembic/versions/20260912_0008_canonical_identity.py"
-)
+VERSIONS = Path(__file__).resolve().parents[1] / "alembic/versions"
+MIGRATION = VERSIONS / "20260912_0008_canonical_identity.py"
+# 改名迁移（0025）在 0008 之后把 info_* 表改成新名：测 0008 时先退它、升完 0008 再升它
+RENAME = VERSIONS / "20261015_0014_knowfeed_rename.py"
+
+
+def _load(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 async def migrate(db, action):
-    spec = importlib.util.spec_from_file_location("identity_migration", MIGRATION)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    identity = _load(MIGRATION, "identity_migration")
+    rename = _load(RENAME, "rename_migration")
+    steps = (
+        [rename.downgrade, identity.downgrade]
+        if action == "downgrade"
+        else [identity.upgrade, rename.upgrade]
+    )
     async with db() as s, s.begin():
         connection = await s.connection()
 
         def apply(c):
             with Operations.context(MigrationContext.configure(c)):
-                getattr(module, action)()
+                for step in steps:
+                    step()
 
         await connection.run_sync(apply)
 
@@ -86,12 +99,12 @@ async def test_concurrent_creation_and_versions_share_one_document(db):
     )
     assert len({result[0] for result in results}) == 1
     assert sorted(result[1] for result in results) == list(range(1, 9))
-    assert await sql(db, "SELECT count(*) FROM info_document") == 1
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document") == 1
     assert await sql(db, "SELECT count(*) FROM outbox_message") == 8
     assert (
         await sql(
             db,
-            "SELECT v.version_no FROM info_document d JOIN info_document_version v ON v.id=d.current_version_id",
+            "SELECT v.version_no FROM knowfeed_document d JOIN knowfeed_document_version v ON v.id=d.current_version_id",
         )
         == 8
     )
@@ -134,8 +147,8 @@ async def test_crawl_alias_reuses_current_version_for_unchanged_content(
             result = await service.process_crawl_job(s, job.id)
             assert result.status == "succeeded"
     assert len(calls) == 2
-    assert await sql(db, "SELECT count(*) FROM info_document") == 1
-    assert await sql(db, "SELECT count(*) FROM info_document_version") == 1
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document") == 1
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 1
 
 
 async def test_a_crawl_with_a_source_survives_its_own_commit(db, monkeypatch):
@@ -163,7 +176,7 @@ async def test_a_crawl_with_a_source_survives_its_own_commit(db, monkeypatch):
         )
         result = await service.process_crawl_job(s, job.id)
         assert (result.status, result.error_message) == ("succeeded", None)
-    assert await sql(db, "SELECT source_id::text FROM info_document") == str(source_id)
+    assert await sql(db, "SELECT source_id::text FROM knowfeed_document") == str(source_id)
 
 
 async def test_row_lock_refreshes_preloaded_current_version(db):
@@ -217,7 +230,7 @@ async def test_rollback_releases_creation_and_does_not_consume_version(db):
         first.cancel()
         second.cancel()
         await asyncio.gather(first, second, return_exceptions=True)
-    assert await sql(db, "SELECT count(*) FROM info_document_version") == 1
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 1
     assert await sql(db, "SELECT count(*) FROM outbox_message") == 1
 
 
@@ -237,33 +250,33 @@ async def test_constraints_reject_duplicate_missing_or_changed_identity(db):
     with pytest.raises(IntegrityError):
         await sql(
             db,
-            "INSERT INTO info_document(id,canonical_url,title,status,metadata_json) VALUES (:id,'https://old-writer.test','old','active','{}')",
+            "INSERT INTO knowfeed_document(id,canonical_url,title,status,metadata_json) VALUES (:id,'https://old-writer.test','old','active','{}')",
             id=uuid.uuid4(),
         )
     with pytest.raises(IntegrityError, match="canonical_identity_is_immutable"):
         await sql(
             db,
-            "UPDATE info_document SET canonical_url='https://wrong.test' WHERE id=:id",
+            "UPDATE knowfeed_document SET canonical_url='https://wrong.test' WHERE id=:id",
             id=doc_id,
         )
     with pytest.raises(IntegrityError, match="canonical_identity_is_immutable"):
         await sql(
             db,
-            "UPDATE info_document SET canonical_identity=:key WHERE id=:id",
+            "UPDATE knowfeed_document SET canonical_identity=:key WHERE id=:id",
             id=doc_id,
             key="f" * 64,
         )
     with pytest.raises(IntegrityError, match="write_protocol_version"):
         await sql(
             db,
-            "INSERT INTO info_document_version(id,document_id,version_no,source_url,title,content_hash,extraction_status,metadata_json) "
+            "INSERT INTO knowfeed_document_version(id,document_id,version_no,source_url,title,content_hash,extraction_status,metadata_json) "
             "VALUES (:id,:doc,1,'https://example.com/article','old writer',:hash,'succeeded','{}')",
             id=uuid.uuid4(),
             doc=doc_id,
             hash="a" * 64,
         )
     assert (
-        await sql(db, "SELECT canonical_url FROM info_document")
+        await sql(db, "SELECT canonical_url FROM knowfeed_document")
         == "https://example.com/article"
     )
 
@@ -281,7 +294,7 @@ async def test_digest_collision_or_corrupt_identity_never_merges(db):
     with pytest.raises(ValueError, match="^canonical_identity_conflict$"):
         async with db() as s:
             await document(s)
-    assert await sql(db, "SELECT count(*) FROM info_document") == 1
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document") == 1
 
 
 async def legacy_document(db, url):
@@ -326,7 +339,7 @@ async def test_migration_roundtrip_preserves_rows_urls_versions_and_intents(db):
         await s.commit()
     before = await sql(
         db,
-        "SELECT to_jsonb(d)-'canonical_identity' FROM info_document d WHERE id=:id",
+        "SELECT to_jsonb(d)-'canonical_identity' FROM knowfeed_document d WHERE id=:id",
         id=doc_id,
     )
     await migrate(db, "downgrade")
@@ -337,33 +350,35 @@ async def test_migration_roundtrip_preserves_rows_urls_versions_and_intents(db):
     )
     await migrate(db, "upgrade")
     assert await sql(
-        db, "SELECT canonical_identity FROM info_document WHERE id=:id", id=doc_id
+        db, "SELECT canonical_identity FROM knowfeed_document WHERE id=:id", id=doc_id
     ) == identity_key_v1("https://example.com/article")
     assert (
         await sql(
             db,
-            "SELECT to_jsonb(d)-'canonical_identity' FROM info_document d WHERE id=:id",
+            "SELECT to_jsonb(d)-'canonical_identity' FROM knowfeed_document d WHERE id=:id",
             id=doc_id,
         )
         == before
     )
     assert (
         await sql(
-            db, "SELECT current_version_id FROM info_document WHERE id=:id", id=doc_id
+            db, "SELECT current_version_id FROM knowfeed_document WHERE id=:id", id=doc_id
         )
         == version_id
     )
-    assert await sql(db, "SELECT count(*) FROM info_document_version") == 1
+    assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 1
     assert await sql(db, "SELECT count(*) FROM outbox_message") == 1
     await migrate(db, "downgrade")
-    await migrate(db, "upgrade")
+    # 预检扫描为 0008 冻结、只认旧表 info_document：在降级后的旧结构上做
     assert (await audit_database(db))["ready"] is True
+    await migrate(db, "upgrade")
 
 
 async def test_new_writer_fails_closed_before_schema_upgrade(db):
     await migrate(db, "downgrade")
     with pytest.raises(DBAPIError):
         async with db() as s:
+            await s.execute(text("SELECT set_config('search_path', current_schema(), false)"))
             await document(s)
     assert await sql(db, "SELECT count(*) FROM info_document") == 0
 
@@ -406,12 +421,12 @@ async def test_preflight_and_migration_cross_page_boundary_without_skipping(db):
     assert report["normalization_changes"] == 503
     await migrate(db, "upgrade")
     assert (
-        await sql(db, "SELECT count(DISTINCT canonical_identity) FROM info_document")
+        await sql(db, "SELECT count(DISTINCT canonical_identity) FROM knowfeed_document")
         == 503
     )
     assert (
         await sql(
-            db, "SELECT count(*) FROM info_document WHERE canonical_url LIKE '%#old'"
+            db, "SELECT count(*) FROM knowfeed_document WHERE canonical_url LIKE '%#old'"
         )
         == 503
     )

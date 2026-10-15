@@ -29,7 +29,7 @@ def principal() -> Principal:
         actor_type="user",
         subject="web-user",
         issuer="https://identity.example.test",
-        app="info",
+        app="knowfeed",
         surface="web",
         audience="tpl-web-client",
         actor_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
@@ -37,7 +37,7 @@ def principal() -> Principal:
         scopes=frozenset({"profile:read"}),
         authenticated_at=now,
         expires_at=now + timedelta(minutes=10),
-        policy_version="info-web-v2",
+        policy_version="knowfeed-web-v2",
     )
 
 

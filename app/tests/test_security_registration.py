@@ -28,8 +28,8 @@ RECORD = DatasetRecord(
     security_code="600009",
     status="published",
     ingestion_id="7f3c0f1e-0000-4000-8000-000000000002",
-    bucket="development-info-originals",
-    object_key=f"info/securities/code=600009/datasets/{VERSION}/x.sqlite",
+    bucket="development-knowfeed-originals",
+    object_key=f"knowfeed/securities/code=600009/datasets/{VERSION}/x.sqlite",
     version_id="v7",
     sha256=SHA256,
     size_bytes=143360,
@@ -85,19 +85,19 @@ async def test_the_request_carries_exactly_what_the_knowledge_service_expects():
     (request,) = seen
     assert request.method == "POST" and str(request.url) == URL
     assert request.headers["authorization"] == f"Bearer {TOKEN}"
-    # 与 knowledge-backend 的 DatasetRegister 逐项对应；它不收多余的字段
+    # 与 knowbase-backend 的 DatasetRegister 逐项对应；它不收多余的字段
     assert json.loads(request.content) == {
         "dataset_id": "sh600009-financials",
         "data_version": VERSION,
         "title": "600009 财务报表",
         "security_code": "600009",
-        "object": f"s3://development-info-originals/{RECORD.object_key}",
+        "object": f"s3://development-knowfeed-originals/{RECORD.object_key}",
         "object_version_id": "v7",
         "sha256": SHA256,
         "size_bytes": 143360,
         "start_date": "1994-12-31",
         "end_date": "2026-06-30",
-        "source_app": "info",
+        "source_app": "knowfeed",
         "source_ref": RECORD.ingestion_id,
         "quality_passed": True,
     }

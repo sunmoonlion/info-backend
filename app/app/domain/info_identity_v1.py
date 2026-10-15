@@ -67,7 +67,7 @@ def identity_key_v1(url: str | None) -> str | None:
     normalized = normalize_url_v1(url)
     try:
         return hashlib.sha256(
-            ("info.canonical.v1\x00" + normalized).encode()
+            ("knowfeed.canonical.v1\x00" + normalized).encode()
         ).hexdigest()
     except UnicodeError:
         raise IdentityURLInvalid("identity_url_invalid") from None
@@ -103,7 +103,7 @@ def audit_identity_rows(rows: Iterable[tuple[object, str | None]]) -> dict:
     return {
         "ready": not invalid and not duplicates,
         "complete": True,
-        "policy": "info.canonical.v1",
+        "policy": "knowfeed.canonical.v1",
         "rows": count,
         "null_urls": anonymous,
         "normalization_changes": changed,

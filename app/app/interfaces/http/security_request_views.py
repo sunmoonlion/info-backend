@@ -57,7 +57,7 @@ def origin_read(origin: Origin | None, settings: Settings) -> OriginRead | None:
 
 
 def dataset_read(dataset: DatasetState | None) -> DatasetRead | None:
-    """去 knowledge 看这个数据集的链接由网页端拼（只在一处拼），这里只给数据集的编号。"""
+    """去 knowbase 看这个数据集的链接由网页端拼（只在一处拼），这里只给数据集的编号。"""
     if dataset is None:
         return None
     return DatasetRead(

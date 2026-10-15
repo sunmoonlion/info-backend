@@ -1,6 +1,6 @@
 # db-provisioner
 
-> **维护**：本目录位于统一 **info-backend** 内，是其
+> **维护**：本目录位于统一 **knowfeed-backend** 内，是其
 > **`db-access-bootstrap` 的唯一 `dbctl` 来源**；与独立 `k8s` 仓库无联动。
 
 统一数据库开通工具（`mongodb` / `postgresql` / `redis`），支持：

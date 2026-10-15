@@ -1,4 +1,4 @@
-"""采集申请与关注清单的管理面（0008-info-intake）。要求 info 管理员。"""
+"""采集申请与关注清单的管理面（0008-info-intake）。要求 knowfeed 管理员。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.bootstrap.security_requests import build_security_request_service
 from app.domain.securities.requests import RequestError, RequestStatus
 from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session, get_postgres
-from app.interfaces.http.middleware.auth import require_info_admin
+from app.interfaces.http.middleware.auth import require_knowfeed_admin
 from app.interfaces.http.security_request_views import admin_read, problem
 from app.interfaces.schemas.security_requests import (
     ApproveRequest,
@@ -58,7 +58,7 @@ async def listing(
 async def approve(
     request_id: str,
     body: ApproveRequest | None = None,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     """批准：登记采集批次并排队，和申请的状态一起提交。"""
@@ -81,7 +81,7 @@ async def approve(
 async def reject(
     request_id: str,
     body: RejectRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     service = _service(session)
@@ -104,7 +104,7 @@ async def watchlist(
 @router.post("/security-watchlist", response_model=list[WatchlistEntryRead])
 async def watch(
     body: WatchRequest,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     service = _service(session)
@@ -121,7 +121,7 @@ async def watch(
 async def unwatch(
     code: str,
     body: UnwatchRequest | None = None,
-    principal: Principal = Depends(require_info_admin),
+    principal: Principal = Depends(require_knowfeed_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
     service = _service(session)

@@ -7,7 +7,7 @@ import pytest
 
 from app.application.services.info_crawl_service import index_document_version
 from app.infrastructure.search import (
-    INFO_INFORMATION_INDEX_MAPPING,
+    KNOWFEED_INFORMATION_INDEX_MAPPING,
     build_info_index_document,
     get_info_search_index,
 )
@@ -15,7 +15,7 @@ from core.config import get_settings
 
 
 def test_info_index_mapping_declares_information_fields() -> None:
-    properties = INFO_INFORMATION_INDEX_MAPPING["mappings"]["properties"]
+    properties = KNOWFEED_INFORMATION_INDEX_MAPPING["mappings"]["properties"]
 
     assert properties["document_id"]["type"] == "keyword"
     assert properties["title"]["type"] == "text"
@@ -47,14 +47,14 @@ def test_build_info_index_document_includes_rebuildable_artifact_refs() -> None:
     )
     artifact = SimpleNamespace(
         artifact_type="clean_markdown",
-        bucket="info",
+        bucket="knowfeed",
         object_key="clean.md",
         sha256="sha256-clean",
         content_type="text/markdown",
     )
     extracted = SimpleNamespace(
         content_format="markdown",
-        bucket="info",
+        bucket="knowfeed",
         object_key="clean.md",
         sha256="sha256-clean",
         extractor_name="trafilatura",
@@ -79,23 +79,23 @@ def test_build_info_index_document_includes_rebuildable_artifact_refs() -> None:
 def test_info_search_index_uses_platform_auth_ca_and_write_alias(monkeypatch) -> None:
     monkeypatch.setenv("SEARCH_BACKEND", "elasticsearch")
     monkeypatch.setenv("ELASTICSEARCH_URL", "https://elasticsearch.example:9200")
-    monkeypatch.setenv("ELASTICSEARCH_USERNAME", "info-user")
-    monkeypatch.setenv("ELASTICSEARCH_PASSWORD", "info-password")
+    monkeypatch.setenv("ELASTICSEARCH_USERNAME", "knowfeed-user")
+    monkeypatch.setenv("ELASTICSEARCH_PASSWORD", "knowfeed-password")
     monkeypatch.setenv("ELASTICSEARCH_CA_CERT_PATH", "/var/run/secrets/es/ca.crt")
     monkeypatch.setenv(
         "ELASTICSEARCH_ALIASES",
-        '{"information":{"read":"info-read","write":"info-write"}}',
+        '{"information":{"read":"info-read","write":"knowfeed-write"}}',
     )
     get_settings.cache_clear()
 
     index = get_info_search_index()
 
     assert index.enabled is True
-    assert index.index_name == "info-write"
-    assert index.username == "info-user"
-    assert index.password == "info-password"
+    assert index.index_name == "knowfeed-write"
+    assert index.username == "knowfeed-user"
+    assert index.password == "knowfeed-password"
     assert index.ca_cert_path == "/var/run/secrets/es/ca.crt"
-    assert index._client_kwargs()["auth"] == ("info-user", "info-password")
+    assert index._client_kwargs()["auth"] == ("knowfeed-user", "knowfeed-password")
     assert index._client_kwargs()["verify"] == "/var/run/secrets/es/ca.crt"
     get_settings.cache_clear()
 

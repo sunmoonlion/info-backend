@@ -1,6 +1,6 @@
 # 按证券代码采集
 
-设计见 k8s 仓 `sunmoonai/docs/dev-investment-agent/tree-build/SDD/modules/0008-info.md`「段一」。
+设计见 k8s 仓 `docs/dev-investment-agent/tree-build/SDD/modules/0008-info.md`「段一」。
 本文只写怎么用、放在哪、已知的事实。
 
 ## 做什么

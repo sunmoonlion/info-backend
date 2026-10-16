@@ -1,6 +1,6 @@
 # 从年度报告原文抽取三张合并报表
 
-设计见 k8s 仓 `sunmoonai/docs/dev-investment-agent/tree-build/SDD/modules/0008-info-statements.md`「段七」。
+设计见 k8s 仓 `docs/dev-investment-agent/tree-build/SDD/modules/0008-info-statements.md`「段七」。
 本文只写做了什么、放在哪、怎么用、已知的事实。
 
 ## 现在到哪一步

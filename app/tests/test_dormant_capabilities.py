@@ -167,7 +167,7 @@ def test_declared_dormant_capability_is_still_dormant(item: Dormant) -> None:
     """能力接线了 → 声明过期。删条目，并同步投影文档。"""
     assert item.still_dormant(), (
         f"休眠声明「{item.name}」已不成立——该能力看起来已接线。"
-        f"请删掉本条声明，并同步更新 k8s:sunmoonai/docs/project-guide/"
+        f"请删掉本条声明，并同步更新 k8s:docs/project-guide/"
         f"repos/knowfeed-app.md 的「已知未实现」一节。依据：{item.evidence}"
     )
 

@@ -18,7 +18,7 @@ from app.domain.securities.requests import (
     progress_after_approval,
 )
 
-KNOWN = frozenset({"investment", "knowbase"})
+KNOWN = frozenset({"knowbench", "knowbase"})
 
 
 # ---------------------------------------------------------------- 进度怎么推
@@ -68,13 +68,13 @@ def test_without_a_downstream_a_published_dataset_is_already_available():
 @pytest.mark.parametrize(
     ("app", "ref", "expected"),
     [
-        ("investment", "task:1f0c", ("investment", "task:1f0c")),
-        ("investment", None, ("investment", None)),
-        ("investment", "has space", ("investment", None)),
-        ("investment", "a" * 129, ("investment", None)),
-        ("investment", "https://evil.example.test", ("investment", None)),
+        ("knowbench", "task:1f0c", ("knowbench", "task:1f0c")),
+        ("knowbench", None, ("knowbench", None)),
+        ("knowbench", "has space", ("knowbench", None)),
+        ("knowbench", "a" * 129, ("knowbench", None)),
+        ("knowbench", "https://evil.example.test", ("knowbench", None)),
         ("unknown", "x", None),
-        ("Investment", "x", None),
+        ("Knowbench", "x", None),
         ("", "x", None),
         (None, "x", None),
     ],
@@ -105,7 +105,7 @@ async def test_a_company_outside_the_watchlist_waits_for_approval():
         "600519",
         actor_id=ALICE,
         reason="要看毛利率",
-        origin_app="investment",
+        origin_app="knowbench",
         origin_ref="task:42",
     )
     assert view.progress is Progress.PENDING
@@ -114,7 +114,7 @@ async def test_a_company_outside_the_watchlist_waits_for_approval():
     assert store.started == []  # 没有开始采集
     mine = view.request.requester(ALICE)
     assert mine.reason == "要看毛利率"
-    assert (mine.origin.app, mine.origin.ref) == ("investment", "task:42")
+    assert (mine.origin.app, mine.origin.ref) == ("knowbench", "task:42")
     assert store.commits == 1 and store.locked == [ALICE]
 
 
@@ -430,4 +430,4 @@ def test_request_settings():
 
     blank = Settings(_env_file=None)
     assert blank.security_request_max_open == 5
-    assert set(blank.cross_app_sources()) == {"investment", "knowbase"}
+    assert set(blank.cross_app_sources()) == {"knowbench", "knowbase"}

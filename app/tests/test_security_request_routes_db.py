@@ -33,8 +33,8 @@ from app.main import app as real_app
 from core.config import Settings
 
 SOURCES = (
-    '{"investment": {"return_url": '
-    '"https://investment.example.test/zh-CN/workbench/back?ref={ref}"},'
+    '{"knowbench": {"return_url": '
+    '"https://knowbench.example.test/zh-CN/workbench/back?ref={ref}"},'
     ' "knowbase": {}}'
 )
 
@@ -130,7 +130,7 @@ async def test_submit_outside_the_watchlist_then_see_it_in_my_requests(api):
         "needs_approval": True,
     }
     created = await submit(
-        api, ALICE, reason=" 要看净息差 ", **{"from": "investment", "ref": "task:42"}
+        api, ALICE, reason=" 要看净息差 ", **{"from": "knowbench", "ref": "task:42"}
     )
     assert created.status_code == 201
     body = created.json()
@@ -139,9 +139,9 @@ async def test_submit_outside_the_watchlist_then_see_it_in_my_requests(api):
     assert body["rejection_note"] is None and body["dataset"] is None
     assert body["mine"]["reason"] == "要看净息差"
     assert body["mine"]["origin"] == {
-        "app": "investment",
+        "app": "knowbench",
         "ref": "task:42",
-        "return_url": "https://investment.example.test/zh-CN/workbench/back?ref=task%3A42",
+        "return_url": "https://knowbench.example.test/zh-CN/workbench/back?ref=task%3A42",
     }
     assert await sql(api.db, "SELECT count(*) FROM security_ingestion") == 0
     listed = await api.client.get("/api/web/v1/security-requests", headers=as_(ALICE))
@@ -178,10 +178,10 @@ async def test_a_user_sees_nothing_about_other_people(api):
 @pytest.mark.parametrize(
     ("params", "expected"),
     [
-        ({"from": "investment", "ref": "task:42"}, ("investment", "task:42", True)),
+        ({"from": "knowbench", "ref": "task:42"}, ("knowbench", "task:42", True)),
         ({"from": "knowbase", "ref": "x"}, ("knowbase", "x", False)),
-        ({"from": "investment", "ref": "bad ref"}, ("investment", None, True)),
-        ({"from": "investment"}, ("investment", None, True)),
+        ({"from": "knowbench", "ref": "bad ref"}, ("knowbench", None, True)),
+        ({"from": "knowbench"}, ("knowbench", None, True)),
         ({"from": "unknown", "ref": "x"}, None),
         ({"ref": "x"}, None),
         ({}, None),
@@ -201,7 +201,7 @@ async def test_origin_is_resolved_from_configuration_only(api, params, expected)
     assert (body["app"], body["ref"]) == (app, ref)
     assert (body["return_url"] is not None) is has_return
     if has_return:
-        assert body["return_url"].startswith("https://investment.example.test/")
+        assert body["return_url"].startswith("https://knowbench.example.test/")
 
 
 async def test_a_return_address_in_the_link_is_ignored(api):
@@ -209,7 +209,7 @@ async def test_a_return_address_in_the_link_is_ignored(api):
     response = await api.client.get(
         "/api/web/v1/cross-app/origin",
         params={
-            "from": "investment",
+            "from": "knowbench",
             "ref": "t1",
             "return_to": "https://evil.example.test/",
             "return_url": "https://evil.example.test/",

@@ -48,7 +48,7 @@ async def served(db, monkeypatch):  # noqa: F811
     config = Settings(
         _env_file=None,
         cross_app_sources_json=(
-            '{"investment": {"return_url":'
+            '{"knowbench": {"return_url":'
             ' "http://localhost:3100/zh-CN/workbench?ref={ref}"}, "knowbase": {}}'
         ),
         cross_app_targets_json=(
@@ -209,7 +209,7 @@ async def build_full(world: World) -> None:
     assert (await world.see("registration-failed"))["progress"] == "registration_failed"
 
     await world.submit(
-        "rejected", "688981", reason="看看", **{"from": "investment", "ref": "task:42"}
+        "rejected", "688981", reason="看看", **{"from": "knowbench", "ref": "task:42"}
     )
     refused = await http.post(
         f"/api/admin/security-requests/{world.requests['rejected']}/rejection",
@@ -232,7 +232,7 @@ async def build_full(world: World) -> None:
         "pending",
         "601012",
         reason="要做光伏行业的对比",
-        **{"from": "investment", "ref": "task:7f3a"},
+        **{"from": "knowbench", "ref": "task:7f3a"},
     )
     # 别人也申请了同一家：并到同一个申请里
     await world.submit("pending-joined", "601012", by=BOB, reason="同上")
@@ -285,8 +285,8 @@ async def build_full(world: World) -> None:
     rec.page("我的申请", "/zh-CN/requests")
     rec.page("申请入库（什么都没带）", "/zh-CN/requests/new")
     rec.page(
-        "申请入库（从 investment 带着代码过来）",
-        "/zh-CN/requests/new?code=600585&from=investment&ref=task:42",
+        "申请入库（从 knowbench 带着代码过来）",
+        "/zh-CN/requests/new?code=600585&from=knowbench&ref=task:42",
     )
     rec.page(
         "申请入库（这家已经有数据）", "/zh-CN/requests/new?code=002594&from=knowbase"

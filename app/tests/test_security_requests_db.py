@@ -60,7 +60,7 @@ def service_on(session, sessions, **options) -> SecurityRequestService:
         store=SqlRequestStore(session, start_ingestion=start),
         watchlist=SqlWatchlist(session),
         clock=Clock(),
-        known_apps=frozenset({"investment", "knowbase"}),
+        known_apps=frozenset({"knowbench", "knowbase"}),
         **options,
     )
 
@@ -144,7 +144,7 @@ async def test_request_outside_the_watchlist_is_stored_and_nothing_is_queued(
         "000001",
         ALICE,
         reason="要看净息差",
-        origin_app="investment",
+        origin_app="knowbench",
         origin_ref="task:42",
     )
     assert view.progress is Progress.PENDING
@@ -158,7 +158,7 @@ async def test_request_outside_the_watchlist_is_stored_and_nothing_is_queued(
     mine = stored.request.requester(ALICE)
     assert (mine.reason, mine.origin.app, mine.origin.ref) == (
         "要看净息差",
-        "investment",
+        "knowbench",
         "task:42",
     )
 

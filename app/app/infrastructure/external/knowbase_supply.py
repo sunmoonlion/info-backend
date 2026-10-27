@@ -28,6 +28,7 @@ class HttpKnowbase:
     base_url: str
     tokens: ServiceTokenProvider
     timeout_seconds: float
+    transport: httpx.AsyncBaseTransport | None = None  # 测试换成记录请求的
 
     async def check_confirmation(
         self, confirmation_id: str, subject: str
@@ -140,7 +141,9 @@ class HttpKnowbase:
         content: bytes | None = None,
     ) -> dict[str, Any]:
         token = await self.tokens.get_token()
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout_seconds, transport=self.transport
+        ) as client:
             response = await client.request(
                 method,
                 self.base_url.rstrip("/") + path,

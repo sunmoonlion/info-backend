@@ -32,7 +32,9 @@ _FORWARD: dict[str, frozenset[str]] = {
     "accepted": frozenset(
         {"fetching", "ready", "unsatisfiable", "cancelled", "timeout", "failed"}
     ),
-    "fetching": frozenset({"ready", "partial", "failed", "cancelled", "timeout"}),
+    "fetching": frozenset(
+        {"ready", "partial", "failed", "unsatisfiable", "cancelled", "timeout"}
+    ),
 }
 Reading = Literal["original", "text", "pages", "table"]
 READINGS: tuple[Reading, ...] = ("original", "text", "pages", "table")

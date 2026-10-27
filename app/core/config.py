@@ -266,6 +266,18 @@ class Settings(BaseSettings):
     knowbase_app_timeout_seconds: float = Field(
         default=20.0, validation_alias="KNOWBASE_APP_TIMEOUT_SECONDS"
     )
+    # 供给（SDD 0045）：knowbase 的资料库接口（关系 user-data-supply），如
+    # http://knowbase-backend/api/internal/v2/user-data
+    knowbase_supply_url: str | None = Field(
+        default=None, validation_alias="KNOWBASE_SUPPLY_URL"
+    )
+    knowbase_supply_timeout_seconds: float = Field(
+        default=120.0, validation_alias="KNOWBASE_SUPPLY_TIMEOUT_SECONDS"
+    )
+    # 提需求的服务身份 → 应用（knowbench、knowlab）：通知发给它，需求单记在它名下
+    supply_service_apps_json: str = Field(
+        default="{}", validation_alias="SUPPLY_SERVICE_APPS_JSON"
+    )
 
     @field_validator("cross_app_sources_json")
     @classmethod

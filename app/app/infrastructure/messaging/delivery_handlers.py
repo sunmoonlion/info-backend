@@ -99,6 +99,14 @@ async def register_security_dataset(session, payload):
         logger.warning("security dataset registration refused code=%s", exc.code)
 
 
+async def run_supply_job(session, payload):
+    # 作业自己管事务、尝试与重试（JobRunner）：业务上的失败是需求项的终态，不是投递失败
+    from app.bootstrap.supply import build_job_runner
+    from app.infrastructure.storage.postgres import get_postgres
+
+    await build_job_runner(get_postgres().session_factory).run(str(payload["job_id"]))
+
+
 def get_delivery_handlers() -> dict[str, Handler]:
     return {
         "knowfeed.crawl.v1": crawl,
@@ -107,4 +115,5 @@ def get_delivery_handlers() -> dict[str, Handler]:
         "knowfeed.security.ingest.v1": ingest_security,
         "knowfeed.security.dataset.build.v1": build_security_dataset,
         "knowfeed.security.dataset.register.v1": register_security_dataset,
+        "knowfeed.supply.job.v1": run_supply_job,
     }

@@ -63,7 +63,12 @@ async def test_requests_follow_the_knowbase_endpoints():
         channel_doc_id="000858:annual_report:2025",
         name="五粮液2025年年度报告.pdf",
         content=b"%PDF-1.7",
-        key=KEY,
+        subject=KEY.subject,
+        doc_type=KEY.doc_type,
+        period_start=KEY.period_start,
+        period_end=KEY.period_end,
+        edition="full",
+        topics=(),
         disclosed_on="2026-04-25",
         source_url="http://static.cninfo.com.cn/x.PDF",
     )
@@ -76,11 +81,30 @@ async def test_requests_follow_the_knowbase_endpoints():
         "name": "五粮液2025年年度报告.pdf",
         "subject": "000858.SZ",
         "doc_type": "annual_report",
+        "edition": "full",
         "source_url": "http://static.cninfo.com.cn/x.PDF",
         "period_start": "2025-01-01",
         "period_end": "2025-12-31",
         "disclosed_on": "2026-04-25",
     }
+    # 公告：不带报告期，事项一项一个参数（knowbase 收 topics 列表）
+    await kb.deliver_public(
+        channel="cninfo",
+        channel_doc_id="000858:announcement:1",
+        name="回购.pdf",
+        content=b"%PDF-1.7",
+        subject="000858.SZ",
+        doc_type="interim_announcement",
+        period_start=None,
+        period_end=None,
+        edition="full",
+        topics=("equity", "supervision"),
+        disclosed_on="2026-05-01",
+        source_url="http://static.cninfo.com.cn/y.PDF",
+    )
+    announced = seen.pop(1)
+    assert announced.url.params.get_list("topics") == ["equity", "supervision"]
+    assert "period_end" not in announced.url.params
     assert deliver.headers["Authorization"] == "Bearer service-token"
 
     assert await kb.add_references("m-1", 1, [("alice", "demand:d:c1")]) == 2

@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from typing import Any
 
 import httpx
 
-from app.domain.supply.models import DescriptionKey, SupplyError
+from app.domain.supply.models import SupplyError
 from app.infrastructure.external.knowbase_app import (
     KnowbaseAppNotConfiguredError,
     ServiceTokenProvider,
@@ -46,26 +47,33 @@ class HttpKnowbase:
         channel_doc_id: str,
         name: str,
         content: bytes,
-        key: DescriptionKey,
+        subject: str,
+        doc_type: str,
+        period_start: date | None,
+        period_end: date | None,
+        edition: str,
+        topics: tuple[str, ...],
         disclosed_on: str | None,
         source_url: str,
     ) -> dict[str, Any]:
-        params = {
-            "channel": channel,
-            "channel_doc_id": channel_doc_id,
-            "name": name,
-            "subject": key.subject,
-            "doc_type": key.doc_type,
-            "source_url": source_url,
-        }
+        params: list[tuple[str, str]] = [
+            ("channel", channel),
+            ("channel_doc_id", channel_doc_id),
+            ("name", name),
+            ("subject", subject),
+            ("doc_type", doc_type),
+            ("edition", edition),
+            ("source_url", source_url),
+        ]
+        params += [("topics", t) for t in topics]
         for field, value in (
-            ("period_start", key.period_start),
-            ("period_end", key.period_end),
+            ("period_start", period_start),
+            ("period_end", period_end),
         ):
             if value is not None:
-                params[field] = value.isoformat()
+                params.append((field, value.isoformat()))
         if disclosed_on:
-            params["disclosed_on"] = disclosed_on
+            params.append(("disclosed_on", disclosed_on))
         return await self._call(
             "POST", "/service/public-originals", params=params, content=content
         )
@@ -136,7 +144,7 @@ class HttpKnowbase:
         method: str,
         path: str,
         *,
-        params: dict[str, str] | None = None,
+        params: dict[str, str] | list[tuple[str, str]] | None = None,
         json_body: dict[str, Any] | None = None,
         content: bytes | None = None,
     ) -> dict[str, Any]:

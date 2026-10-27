@@ -50,6 +50,7 @@ class FakeKnowbase:
         self.created = True
         self.fail_deliver: SupplyError | None = None
         self.confirmations: dict[str, dict] = {}
+        self.delivered: list[dict] = []
 
     async def check_confirmation(self, confirmation_id, subject):
         found = self.confirmations.get(confirmation_id)
@@ -61,7 +62,9 @@ class FakeKnowbase:
         if self.fail_deliver:
             raise self.fail_deliver
         self.calls.append(("deliver", kw["channel_doc_id"]))
-        return {"material_id": "m-1", "version_no": 1, "created": self.created}
+        self.delivered.append(kw)
+        number = len(self.delivered)
+        return {"material_id": f"m-{number}", "version_no": 1, "created": self.created}
 
     async def add_references(self, material_id, version_no, references):
         self.calls.append(("references", sorted(references)))
@@ -96,6 +99,7 @@ class FakeCatalog:
                     "http://static.cninfo.com.cn/finalpage/2026-04-25/1.PDF",
                     date(2026, 4, 25),
                     announcement_id="1",
+                    doc_type="annual_report",
                 )
             ]
         )
@@ -104,7 +108,7 @@ class FakeCatalog:
         return self.entries
 
     async def fetch(self, entry):
-        return PDF, "application/pdf"
+        return PDF + entry.channel_doc_id.encode(), "application/pdf"
 
 
 class FakeObjects:
@@ -353,3 +357,48 @@ async def test_apps_submit_follow_and_cancel_demands_over_http(db):
     assert cancelled.json()["status"] == "cancelled"
     missing = await client.get("/api/internal/v1/supply/demands/nope")
     assert (missing.status_code, missing.json()["code"]) == (404, "demand_not_found")
+
+
+async def test_a_disclosure_window_delivers_each_announcement_as_its_own_material(db):
+    """SDD 0049：非定期报告一条描述是一个披露时间窗，窗里的逐份交付；描述按插件认出的
+    细类、版本形态、事项写，不带报告期，不抽三大表。"""
+    window = DescriptionKey(
+        "000858.SZ",
+        "interim_announcement",
+        date(2026, 1, 1),
+        date(2026, 10, 1),
+        topics=("equity",),
+    )
+    entries = [
+        Entry(
+            "cninfo",
+            f"000858:announcement:{n}",
+            title,
+            f"http://static.cninfo.com.cn/finalpage/2026-0{n}-01/{n}.PDF",
+            date(2026, n, 1),
+            announcement_id=str(n),
+            doc_type="interim_announcement",
+            topics=("equity",),
+        )
+        for n, title in ((5, "关于回购股份的公告"), (3, "关于股东减持计划的公告"))
+    ]
+    w = World(db, catalog=FakeCatalog(entries=entries))
+    w.confirm("conf-w", "alice", window)
+    demand, _, _ = await w.submit(
+        confirmation="conf-w", key=window, idem="idem-window-01", readings=("pages",)
+    )
+    job_id = str(await sql(db, "SELECT id FROM supply_job"))
+    assert await w.runner.run(job_id) == "done"
+    kinds = [c[0] for c in w.knowbase.calls]
+    assert kinds == ["deliver", "pages", "references"] * 2  # 不抽表
+    first = w.knowbase.delivered[0]
+    assert (first["doc_type"], first["topics"], first["edition"]) == (
+        "interim_announcement",
+        ("equity",),
+        "full",
+    )
+    assert first["period_start"] is None and first["period_end"] is None
+    _, items = await w.demands.get("knowbench", demand.id)
+    assert items[0].status == "ready"
+    assert [m["material_id"] for m in items[0].receipt["materials"]] == ["m-1", "m-2"]
+    assert await sql(db, "SELECT count(*) FROM supply_original") == 2

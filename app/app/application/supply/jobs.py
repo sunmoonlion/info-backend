@@ -8,6 +8,8 @@
 - 交付可安全重试：knowbase 按渠道编号与内容摘要认同一份，引用按需求依据只记一条。
 - 加工没成功原件照样交付，需求项照实写（只要原件的不因加工失败降级）。
 - 原件交 knowbase 拿到回执后再留 30 天。
+- 定期报告一条描述交一份；其余类型一条是一个披露时间窗，窗里列出的逐份交付
+  （SDD 0049）。交给 knowbase 的描述按插件认出的细类、版本形态、事项写。
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ from app.domain.supply.models import (
     Original,
     SupplyError,
 )
+from app.domain.supply.vocabulary import is_periodic
 
 log = logging.getLogger(__name__)
 
@@ -148,47 +151,30 @@ class JobRunner:
         catalog = self.catalogs[channel_id]
         entries = await catalog.list(key)
         if not entries:
-            # 渠道明说没有：不重试，转「无法满足」（报告还没披露、这家没有这一类）
+            # 渠道明说没有：不重试，转「无法满足」（报告还没披露、这家没有这一类、
+            # 窗里没有这类公告）
             await self._settle_waiting(
                 job_id, "unsatisfiable", reason="the channel has no such document"
             )
             return "absent"
-        entry = entries[0]  # 新的在前：更正版是同一份资料的新版本
-        content, media_type = await catalog.fetch(entry)
-        original = await self._keep(entry, content, media_type)
-        delivered = await self.knowbase.deliver_public(
-            channel=channel_id,
-            channel_doc_id=entry.channel_doc_id,
-            name=_file_name(entry),
-            content=content,
-            key=key,
-            disclosed_on=entry.disclosed_on.isoformat() if entry.disclosed_on else None,
-            source_url=entry.url,
-        )
-        material_id = str(delivered["material_id"])
-        version_no = int(delivered["version_no"])
-        done = {"original"}
-        if delivered.get("created"):
-            done |= await self._process(material_id, version_no, content, key)
-        else:
-            # 这一版以前交过：读法那时已加工（同一条流水线），这里不重做
-            done |= {"pages"} | ({"table"} if key.doc_type in FACT_DOC_TYPES else set())
+        # 定期报告：新的在前，更正版是同一份资料的新版本，交最新那一条
+        chosen = entries[:1] if is_periodic(key.doc_type) else entries
         waiting = await self.repo.waiting_items(job_id)
         references = [(demand.owner, item.basis_ref) for item, demand in waiting]
-        if references:
-            await self.knowbase.add_references(material_id, version_no, references)
-        receipt = {
-            "material_id": material_id,
-            "version_no": version_no,
-            "sha256": original.sha256,
-            "readings": sorted(done),
-            "channel_doc_id": entry.channel_doc_id,
-        }
+        delivered: list[dict[str, object]] = []
+        readings: set[str] | None = None
+        for entry in chosen:
+            one, done = await self._deliver_one(entry, key, references)
+            delivered.append(one)
+            readings = done if readings is None else readings & done
+        receipt: dict[str, object] = {"materials": delivered}
+        if len(delivered) == 1:
+            receipt.update(delivered[0])
         by_status: dict[str, list[str]] = {}
         for item, _ in waiting:
-            by_status.setdefault(wanted_readings(item.readings, done), []).append(
-                item.id
-            )
+            by_status.setdefault(
+                wanted_readings(item.readings, readings or set()), []
+            ).append(item.id)
         for status, ids in by_status.items():
             await self.repo.settle_items(
                 ids,
@@ -197,15 +183,64 @@ class JobRunner:
                 receipt=receipt,
                 reason=None if status == "ready" else "some readings are not ready",
             )
+        return "done"
+
+    async def _deliver_one(
+        self, entry: Entry, key: DescriptionKey, references: list[tuple[str, str]]
+    ) -> tuple[dict[str, object], set[str]]:
+        """取一份、留存、交 knowbase、加工、记引用；回（回执里的这一份，就绪的读法）。"""
+        content, media_type = await self.catalogs[entry.channel_id].fetch(entry)
+        original = await self._keep(entry, content, media_type)
+        periodic = is_periodic(entry.doc_type)
+        delivered = await self.knowbase.deliver_public(
+            channel=entry.channel_id,
+            channel_doc_id=entry.channel_doc_id,
+            name=_file_name(entry),
+            content=content,
+            subject=key.subject,
+            doc_type=entry.doc_type,
+            period_start=key.period_start if periodic else None,
+            period_end=key.period_end if periodic else None,
+            edition=entry.edition,
+            topics=entry.topics,
+            disclosed_on=entry.disclosed_on.isoformat() if entry.disclosed_on else None,
+            source_url=entry.url,
+        )
+        material_id = str(delivered["material_id"])
+        version_no = int(delivered["version_no"])
+        facts = entry.doc_type in FACT_DOC_TYPES and entry.edition == "full"
+        done = {"original"}
+        if delivered.get("created"):
+            done |= await self._process(material_id, version_no, content, key, facts)
+        else:
+            # 这一版以前交过：读法那时已加工（同一条流水线），这里不重做
+            done |= {"pages"} | ({"table"} if facts else set())
+        if references:
+            await self.knowbase.add_references(material_id, version_no, references)
         await self.repo.mark_delivered(
             original.id, self.now(), self.now() + RETENTION, material_id, version_no
         )
-        return "done"
+        return (
+            {
+                "material_id": material_id,
+                "version_no": version_no,
+                "sha256": original.sha256,
+                "readings": sorted(done),
+                "channel_doc_id": entry.channel_doc_id,
+                "doc_type": entry.doc_type,
+            },
+            done,
+        )
 
     async def _process(
-        self, material_id: str, version_no: int, pdf: bytes, key: DescriptionKey
+        self,
+        material_id: str,
+        version_no: int,
+        pdf: bytes,
+        key: DescriptionKey,
+        facts_wanted: bool,
     ) -> set[str]:
-        """凭加工授权写回读法：按页文字；年报再抽三张合并报表。没成的照实写原因。"""
+        """凭加工授权写回读法：按页文字；全文年报再抽三张合并报表。没成的照实写原因。"""
         grant = await self.knowbase.processing_grant(material_id, version_no)
         done: set[str] = set()
         try:
@@ -219,7 +254,7 @@ class JobRunner:
             await self.knowbase.write_failed(
                 grant, "pages", PAGES_VERSION, "unreadable"
             )
-        if key.doc_type not in FACT_DOC_TYPES:
+        if not facts_wanted:
             return done
         try:
             facts = annual_statements(pdf, key, self.pdf_words)

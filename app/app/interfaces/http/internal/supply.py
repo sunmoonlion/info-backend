@@ -55,12 +55,18 @@ def caller_app(principal: Principal = Depends(require_supply_caller)) -> str:
 
 
 class DescriptionKeyIn(BaseModel):
+    """一条描述（SDD 0049）：类型可以是细类或大类；定期报告的期间是报告期，其余是
+    披露时间窗；版本形态进键，事项、行业只缩小范围。"""
+
     model_config = ConfigDict(extra="forbid")
 
     subject: str = Field(min_length=1, max_length=64)
     doc_type: str = Field(min_length=1, max_length=32)
     period_start: date | None = None
     period_end: date | None = None
+    edition: Literal["full", "summary", "english"] = "full"
+    topics: list[str] = Field(default_factory=list, max_length=12)
+    industry: str | None = Field(default=None, max_length=16)
 
 
 class DemandItemModel(BaseModel):
@@ -165,7 +171,13 @@ async def submit(
     items = [
         DemandItemIn(
             key=DescriptionKey(
-                i.key.subject, i.key.doc_type, i.key.period_start, i.key.period_end
+                i.key.subject,
+                i.key.doc_type,
+                i.key.period_start,
+                i.key.period_end,
+                edition=i.key.edition,
+                topics=tuple(i.key.topics),
+                industry=i.key.industry,
             ),
             readings=tuple(i.readings),
             confirmation_item=i.confirmation_item,

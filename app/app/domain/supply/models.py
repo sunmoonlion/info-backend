@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal
 
+from app.domain.supply.vocabulary import types_of
+
 # —— 需求 ——
 
 ItemStatus = Literal[
@@ -65,15 +67,20 @@ def can_move(current: str, target: str) -> bool:
 
 @dataclass(frozen=True)
 class DescriptionKey:
-    """一条精确的描述：主体 × 类型 × 报告期（词表同 knowbase）。"""
+    """一条描述（词表同 knowbase，SDD 0049）：主体 × 类型 × 期间 × 版本形态，外加缩小
+    范围的事项、行业。类型可以是细类或大类；定期报告的期间是报告期（一条对一份），
+    其余类型的期间是披露时间窗（一条对窗里的一批）。缺省值不写进字典。"""
 
     subject: str
     doc_type: str
     period_start: date | None = None
     period_end: date | None = None
+    edition: str = "full"
+    topics: tuple[str, ...] = ()
+    industry: str | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        out: dict[str, object] = {
             "subject": self.subject,
             "doc_type": self.doc_type,
             "period_start": self.period_start.isoformat()
@@ -81,21 +88,38 @@ class DescriptionKey:
             else None,
             "period_end": self.period_end.isoformat() if self.period_end else None,
         }
+        if self.edition != "full":
+            out["edition"] = self.edition
+        if self.topics:
+            out["topics"] = list(self.topics)
+        if self.industry is not None:
+            out["industry"] = self.industry
+        return out
 
     @staticmethod
     def from_dict(data: dict[str, object]) -> DescriptionKey:
         start, end = data.get("period_start"), data.get("period_end")
+        topics = data.get("topics") or ()
         return DescriptionKey(
             subject=str(data["subject"]),
             doc_type=str(data["doc_type"]),
             period_start=date.fromisoformat(str(start)) if start else None,
             period_end=date.fromisoformat(str(end)) if end else None,
+            edition=str(data.get("edition") or "full"),
+            topics=tuple(str(t) for t in topics),  # type: ignore[union-attr]
+            industry=str(data["industry"]) if data.get("industry") else None,
         )
 
     @property
     def text(self) -> str:
         """同一用户同一描述键的未办完请求合流用（0045 第 3.3 节）。"""
-        return f"{self.subject}|{self.doc_type}|{self.period_start}|{self.period_end}"
+        extra = ""
+        if self.edition != "full" or self.topics or self.industry:
+            extra = f"|{self.edition}|{','.join(sorted(self.topics))}|{self.industry}"
+        return (
+            f"{self.subject}|{self.doc_type}|{self.period_start}|{self.period_end}"
+            + extra
+        )
 
 
 @dataclass(frozen=True)
@@ -185,10 +209,11 @@ class Channel:
     consecutive_failures: int = 0
 
     def covers(self, key: DescriptionKey) -> bool:
+        """渠道能供这一条：大类看它下面有没有这个渠道登记的细类。"""
         return (
             self.status == "active"
             and self.review == "approved"
-            and key.doc_type in self.doc_types
+            and any(t in self.doc_types for t in types_of(key.doc_type))
         )
 
 
@@ -203,6 +228,10 @@ class Entry:
     disclosed_on: date | None
     revised: bool = False
     announcement_id: str | None = None  # 渠道里这一次公告的编号（更正版另一个）
+    # 插件认出的描述（SDD 0049）：细类、版本形态、事项；交 knowbase 时就这么写
+    doc_type: str = ""
+    edition: str = "full"
+    topics: tuple[str, ...] = ()
 
 
 # —— 作业 ——

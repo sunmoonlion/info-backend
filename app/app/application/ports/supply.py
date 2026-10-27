@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Protocol
 
 from app.domain.supply.models import (
@@ -111,10 +111,17 @@ class Knowbase(Protocol):
         channel_doc_id: str,
         name: str,
         content: bytes,
-        key: DescriptionKey,
+        subject: str,
+        doc_type: str,
+        period_start: date | None,
+        period_end: date | None,
+        edition: str,
+        topics: tuple[str, ...],
         disclosed_on: str | None,
         source_url: str,
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any]:
+        """交一份公开原件；描述是这一份的（细类、版本形态、事项，SDD 0049）。"""
+        ...
 
     async def add_references(
         self, material_id: str, version_no: int, references: list[tuple[str, str]]

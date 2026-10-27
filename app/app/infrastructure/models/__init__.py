@@ -17,6 +17,14 @@ from app.infrastructure.models.securities import (
     SecurityIngestion,
     SecurityIngestionItem,
 )
+from app.infrastructure.models.supply import (
+    SupplyAttempt,
+    SupplyChannel,
+    SupplyDemand,
+    SupplyDemandItem,
+    SupplyJob,
+    SupplyOriginal,
+)
 
 __all__ = [
     "AuthUser",
@@ -35,4 +43,10 @@ __all__ = [
     "SecurityDataset",
     "SecurityIngestion",
     "SecurityIngestionItem",
+    "SupplyAttempt",
+    "SupplyChannel",
+    "SupplyDemand",
+    "SupplyDemandItem",
+    "SupplyJob",
+    "SupplyOriginal",
 ]

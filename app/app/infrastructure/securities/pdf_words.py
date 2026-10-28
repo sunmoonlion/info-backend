@@ -9,8 +9,7 @@ import io
 import logging
 from collections.abc import Iterator
 
-from app.domain.securities.dataset import DatasetBuildError
-from app.domain.securities.report_statements import PageWords, Word
+from app.domain.securities.report_statements import PageWords, ReportReadError, Word
 
 DEFAULT_FIRST_PAGE = 12  # 前面是目录、释义、公司简介，没有财务报表
 DEFAULT_MAX_BYTES = 128 * 1024 * 1024
@@ -40,7 +39,7 @@ class PdfPlumberWordsReader:
         if first_page < 1:
             raise ValueError("first_page must be at least 1")
         if not pdf.startswith(b"%PDF-") or len(pdf) > self._max_bytes:
-            raise DatasetBuildError("report_unreadable")
+            raise ReportReadError("report_unreadable")
         try:
             with pdfplumber.open(io.BytesIO(pdf)) as document:
                 last = min(len(document.pages), first_page - 1 + self._max_pages)
@@ -54,7 +53,7 @@ class PdfPlumberWordsReader:
                     )
                     page.flush_cache()
                     yield PageWords(index + 1, words)
-        except DatasetBuildError:
+        except ReportReadError:
             raise
         except Exception:
-            raise DatasetBuildError("report_unreadable") from None
+            raise ReportReadError("report_unreadable") from None

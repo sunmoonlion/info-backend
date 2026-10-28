@@ -9,7 +9,7 @@
   再按标题认细类、补事项（0049 第四节）。认不出细类的归临时公告，认不出事项的就空着。
 
 接口地址与参数参考了 akshare 1.18.97（MIT License）的 stock_zh_a_disclosure_report_cninfo，
-标题的过滤规矩沿用旧采集器（`securities/collectors/cninfo.py`）在真实年报上试出来的。
+标题的过滤规矩沿用旧证券专线的采集器（2026-10-28 已删）在真实年报上试出来的。
 """
 
 from __future__ import annotations

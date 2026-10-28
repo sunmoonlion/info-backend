@@ -30,7 +30,6 @@ from app.application.securities.report_extraction.layout import (
     title_of,
     unit_in,
 )
-from app.domain.securities.dataset import DatasetBuildError
 from app.domain.securities.report_statements import (
     UNIT_ABOVE_TITLE,
     UNIT_DECLARED_ELSEWHERE,
@@ -38,12 +37,13 @@ from app.domain.securities.report_statements import (
     ExtractedRow,
     ExtractedStatement,
     PageWords,
+    ReportReadError,
     Word,
 )
 from app.infrastructure.securities.pdf_words import PdfPlumberWordsReader
 
 LEFT, NOTE, CURRENT, PRIOR = 72.0, 300.0, 430.0, 540.0
-ONE_PAGE = Path(__file__).parent / "fixtures" / "securities" / "dataset"
+ONE_PAGE = Path(__file__).parent / "fixtures" / "securities"
 
 
 def word(text: str, right: float, top: float, *, left: float | None = None) -> Word:
@@ -916,13 +916,13 @@ def test_words_are_read_page_by_page_with_their_positions():
 
 @pytest.mark.parametrize("junk", [b"", b"not a pdf", b"%PDF-1.4 broken", b"PK\x03\x04"])
 def test_what_is_not_a_readable_pdf_is_refused(junk):
-    with pytest.raises(DatasetBuildError, match="report_unreadable"):
+    with pytest.raises(ReportReadError, match="report_unreadable"):
         list(PdfPlumberWordsReader().read_words(junk, first_page=1))
 
 
 def test_the_size_limit_and_the_first_page_are_checked():
     pdf = (ONE_PAGE / "annual_2025_page6.pdf").read_bytes()
-    with pytest.raises(DatasetBuildError, match="report_unreadable"):
+    with pytest.raises(ReportReadError, match="report_unreadable"):
         list(
             PdfPlumberWordsReader(max_bytes=len(pdf) - 1).read_words(pdf, first_page=1)
         )

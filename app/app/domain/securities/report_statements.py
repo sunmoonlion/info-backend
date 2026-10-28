@@ -23,6 +23,15 @@ UNIT_ABOVE_TITLE = "above_title"  # 同一页上标题的上方
 UNIT_DECLARED_ELSEWHERE = "declared_elsewhere"  # 只在财务报表开头说过一次
 
 
+class ReportReadError(RuntimeError):
+    """年报原文读不了（不是 PDF、太大、坏了）。code 是稳定错误码。"""
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(code if not detail else f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
 @dataclass(frozen=True)
 class Word:
     """页面上的一个词和它的位置。坐标的单位是 PDF 的点，原点在页面左上角。"""

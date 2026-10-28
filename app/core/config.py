@@ -174,27 +174,13 @@ class Settings(BaseSettings):
     crawl_max_bytes: int = Field(
         default=10 * 1024 * 1024, validation_alias="CRAWL_MAX_BYTES"
     )
-    # 证券采集里的年报原文：比普通网页大得多，单独设上限（2026-09-28 批量实测：
-    # 大公司的年报多在 5 到 30 MB，见过 78 MB 的）。只对采集器明确要求的请求生效。
+    # 年报原文：比普通网页大得多，单独设上限（2026-09-28 批量实测：大公司的年报多在
+    # 5 到 30 MB，见过 78 MB 的）。只对渠道插件下载原件时明确要求的请求生效。
     security_report_max_bytes: int = Field(
         default=128 * 1024 * 1024,
         ge=1024 * 1024,
         le=512 * 1024 * 1024,
         validation_alias="SECURITY_REPORT_MAX_BYTES",
-    )
-    # 第三方数据的质量检查只对近若干年做硬性拦截（F-INFO-13）。几年由所有者定，
-    # 2026-09-28 时尚未定，先按远程的建议取 10。
-    security_quality_hard_years: int = Field(
-        default=10, ge=1, le=60, validation_alias="SECURITY_QUALITY_HARD_YEARS"
-    )
-    # 采集申请（0008-info-intake）。一个人同时未完成的申请数，所有者 2026-09-29 定为 5。
-    security_request_max_open: int = Field(
-        default=5, ge=1, le=50, validation_alias="SECURITY_REQUEST_MAX_OPEN"
-    )
-    # 年报的「主要会计数据」表认不出来时，改从年报的合并报表取关键数字。
-    # 关掉就和 2026-09-28 之前一样：那些公司一个关键数字都取不到，数据集不发布。
-    security_statement_fallback_enabled: bool = Field(
-        default=True, validation_alias="SECURITY_STATEMENT_FALLBACK_ENABLED"
     )
     security_report_timeout_seconds: float = Field(
         default=180.0,
@@ -237,10 +223,6 @@ class Settings(BaseSettings):
     # Knowfeed -> Knowbase workload identity and ingestion relation.
     knowbase_app_ingest_url: str | None = Field(
         default=None, validation_alias="KNOWBASE_APP_INGEST_URL"
-    )
-    # 数据集登记接口（0008-info 段二 → 段三）；与入库用同一个服务身份。
-    knowbase_app_dataset_url: str | None = Field(
-        default=None, validation_alias="KNOWBASE_APP_DATASET_URL"
     )
     knowbase_app_service_application: str = Field(
         default="sunmoonai-knowfeed-knowbase-ingest",
@@ -709,14 +691,6 @@ class Settings(BaseSettings):
     def knowbase_app_ingest_enabled(self) -> bool:
         return bool(
             self.knowbase_app_ingest_url
-            and self.knowbase_app_service_client_id
-            and self.knowbase_app_service_client_secret
-        )
-
-    @property
-    def knowbase_app_dataset_enabled(self) -> bool:
-        return bool(
-            self.knowbase_app_dataset_url
             and self.knowbase_app_service_client_id
             and self.knowbase_app_service_client_secret
         )

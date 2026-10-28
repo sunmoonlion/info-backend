@@ -12,11 +12,6 @@ from app.infrastructure.models.info import (
     RawArtifact,
 )
 from app.infrastructure.models.outbox import InboxMessage, OutboxMessage
-from app.infrastructure.models.securities import (
-    SecurityDataset,
-    SecurityIngestion,
-    SecurityIngestionItem,
-)
 from app.infrastructure.models.supply import (
     SupplyAttempt,
     SupplyChannel,
@@ -40,9 +35,6 @@ __all__ = [
     "InfoSource",
     "OutboxMessage",
     "RawArtifact",
-    "SecurityDataset",
-    "SecurityIngestion",
-    "SecurityIngestionItem",
     "SupplyAttempt",
     "SupplyChannel",
     "SupplyDemand",

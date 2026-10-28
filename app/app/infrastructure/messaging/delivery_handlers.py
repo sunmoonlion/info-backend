@@ -107,6 +107,13 @@ async def run_supply_job(session, payload):
     await build_job_runner(get_postgres().session_factory).run(str(payload["job_id"]))
 
 
+async def refresh_security_directory(session, payload):
+    # 证券名录（查主体用）：取巨潮的证券列表整份换；取不到抛错，由投递重试
+    from app.bootstrap.supply import build_directory_refresh
+
+    await build_directory_refresh()
+
+
 def get_delivery_handlers() -> dict[str, Handler]:
     return {
         "knowfeed.crawl.v1": crawl,
@@ -116,4 +123,5 @@ def get_delivery_handlers() -> dict[str, Handler]:
         "knowfeed.security.dataset.build.v1": build_security_dataset,
         "knowfeed.security.dataset.register.v1": register_security_dataset,
         "knowfeed.supply.job.v1": run_supply_job,
+        "knowfeed.supply.directory.refresh.v1": refresh_security_directory,
     }

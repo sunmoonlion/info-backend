@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.supply.cninfo import CHANNEL_ID, CninfoCatalog
 from app.application.supply.demands import DemandService
+from app.application.supply.directory import SecurityDirectory
 from app.application.supply.jobs import JobRunner
 from app.infrastructure.external.knowbase_supply import get_knowbase_supply
 from app.infrastructure.repositories.supply import SqlSupplyRepository
+from app.infrastructure.repositories.supply_directory import SqlDirectoryRepository
 from app.infrastructure.securities.fetcher import CrawlHttpFetcher
 from app.infrastructure.securities.pdf_words import PdfPlumberWordsReader
 from app.infrastructure.storage.object_storage import get_object_storage
@@ -26,9 +28,20 @@ def build_demand_service(
     return DemandService(SqlSupplyRepository(lambda: sessions), get_knowbase_supply())
 
 
-def build_job_runner(sessions: async_sessionmaker[AsyncSession]) -> JobRunner:
+def build_directory(sessions: async_sessionmaker[AsyncSession]) -> SecurityDirectory:
+    return SecurityDirectory(SqlDirectoryRepository(lambda: sessions))
+
+
+async def build_directory_refresh() -> int:
+    from app.infrastructure.storage.postgres import get_postgres
+
+    sessions = get_postgres().session_factory
+    return await build_directory(sessions).refresh(CninfoCatalog(_crawl_http()))
+
+
+def _crawl_http() -> CrawlHttp:
     settings = get_settings()
-    http = CrawlHttp(
+    return CrawlHttp(
         CrawlHttpFetcher(
             timeout_seconds=settings.crawl_timeout_seconds,
             max_bytes=settings.crawl_max_bytes,
@@ -37,6 +50,10 @@ def build_job_runner(sessions: async_sessionmaker[AsyncSession]) -> JobRunner:
             timeout_ceiling_seconds=settings.security_report_timeout_seconds,
         )
     )
+
+
+def build_job_runner(sessions: async_sessionmaker[AsyncSession]) -> JobRunner:
+    http = _crawl_http()
     return JobRunner(
         SqlSupplyRepository(lambda: sessions),
         {CHANNEL_ID: CninfoCatalog(http)},

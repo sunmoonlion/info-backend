@@ -23,6 +23,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.models.base import Base
 
 
+class SupplySecurity(Base):
+    """证券名录（查主体用，SDD 0043 第 3.1 节）：巨潮的证券列表，整份换、一天至多一次。"""
+
+    __tablename__ = "supply_security"
+
+    subject: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    pinyin: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    refreshed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class SupplyChannel(Base):
     __tablename__ = "supply_channel"
 

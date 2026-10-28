@@ -6,6 +6,9 @@
 
 需求状态的推送（经发件箱通知提需求的应用）随 knowbench 接上时做（0045 块 4）；现在应用
 按单号查进度。
+
+证券名录（`GET /securities`）：委托第 0 步模型按名字查证券代码（decisions ⑭「查主体」），
+同一个服务身份与 scope。
 """
 
 from __future__ import annotations
@@ -14,11 +17,12 @@ import json
 from datetime import date, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application.errors.exceptions import AppException, ForbiddenError
 from app.application.supply.demands import DemandService
+from app.application.supply.directory import MAX_RESULTS, SecurityDirectory
 from app.domain.security import Principal
 from app.domain.supply.models import (
     Demand,
@@ -44,6 +48,12 @@ def get_demand_service() -> DemandService:
     from app.bootstrap.supply import build_demand_service
 
     return build_demand_service(get_postgres().session_factory)
+
+
+def get_directory() -> SecurityDirectory:
+    from app.bootstrap.supply import build_directory
+
+    return build_directory(get_postgres().session_factory)
 
 
 def caller_app(principal: Principal = Depends(require_supply_caller)) -> str:
@@ -218,3 +228,20 @@ async def cancel(
     await _call(lambda: service.cancel(app, demand_id))
     demand, items = await _call(lambda: service.get(app, demand_id))
     return _read(demand, items)
+
+
+class SecurityRead(BaseModel):
+    subject: str
+    name: str
+
+
+@router.get("/securities", response_model=list[SecurityRead])
+async def find_securities(
+    q: str = Query(min_length=1, max_length=40),
+    limit: int = Query(default=10, ge=1, le=MAX_RESULTS),
+    app: str = Depends(caller_app),
+    directory: SecurityDirectory = Depends(get_directory),
+):
+    """按名字或代码查证券（查主体）：只回代码与简称，按对得上的程度排。"""
+    found = await directory.search(q, limit)
+    return [SecurityRead(subject=e.subject, name=e.name) for e in found]

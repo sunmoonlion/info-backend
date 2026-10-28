@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Protocol
 
+from app.application.supply.directory import SecurityEntry
+from app.domain.securities.models import InvalidSecurityCode, SecurityCode
 from app.domain.supply.models import DescriptionKey, Entry, SupplyError
 from app.domain.supply.vocabulary import is_periodic, types_of
 
@@ -356,20 +358,39 @@ class CninfoCatalog:
 
     async def _org_id(self, code: str) -> str:
         if self._org_ids is None:
-            payload = _json(
-                await self.http.get(f"{_BASE}/new/data/szse_stock.json"), "stock list"
-            )
-            stocks = payload.get("stockList") if isinstance(payload, dict) else None
-            if not isinstance(stocks, list):
-                raise SupplyError(502, "unexpected_response", "stock list")
+            stocks = await self._stock_list()
             self._org_ids = {
                 str(s.get("code")): str(s.get("orgId"))
                 for s in stocks
-                if isinstance(s, dict) and _ORG_ID.fullmatch(str(s.get("orgId") or ""))
+                if _ORG_ID.fullmatch(str(s.get("orgId") or ""))
             }
         if code not in self._org_ids:
             raise SupplyError(404, "security_not_found_at_source", "not on cninfo")
         return self._org_ids[code]
+
+    async def securities(self) -> list[SecurityEntry]:
+        """证券名录（查主体用）：沪深京 A 股的代码、简称、拼音首字母。"""
+        out: list[SecurityEntry] = []
+        for s in await self._stock_list():
+            name = str(s.get("zwjc") or "").strip()
+            if s.get("category") != "A股" or not name or len(name) > 64:
+                continue
+            try:
+                code = SecurityCode(str(s.get("code") or ""))
+            except InvalidSecurityCode:
+                continue
+            pinyin = str(s.get("pinyin") or "").strip().lower()
+            out.append(SecurityEntry(f"{code.code}.{code.market}", name, pinyin[:32]))
+        return out
+
+    async def _stock_list(self) -> list[dict]:
+        payload = _json(
+            await self.http.get(f"{_BASE}/new/data/szse_stock.json"), "stock list"
+        )
+        stocks = payload.get("stockList") if isinstance(payload, dict) else None
+        if not isinstance(stocks, list):
+            raise SupplyError(502, "unexpected_response", "stock list")
+        return [s for s in stocks if isinstance(s, dict)]
 
 
 def _row(row: dict) -> tuple[str | None, str, str, date | None]:

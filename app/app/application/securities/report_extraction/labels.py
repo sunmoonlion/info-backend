@@ -38,6 +38,8 @@ ALIASES: dict[str, dict[str, str]] = {
         "归属于母公司股东的权益合计": "total_parent_equity",
         "负债和股东权益总计": "total_liab_equity",
         "负债及股东权益总计": "total_liab_equity",
+        # 「负债和所有者权益（或股东权益）／总计」的「总计」折到了下一页
+        "负债和股东权益": "total_liab_equity",
     },
     "income_statement": {
         "归属于母公司股东的净利润": "parent_netprofit",

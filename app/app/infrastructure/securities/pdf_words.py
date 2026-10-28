@@ -1,4 +1,4 @@
-"""从年度报告 PDF 逐页取出词和坐标（pdfplumber）。
+"""从定期报告 PDF 逐页取出词和坐标（pdfplumber）。
 
 一页一页地给，用的人读够了就停；每页取完即释放，不把整份年报留在内存里。
 """
@@ -11,7 +11,8 @@ from collections.abc import Iterator
 
 from app.domain.securities.report_statements import PageWords, ReportReadError, Word
 
-DEFAULT_FIRST_PAGE = 12  # 前面是目录、释义、公司简介，没有财务报表
+# 年报、半年报前面是目录、释义、公司简介；季报从第 1 页读（见 processing）
+DEFAULT_FIRST_PAGE = 12
 DEFAULT_MAX_BYTES = 128 * 1024 * 1024
 # 最多读这么多页。存档的 117 份年报里，合并报表最晚在第 170 页之前结束；
 # 报表是图片的年报一个标题都找不到，不封顶就会把整份几百页读完

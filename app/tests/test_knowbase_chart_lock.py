@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.application.supply.processing import FIELD_TO_CODE
+from app.application.supply.processing import FIELD_TO_CODE, SUPPLEMENT_TO_CODE
 
 PARENT = Path(__file__).resolve().parents[3]
 LOCK = PARENT / "contracts/knowbase-chart-lock.json"
@@ -27,4 +27,5 @@ def _chart() -> dict:
 
 def test_every_mapped_code_is_in_the_knowbase_chart():
     codes = {item["code"] for item in _chart()["items"]}
-    assert sorted(set(FIELD_TO_CODE.values()) - codes) == []
+    mapped = set(FIELD_TO_CODE.values()) | set(SUPPLEMENT_TO_CODE.values())
+    assert sorted(mapped - codes) == []

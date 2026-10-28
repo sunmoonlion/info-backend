@@ -2,6 +2,10 @@
 
 输入是一页一页的词，不碰 PDF；读到三张表都结束就停，不把整份年报读完。
 认不出来的地方记下原因并放弃那张表，不给出数（STMT-07）。
+
+季度报告只印合并报表时，最后一张表后面没有下一个标题，文件就完了：调用方确知给的是
+整份文件时传 `last_closes=True`，读到最后一页算这张表结束。年报照旧不认（读词有页数上限，
+没读完不能当结束）。
 """
 
 from __future__ import annotations
@@ -55,7 +59,9 @@ class _Section:
     lines: list[tuple[int, list[Word]]] = field(default_factory=list)
 
 
-def extract_statements(pages: Iterable[PageWords]) -> ReportExtraction:
+def extract_statements(
+    pages: Iterable[PageWords], *, last_closes: bool = False
+) -> ReportExtraction:
     sections: dict[str, _Section] = {}
     problems: list[ExtractionProblem] = []
     done: set[str] = set()
@@ -113,6 +119,8 @@ def extract_statements(pages: Iterable[PageWords]) -> ReportExtraction:
                 elif current.unit is None:
                     current.unit = unit_in(raw)
             current.lines.append((page.page_number, line))
+    if last_closes and current is not None and not current.in_header:
+        done.add(current.statement)
     statements: dict[str, ExtractedStatement] = {}
     failed = {p.statement for p in problems}
     for name in STATEMENTS:

@@ -128,7 +128,7 @@ class FakePages:
 
 
 class FixtureWords:
-    def read_words(self, pdf):
+    def read_words(self, pdf, *, first_page=12):
         return iter(pages("000858-2025"))
 
 
@@ -185,7 +185,8 @@ async def refused(work, status: int, code: str) -> None:
 
 def test_annual_statements_become_raw_and_standard_facts():
     facts = statements_from_pages(pages("000858-2025"), KEY)
-    assert facts.problems == []
+    # 夹具只裁了报表页，附注里的补充资料不在里面
+    assert facts.problems == ["supplement_not_found"]
     by_code = {
         (s["code"], s["period_end"]): Decimal(s["value"]) for s in facts.standard
     }

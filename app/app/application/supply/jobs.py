@@ -29,10 +29,11 @@ from app.application.ports.supply import (
 from app.application.supply.processing import (
     FACTS_VERSION,
     PAGES_VERSION,
+    REPORT_SHAPES,
     PdfPages,
     PdfWords,
-    annual_statements,
     pages_reading,
+    report_statements,
     wanted_readings,
 )
 from app.domain.supply.models import (
@@ -53,8 +54,8 @@ _BACKOFF = (
     timedelta(minutes=30),
     timedelta(hours=2),
 )
-# 财报抽表现在只做年报的三张合并报表；半年报、季报的版式另配（0045 第 3.4 节领域插件）
-FACT_DOC_TYPES = ("annual_report",)
+# 财报抽表：四类定期报告的三张合并报表（10-28 起半年报、季报也抽，见 processing）
+FACT_DOC_TYPES = tuple(REPORT_SHAPES)
 
 
 class JobRunner:
@@ -240,7 +241,7 @@ class JobRunner:
         key: DescriptionKey,
         facts_wanted: bool,
     ) -> set[str]:
-        """凭加工授权写回读法：按页文字；全文年报再抽三张合并报表。没成的照实写原因。"""
+        """凭加工授权写回读法：按页文字；定期报告全文再抽三张合并报表。没成的照实写原因。"""
         grant = await self.knowbase.processing_grant(material_id, version_no)
         done: set[str] = set()
         try:
@@ -257,7 +258,7 @@ class JobRunner:
         if not facts_wanted:
             return done
         try:
-            facts = annual_statements(pdf, key, self.pdf_words)
+            facts = report_statements(pdf, key, self.pdf_words)
         except Exception as exc:
             log.warning("supply_facts_failed material=%s error=%s", material_id, exc)
             await self.knowbase.write_failed(

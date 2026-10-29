@@ -10,6 +10,9 @@ knowlab（`relation_auth`）：需求单记在那个应用名下，进度只给�
 
 证券名录（`GET /securities`）：委托第 0 步模型按名字查证券代码（decisions ⑭「查主体」），
 同一个服务身份与 scope。
+
+预切合（`POST /prematch`，契约 knowfeed-supply-prematch/v1，`domain/supply/prematch.py`）：
+确认之前问这几项能不能取、许可档、预计多久；只查来源目录与队列，同一个服务身份与 scope。
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.application.errors.exceptions import AppException
 from app.application.supply.demands import DemandService
 from app.application.supply.directory import MAX_RESULTS, SecurityDirectory
+from app.application.supply.matching import PreMatch
 from app.domain.supply.models import (
     Demand,
     DemandItem,
@@ -31,6 +35,7 @@ from app.domain.supply.models import (
     SupplyError,
     summarize,
 )
+from app.domain.supply.prematch import PrematchRequestV1, PrematchResponseV1
 from app.infrastructure.security.relation_auth import (
     ServiceCaller,
     require_supply_demand_service,
@@ -55,6 +60,12 @@ def get_directory() -> SecurityDirectory:
     from app.bootstrap.supply import build_directory
 
     return build_directory(get_postgres().session_factory)
+
+
+def get_prematch() -> PreMatch:
+    from app.bootstrap.supply import build_prematch
+
+    return build_prematch(get_postgres().session_factory)
 
 
 def caller_app(
@@ -232,3 +243,15 @@ async def find_securities(
     """按名字或代码查证券（查主体）：只回代码与简称，按对得上的程度排。"""
     found = await directory.search(q, limit)
     return [SecurityRead(subject=e.subject, name=e.name) for e in found]
+
+
+@router.post("/prematch", response_model=PrematchResponseV1)
+async def prematch(
+    payload: PrematchRequestV1,
+    app: str = Depends(caller_app),
+    service: PreMatch = Depends(get_prematch),
+):
+    """预切合：每项回能不能取（能取 / 取不到 / 网站待审 / 不满足条件）、候选渠道、许可档、
+    预计多久。不问渠道、不看 knowbase，不记任何东西。"""
+    answers = await _call(lambda: service.check(app, payload))
+    return PrematchResponseV1(items=answers)

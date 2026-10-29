@@ -7,9 +7,15 @@
 4. 配额：请求频率、在途单数、每人每月新取份数（`domain/supply/quota.py`），在记录的
    同一个事务里按归属用户数，只有真正的新受理才扣；当场没有渠道的项不算新取。
 
-受理后正式切合：按来源目录里覆盖这条描述、审过、在用的渠道先后排，取第一个；建（或挂上
-已有的）取数作业，同一渠道同一描述跨用户只取一次。没有渠道的转「无法满足」（原因
-`no_channel`：这类数据我们还取不到，进缺口清单）。
+受理后正式切合（0045 第四节）：按来源目录里覆盖这条描述、审过、没停用、**且满足确认时
+供给条件快照**的渠道先后排，取第一个；建（或挂上已有的）取数作业，同一渠道同一描述跨
+用户只取一次。第一个取不到的由作业换下一个（`jobs.py`）。没有渠道的转「无法满足」（原因
+`no_channel`：这类数据我们还取不到，进缺口清单）；只有不满足供给条件的渠道能取的，转
+「无法满足」附 `conditions_unmet`（当前供给条件不满足，让用户调整用途或确认新条件）。
+
+供给条件快照在确认里（knowbase 照存的 `supply`），knowfeed 核其中 `conditions` 一栏：
+`min_license`（许可档下限）、`channels`（只用哪几条渠道），见 `domain/supply/schedule.py`。
+作业排第几档按提单方定（`schedule.demand_tier`）。
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from datetime import UTC, datetime
 from app.application.ports.supply import Knowbase, SupplyRepository
 from app.domain.supply.models import (
     REASON_CANCELLED,
+    REASON_CONDITIONS_UNMET,
     REASON_NO_CHANNEL,
     Demand,
     DemandItem,
@@ -32,6 +39,7 @@ from app.domain.supply.models import (
     check_demand,
 )
 from app.domain.supply.quota import Quota
+from app.domain.supply.schedule import Conditions, candidates, demand_tier
 
 
 class DemandService:
@@ -82,6 +90,7 @@ class DemandService:
                 raise SupplyError(
                     403, "outside_confirmation", "an item is not in the confirmation"
                 )
+        conditions = Conditions.from_snapshot(confirmation.get("supply"))
         now = self.now()
         demand = Demand(
             id=self.new_id(),
@@ -94,15 +103,17 @@ class DemandService:
             idempotency_key=idempotency_key,
             digest=digest,
             created_at=now,
+            conditions=conditions.as_dict(),
         )
+        tier = demand_tier(proposer, app)
         channels = await self.repo.channels()
         made: list[DemandItem] = []
         jobs: dict[str, Job] = {}
         links: dict[str, str] = {}
         for given in items:
             item_id = self.new_id()
-            channel = next((c for c in channels if c.covers(given.key)), None)
-            if channel is None:
+            covering, allowed = candidates(channels, given.key, conditions)
+            if not allowed:
                 made.append(
                     DemandItem(
                         id=item_id,
@@ -113,10 +124,13 @@ class DemandService:
                         status="unsatisfiable",
                         created_at=now,
                         updated_at=now,
-                        reason=REASON_NO_CHANNEL,
+                        reason=REASON_CONDITIONS_UNMET
+                        if covering
+                        else REASON_NO_CHANNEL,
                     )
                 )
                 continue
+            channel = allowed[0]
             dedup = f"fetch:{channel.id}:{given.key.text}"
             jobs.setdefault(
                 dedup,
@@ -129,7 +143,7 @@ class DemandService:
                     status="queued",
                     attempts=0,
                     created_at=now,
-                    tier=1 if task_ref else 2,
+                    tier=tier,
                 ),
             )
             links[item_id] = dedup

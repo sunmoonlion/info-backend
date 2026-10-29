@@ -71,3 +71,31 @@ def test_the_supply_relation_uses_its_own_identity() -> None:
         {**SUPPLY, "KNOWBASE_INTERNAL_URL": "http://knowbase"},
     ):
         assert supply_relation(broken) is None
+
+
+def test_reading_by_grant_is_its_own_relation() -> None:
+    from app.infrastructure.external.knowbase_supply import read_relation
+
+    read = {
+        "KNOWBASE_INTERNAL_URL": SUPPLY["KNOWBASE_INTERNAL_URL"],
+        "KNOWBASE_USER_DATA_READ_SERVICE_CLIENT_ID": "feed-read",
+        "KNOWBASE_USER_DATA_READ_SERVICE_CLIENT_SECRET": "s",
+        "KNOWBASE_USER_DATA_READ_SERVICE_SCOPE": "knowbase:user-data-read",
+        "KNOWBASE_USER_DATA_READ_SERVICE_DISCOVERY_URL": (
+            "https://casdoor/.well-known/openid-configuration"
+        ),
+        "KNOWBASE_USER_DATA_READ_SERVICE_BACKCHANNEL_ENDPOINT": "https://casdoor",
+    }
+    relation = read_relation(read)
+    assert relation is not None and relation["client_id"] == "feed-read"
+    # 供给那份身份不能拿来读；scope 不对也不算
+    assert read_relation(SUPPLY) is None
+    assert (
+        read_relation(
+            {
+                **read,
+                "KNOWBASE_USER_DATA_READ_SERVICE_SCOPE": "knowbase:user-data-supply",
+            }
+        )
+        is None
+    )

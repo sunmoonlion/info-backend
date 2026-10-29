@@ -33,6 +33,7 @@ _CHANNEL_ID = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
 _HOST = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 MAX_RATE_PER_MINUTE = 600
 MAX_DAILY_CAP = 100_000
+MAX_RUNNING = 10  # 同时最多跑几个作业的上限（出站是家庭宽带，不宜多开）
 
 StatusAction = Literal["pause", "resume", "disable", "enable"]
 # 在用、暂停、停用之间怎么走；停用后再启用要审过
@@ -98,6 +99,7 @@ class Registration:
     render_allowed: bool = False
     obey_robots: bool = True
     config: dict[str, object] = field(default_factory=dict)
+    max_running: int = 1  # 同时最多跑几个作业（登记的并发，0045 第 3.3 节）
 
 
 def check_registration(reg: Registration, known_types: frozenset[str]) -> Registration:
@@ -118,6 +120,8 @@ def check_registration(reg: Registration, known_types: frozenset[str]) -> Regist
         raise refused("rate_invalid", f"rate is 1 to {MAX_RATE_PER_MINUTE} a minute")
     if not 1 <= reg.daily_cap <= MAX_DAILY_CAP:
         raise refused("daily_cap_invalid", f"daily cap is 1 to {MAX_DAILY_CAP}")
+    if not 1 <= reg.max_running <= MAX_RUNNING:
+        raise refused("max_running_invalid", f"max running is 1 to {MAX_RUNNING}")
     domain = check_domain(reg.domain) if reg.domain else None
     if reg.kind == "web" and domain is None:
         # 通用网页按网站审：一条渠道就是一个网站
@@ -138,6 +142,7 @@ def check_registration(reg: Registration, known_types: frozenset[str]) -> Regist
         render_allowed=reg.render_allowed,
         obey_robots=reg.obey_robots,
         config=dict(reg.config),
+        max_running=reg.max_running,
     )
 
 

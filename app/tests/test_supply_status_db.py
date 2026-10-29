@@ -23,6 +23,7 @@ from app.infrastructure.external.app_supply_status import (
     StatusNotDelivered,
     status_relation,
 )
+from app.infrastructure.repositories.supply import SqlSupplyRepository
 from app.infrastructure.repositories.supply_catalog import SqlCatalogRepository
 from app.infrastructure.repositories.supply_status import STATUS_TOPIC
 from app.infrastructure.storage.object_storage import ObjectStorage
@@ -211,6 +212,25 @@ async def test_originals_lose_their_content_thirty_days_after_delivery(db):
     assert await w.runner.run(job2) == "done"
     assert list(w.objects.data) == [key]
     assert await sql(db, "SELECT purged_at FROM supply_original") is None
+    # 到期时间按这次交付从头记，刚放回的内容不会被下一轮清理删掉
+    assert await retention.purge_due() == 0
+    assert list(w.objects.data) == [key]
+
+
+async def test_a_revived_original_is_not_purged_before_it_is_delivered_again(db):
+    """内容放回去到再交给 knowbase 之间，到期时间是空的，清理不碰它。"""
+    w = World(db)
+    w.confirm("conf-1", "alice", KEY)
+    await w.submit()
+    await w.runner.run(str(await sql(db, "SELECT id FROM supply_job")))
+    repo = SqlCatalogRepository(lambda: db)
+    retention = OriginalRetention(repo, w.objects, clock=w.clock)
+    w.clock.now += timedelta(days=31)
+    assert await retention.purge_due() == 1
+    original = str(await sql(db, "SELECT id FROM supply_original"))
+    await SqlSupplyRepository(lambda: db).revive_original(original)
+    assert await sql(db, "SELECT purge_after FROM supply_original") is None
+    assert await retention.purge_due() == 0
 
 
 class FailingObjects:

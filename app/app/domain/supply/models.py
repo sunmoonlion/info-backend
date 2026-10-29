@@ -74,6 +74,9 @@ REASON_SITE_REJECTED = "site_rejected"  # 网站审不过
 REASON_SITE_EXPIRED = "site_review_expired"  # 网站待审超过时限没人审
 REASON_READINGS_INCOMPLETE = "readings_incomplete"  # 原件到了，要的读法没齐
 REASON_CANCELLED = "cancelled"
+# 能供这类的渠道都不满足确认时的供给条件（许可档、来源限制）：用户调整用途或确认新条件
+REASON_CONDITIONS_UNMET = "conditions_unmet"
+REASON_NO_ONE_WAITING = "no_one_waiting"  # 等这个作业的需求项都撤了，作业取消
 
 # 缺口清单按哪种「无法满足」分组（0045 第四节「缺口清单」）：
 # uncovered 是「这类数据我们还取不到」，是补渠道的主要依据；其余几种一并列出，便于判断
@@ -176,6 +179,8 @@ class Demand:
     idempotency_key: str
     digest: str
     created_at: datetime
+    # 确认时的供给条件里 knowfeed 核的那几样（`schedule.Conditions.as_dict`）
+    conditions: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -191,6 +196,7 @@ class DemandItem:
     channel_id: str | None = None
     reason: str | None = None
     receipt: dict[str, object] = field(default_factory=dict)
+    tried_channels: tuple[str, ...] = ()  # 试过、取不到的渠道（换下一个时跳过）
 
     @property
     def basis_ref(self) -> str:
@@ -245,6 +251,7 @@ class Channel:
     priority: int
     status: ChannelStatus = "active"
     consecutive_failures: int = 0
+    max_running: int = 1  # 同时最多跑几个作业（登记的并发）
     # 通用网页按网站审：一个网站（域名）一条渠道；目录型渠道也可以写它所在的网站，
     # 用户给的网址落在这个网站上就照这条渠道走（0045 第四节「给网址」）
     domain: str | None = None
@@ -259,7 +266,12 @@ class Channel:
     def covers(self, key: DescriptionKey) -> bool:
         """渠道能供这一条：审过、没停用，大类看它下面有没有这个渠道登记的细类。
 
-        暂停的渠道照样接：作业等着，恢复后接着跑，不让需求因为一时取不到变成缺口。"""
+        暂停的渠道照样接：作业等着，恢复后接着跑，不让需求因为一时取不到变成缺口。
+        配置里写了 `markets`（如互动易只有深市公司）的，主体的市场要在里面。"""
+        markets = self.config.get("markets")
+        if isinstance(markets, list) and markets:
+            if key.subject.rsplit(".", 1)[-1] not in markets:
+                return False
         return (
             self.status in ("active", "paused")
             and self.review == "approved"
@@ -286,7 +298,8 @@ class Entry:
 
 # —— 作业 ——
 
-JobKind = Literal["fetch", "deliver"]
+# 取数（列、取、交付、加工）；加工（上传资料的加工，不问渠道，排在加工队列里）
+JobKind = Literal["fetch", "process"]
 JobStatus = Literal["queued", "running", "done", "failed", "waiting"]
 MAX_ATTEMPTS = 5
 
@@ -303,8 +316,9 @@ class Job:
     status: str
     attempts: int
     created_at: datetime
-    tier: int = 1  # 0045 第 3.3 节四档：① 有任务在等数据的
+    tier: int = 1  # 0045 第 3.3 节四档（`schedule.py`）
     last_error: str | None = None
+    not_before: datetime | None = None  # 等重试、日上限用完时，这之前不排
 
 
 @dataclass(frozen=True)

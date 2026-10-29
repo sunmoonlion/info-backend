@@ -63,6 +63,8 @@ class SupplyChannel(Base):
     obey_robots: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status_reason: Mapped[str | None] = mapped_column(String(200))
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # 0021 起：同时最多跑几个作业（登记的并发，0045 第 3.3 节）
+    max_running: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -151,6 +153,8 @@ class SupplyDemand(Base):
     confirmation_id: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 0021 起：确认时的供给条件（许可档下限、只用哪几条渠道，0045 第四节）
+    conditions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -177,6 +181,8 @@ class SupplyDemandItem(Base):
     job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     reason: Mapped[str | None] = mapped_column(String(200))
     receipt: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # 0021 起：试过、取不到的渠道（换下一个时跳过，0045 第四节）
+    tried_channels: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -203,6 +209,9 @@ class SupplyJob(Base):
         DateTime(timezone=True), nullable=False
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 0021 起：这之前不排（等重试、日上限用完）；调度排出去的时间
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -215,7 +224,45 @@ class SupplyJob(Base):
             unique=True,
             postgresql_where=text("status IN ('queued', 'running', 'waiting')"),
         ),
+        Index(
+            "ix_supply_job_queue",
+            "channel_id",
+            "tier",
+            "created_at",
+            postgresql_where=text("status IN ('queued', 'running', 'waiting')"),
+        ),
     )
+
+
+class SupplyChannelRequest(Base):
+    """每问一次渠道一行（0021 起）：限速按它数，只留两天（0045 第 3.1 节）。
+
+    `request` 是问一次（列、查目录），`fetch` 是取回一份（也算问一次）。"""
+
+    __tablename__ = "supply_channel_request"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('request', 'fetch')", name="ck_supply_channel_request_kind"
+        ),
+        Index("ix_supply_channel_request_channel", "channel_id", "kind", "at"),
+        Index("ix_supply_channel_request_at", "at"),
+    )
+
+
+class SupplyTurn(Base):
+    """按用户轮流（0021 起）：每条队列里每个用户上次轮到的时间。"""
+
+    __tablename__ = "supply_turn"
+
+    queue: Mapped[str] = mapped_column(String(40), primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(255), primary_key=True)
+    served_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SupplyAttempt(Base):

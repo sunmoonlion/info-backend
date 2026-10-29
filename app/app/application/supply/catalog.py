@@ -43,13 +43,14 @@ from app.domain.supply.models import (
     SupplyError,
     refused,
 )
+from app.domain.supply.schedule import ChannelDeferred
 from app.domain.supply.vocabulary import DOC_TYPE_CLASS
 
 log = logging.getLogger(__name__)
 
 # 有哪些适配器（插件名 → 大类）。加渠道是登记一条记录，选现有的插件加配置；
 # 通用网页型适配器随块 3 接上，在那之前「web」渠道只能登记与审核，试采不了
-PLUGINS: dict[str, str] = {"cninfo": "catalog", "web": "web"}
+PLUGINS: dict[str, str] = {"cninfo": "catalog", "cninfo-irm": "catalog", "web": "web"}
 TRIAL_LISTED = 5  # 试采结果里列出几条
 
 
@@ -126,6 +127,7 @@ class ChannelCatalog:
             review="pending",
             rate_per_minute=reg.rate_per_minute,
             daily_cap=reg.daily_cap,
+            max_running=reg.max_running,
             priority=max((c.priority for c in existing), default=0) + 10,
             domain=reg.domain,
             terms_url=reg.terms_url,
@@ -158,6 +160,7 @@ class ChannelCatalog:
             license=reg.license,
             rate_per_minute=reg.rate_per_minute,
             daily_cap=reg.daily_cap,
+            max_running=reg.max_running,
             domain=reg.domain,
             terms_url=reg.terms_url,
             render_allowed=reg.render_allowed,
@@ -360,12 +363,12 @@ class TrialRunner:
     def __init__(
         self,
         repo: CatalogRepository,
-        catalogs: dict[str, Catalog],
+        plugins: Callable[[Channel], Catalog | None],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.repo = repo
-        self.catalogs = catalogs
+        self.plugins = plugins  # 按渠道建插件（经这条渠道的限速，试采也算问渠道）
         self.now = clock
 
     async def run(self, trial_id: str) -> str:
@@ -373,7 +376,7 @@ class TrialRunner:
         if trial is None:
             return "skipped"
         channel = await self.repo.get_channel(trial.channel_id)
-        catalog = self.catalogs.get(channel.plugin) if channel else None
+        catalog = self.plugins(channel) if channel else None
         if catalog is None:
             await self.repo.finish_trial(
                 trial_id, self.now(), status="failed", error="plugin_unavailable"
@@ -400,6 +403,12 @@ class TrialRunner:
                 )
                 return "failed"
             content, media_type = await catalog.fetch(entries[0])
+        except ChannelDeferred:
+            # 这条渠道这会儿名额用完了（日上限、限速）：试采照实记没成，过会儿再试
+            await self.repo.finish_trial(
+                trial_id, self.now(), status="failed", error="channel_busy"
+            )
+            return "failed"
         except SupplyError as exc:
             await self.repo.finish_trial(
                 trial_id, self.now(), status="failed", error=exc.code[:200]
@@ -454,6 +463,7 @@ def _shape(channel: Channel) -> dict[str, object]:
         "license": channel.license,
         "rate_per_minute": channel.rate_per_minute,
         "daily_cap": channel.daily_cap,
+        "max_running": channel.max_running,
         "domain": channel.domain,
         "terms_url": channel.terms_url,
         "render_allowed": channel.render_allowed,

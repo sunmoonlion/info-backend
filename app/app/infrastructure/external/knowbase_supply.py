@@ -5,6 +5,11 @@ knowbase 的接收端绑定从调用方的 service_clients 推出来，不能借
 `KNOWBASE_INTERNAL_URL` 加 `KNOWBASE_USER_DATA_SUPPLY_SERVICE_{CLIENT_ID,CLIENT_SECRET,
 SCOPE,DISCOVERY_URL,BACKCHANNEL_ENDPOINT}`，读法同 knowbench、knowlab 的
 `service_relation("knowbase", "user-data-supply")`；缺一项就是没开。
+
+凭加工授权读原件走另一条关系 `user-data-read`（knowbase 的读接口只认这个 scope；一个服务
+应用只有一个 scope，所以另有一份身份）：`KNOWBASE_USER_DATA_READ_SERVICE_{CLIENT_ID,
+CLIENT_SECRET,SCOPE,DISCOVERY_URL,BACKCHANNEL_ENDPOINT}`，scope `knowbase:user-data-read`
+（`HttpKnowbaseReader`，上传资料的加工用）。
 """
 
 from __future__ import annotations
@@ -28,7 +33,9 @@ from app.infrastructure.external.knowbase_app import (
 from core.config import Settings, get_settings
 
 SUPPLY_SCOPE = "knowbase:user-data-supply"
+READ_SCOPE = "knowbase:user-data-read"
 SUPPLY_PATH = "/api/internal/v2/user-data"
+PUBLIC_OWNER = "public:disclosure"
 
 
 @dataclass
@@ -98,17 +105,51 @@ class HttpKnowbase:
         )
         return int(body["recorded"])
 
-    async def processing_grant(self, material_id: str, version_no: int) -> str:
+    async def processing_grant(
+        self, material_id: str, version_no: int, *, owner: str = PUBLIC_OWNER
+    ) -> str:
         body = await self._call(
             "POST",
             "/processing/grants",
             json_body={
-                "owner": "public:disclosure",
+                "owner": owner,
                 "material_id": material_id,
                 "version_no": version_no,
             },
         )
         return str(body["grant_id"])
+
+    async def pending_processing(self, limit: int) -> list[tuple[str, str, int]]:
+        body = await self._call_list(
+            "GET", "/processing/pending", params={"limit": str(limit)}
+        )
+        return [
+            (str(i["owner"]), str(i["material_id"]), int(i["version_no"]))
+            for i in body
+            if isinstance(i, dict)
+        ]
+
+    async def write_text(
+        self,
+        grant_id: str,
+        processor_version: str,
+        body: str,
+        *,
+        title: str | None,
+        published_on: date | None,
+    ) -> dict[str, Any]:
+        """正文：请求体是 UTF-8 文字，可带标题、发布日期（knowbase 契约「读法写回格式」）。"""
+        params = {"processor_version": processor_version}
+        if title:
+            params["title"] = title[:500]
+        if published_on is not None:
+            params["published_on"] = published_on.isoformat()
+        return await self._call(
+            "POST",
+            f"/processing/grants/{grant_id}/renditions/text",
+            params=params,
+            content=body.encode("utf-8"),
+        )
 
     async def write_pages(
         self, grant_id: str, processor_version: str, pages: list[dict[str, object]]
@@ -155,6 +196,26 @@ class HttpKnowbase:
         json_body: dict[str, Any] | None = None,
         content: bytes | None = None,
     ) -> dict[str, Any]:
+        body = await self._send(
+            method, path, params=params, json_body=json_body, content=content
+        )
+        return body if isinstance(body, dict) else {}
+
+    async def _call_list(
+        self, method: str, path: str, *, params: dict[str, str] | None = None
+    ) -> list[Any]:
+        body = await self._send(method, path, params=params)
+        return body if isinstance(body, list) else []
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | list[tuple[str, str]] | None = None,
+        json_body: dict[str, Any] | None = None,
+        content: bytes | None = None,
+    ) -> Any:
         token = await self.tokens.get_token()
         async with httpx.AsyncClient(
             timeout=self.timeout_seconds, transport=self.transport
@@ -179,13 +240,71 @@ class HttpKnowbase:
             # knowbase 说「不对」的照实转；它暂时不可用的标成可重试
             status = response.status_code if response.status_code < 500 else 503
             raise SupplyError(status, str(code or "knowbase_error"), "knowbase refused")
-        return body if isinstance(body, dict) else {}
+        return body
+
+
+@dataclass
+class HttpKnowbaseReader:
+    """凭加工授权读原件、用完交还（关系 `user-data-read`）。"""
+
+    base_url: str
+    tokens: ServiceTokenProvider
+    timeout_seconds: float
+    transport: httpx.AsyncBaseTransport | None = None
+
+    async def content(
+        self, grant_id: str, material_id: str, version_no: int
+    ) -> tuple[bytes, str]:
+        response = await self._request(
+            "GET",
+            f"/run-grants/{grant_id}/materials/{material_id}/content",
+            params={"version_no": str(version_no)},
+        )
+        media_type = response.headers.get("content-type", "application/octet-stream")
+        return response.content, media_type
+
+    async def release(self, grant_id: str) -> None:
+        await self._request("POST", f"/run-grants/{grant_id}/release")
+
+    async def _request(
+        self, method: str, path: str, *, params: dict[str, str] | None = None
+    ) -> httpx.Response:
+        token = await self.tokens.get_token()
+        async with httpx.AsyncClient(
+            timeout=self.timeout_seconds, transport=self.transport
+        ) as client:
+            response = await client.request(
+                method,
+                self.base_url.rstrip("/") + path,
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if response.status_code >= 400:
+            try:
+                body = response.json()
+            except ValueError:
+                body = {}
+            code = body.get("code") if isinstance(body, dict) else None
+            status = response.status_code if response.status_code < 500 else 503
+            raise SupplyError(status, str(code or "knowbase_error"), "knowbase refused")
+        return response
 
 
 def supply_relation(environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
     """这条关系配全了才返回；缺任何一项、scope 不对、内部地址不是 https 就是没开。"""
+    return knowbase_relation("user-data-supply", SUPPLY_SCOPE, environ)
+
+
+def read_relation(environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
+    """凭授权读的那条关系（`user-data-read`），读法同上。"""
+    return knowbase_relation("user-data-read", READ_SCOPE, environ)
+
+
+def knowbase_relation(
+    relation: str, scope: str, environ: Mapping[str, str] | None = None
+) -> dict[str, str] | None:
     env = os.environ if environ is None else environ
-    prefix = "KNOWBASE_USER_DATA_SUPPLY_SERVICE_"
+    prefix = "KNOWBASE_" + relation.upper().replace("-", "_") + "_SERVICE_"
     values = {
         "internal_url": env.get("KNOWBASE_INTERNAL_URL", "").strip(),
         "client_id": env.get(prefix + "CLIENT_ID", "").strip(),
@@ -194,7 +313,7 @@ def supply_relation(environ: Mapping[str, str] | None = None) -> dict[str, str] 
         "discovery_url": env.get(prefix + "DISCOVERY_URL", "").strip(),
         "backchannel_endpoint": env.get(prefix + "BACKCHANNEL_ENDPOINT", "").strip(),
     }
-    if not all(values.values()) or values["scope"] != SUPPLY_SCOPE:
+    if not all(values.values()) or values["scope"] != scope:
         return None
     if urlsplit(values["internal_url"]).scheme != "https":
         return None
@@ -225,6 +344,21 @@ def get_knowbase_supply() -> HttpKnowbase:
             "knowbase user-data-supply relation is not configured"
         )
     return HttpKnowbase(
+        base_url=relation["internal_url"].rstrip("/") + SUPPLY_PATH,
+        tokens=ServiceTokenProvider(supply_settings(settings, relation)),
+        timeout_seconds=settings.knowbase_supply_timeout_seconds,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_knowbase_reader() -> HttpKnowbaseReader:
+    settings = get_settings()
+    relation = read_relation()
+    if relation is None:
+        raise KnowbaseAppNotConfiguredError(
+            "knowbase user-data-read relation is not configured"
+        )
+    return HttpKnowbaseReader(
         base_url=relation["internal_url"].rstrip("/") + SUPPLY_PATH,
         tokens=ServiceTokenProvider(supply_settings(settings, relation)),
         timeout_seconds=settings.knowbase_supply_timeout_seconds,

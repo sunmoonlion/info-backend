@@ -60,7 +60,7 @@ async def test_operators_register_trial_review_and_watch(db):
     http = client(desk)
     listed = await http.get("/api/admin/v1/supply/channels")
     assert listed.status_code == 200
-    assert [c["channel_id"] for c in listed.json()["items"]] == ["cninfo"]
+    assert [c["channel_id"] for c in listed.json()["items"]] == ["cninfo", "cninfo-irm"]
     assert {"name": "cninfo", "kind": "catalog"} in listed.json()["plugins"]
 
     body = {
@@ -119,7 +119,11 @@ async def test_operators_register_trial_review_and_watch(db):
     order = await http.post(
         "/api/admin/v1/supply/channels/order", json={"channel_ids": ["sse"]}
     )
-    assert [c["channel_id"] for c in order.json()["items"]] == ["sse", "cninfo"]
+    assert [c["channel_id"] for c in order.json()["items"]] == [
+        "sse",
+        "cninfo",
+        "cninfo-irm",
+    ]
 
     w.confirm("conf-1", "alice", KEY)
     await w.submit()
@@ -128,6 +132,7 @@ async def test_operators_register_trial_review_and_watch(db):
     assert {c["channel_id"]: c["queued"] for c in queue.json()["channels"]} == {
         "sse": 1,
         "cninfo": 0,
+        "cninfo-irm": 0,
     }
     job_id = str(await sql(db, "SELECT id FROM supply_job"))
     jobs = await http.get("/api/admin/v1/supply/jobs", params={"status": "queued"})

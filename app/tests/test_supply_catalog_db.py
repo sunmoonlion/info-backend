@@ -53,8 +53,11 @@ class Desk:
         self.world = world
         self.repo = SqlCatalogRepository(lambda: db)
         self.catalog = ChannelCatalog(self.repo, clock=world.clock)
+        self.catalogs = {"cninfo": catalog or FakeCatalog()}
         self.trials = TrialRunner(
-            self.repo, {"cninfo": catalog or FakeCatalog()}, clock=world.clock
+            self.repo,
+            lambda channel: self.catalogs.get(channel.plugin),
+            clock=world.clock,
         )
         self.monitor = SupplyMonitor(self.repo, clock=world.clock)
 
@@ -86,8 +89,12 @@ async def test_register_trial_and_review_with_a_record_of_who_and_why(db):
         "active",
         "sse.com.cn",
     )
-    # 排在巨潮后面
-    assert [c.id for c in await desk.catalog.channels()] == ["cninfo", "sse"]
+    # 排在已登记的后面（巨潮、待审的巨潮互动易）
+    assert [c.id for c in await desk.catalog.channels()] == [
+        "cninfo",
+        "cninfo-irm",
+        "sse",
+    ]
     await refused(desk.catalog.register("sse2", REG, actor="op"), 409, "channel_exists")
 
     # 放行之前要试采成功
@@ -162,7 +169,7 @@ async def test_order_decides_which_channel_is_tried_first(db):
         desk.catalog.reorder(["sse", "nope"], actor="op"), 422, "order_invalid"
     )
     ordered = await desk.catalog.reorder(["sse"], actor="op")
-    assert [c.id for c in ordered] == ["sse", "cninfo"]
+    assert [c.id for c in ordered] == ["sse", "cninfo", "cninfo-irm"]
     w.confirm("conf-1", "alice", KEY)
     _, items, _ = await w.submit()
     assert items[0].channel_id == "sse"
@@ -194,15 +201,20 @@ async def test_pause_holds_jobs_resume_requeues_and_disable_withdraws(db):
     assert await sql(db, "SELECT status FROM supply_job") == "waiting"
     assert await sql(db, "SELECT attempts FROM supply_job") == 0
 
+    # 暂停时调度不排它
+    assert await w.dispatch() == []
+    await desk.catalog.set_status("cninfo", "resume", actor="op", reason=None)
+    assert await sql(db, "SELECT status FROM supply_job") == "queued"
+    # 恢复后调度下一轮就排出去，经发件箱投给 worker
     before = await sql(
         db, "select count(*) from outbox_message where topic = 'knowfeed.supply.job.v1'"
     )
-    await desk.catalog.set_status("cninfo", "resume", actor="op", reason=None)
+    assert await w.dispatch() == [job_id]
     after = await sql(
         db, "select count(*) from outbox_message where topic = 'knowfeed.supply.job.v1'"
     )
     assert after == before + 1
-    assert await sql(db, "SELECT status FROM supply_job") == "queued"
+    assert await sql(db, "SELECT status FROM supply_job") == "running"
 
     await refused(
         desk.catalog.set_status("cninfo", "resume", actor="op", reason=None),
@@ -267,7 +279,7 @@ async def test_consecutive_failures_pause_the_channel_and_success_resets(db):
 
     # 恢复后答了就清零
     await desk.catalog.set_status("cninfo", "resume", actor="op", reason=None)
-    w.runner.catalogs["cninfo"] = FakeCatalog()
+    w.catalogs["cninfo"] = FakeCatalog()
     assert await w.runner.run(jobs[0]) == "done"
     assert (await desk.catalog.get("cninfo")).consecutive_failures == 0
 

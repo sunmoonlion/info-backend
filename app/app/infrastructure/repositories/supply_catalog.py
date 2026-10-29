@@ -20,6 +20,7 @@ from app.domain.supply.models import (
     Channel,
     SupplyError,
 )
+from app.domain.supply.schedule import PROCESS_QUEUE
 from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.supply import (
     SupplyAttempt,
@@ -32,13 +33,13 @@ from app.infrastructure.models.supply import (
     SupplyOriginal,
 )
 from app.infrastructure.repositories.supply import (
-    JOB_TOPIC,
     OPEN_JOB,
     _channel,
     settle_rows,
 )
 
 TRIAL_TOPIC = "knowfeed.supply.channel.trial.v1"
+PROCESS_QUEUE_NAME = "加工（上传的资料）"
 REGISTRATION_ACTIONS = ("register", "update", "site_found")
 
 
@@ -95,6 +96,7 @@ def _row_values(channel: Channel) -> dict[str, object]:
         "priority": channel.priority,
         "status": channel.status,
         "consecutive_failures": channel.consecutive_failures,
+        "max_running": channel.max_running,
         "domain": channel.domain,
         "terms_url": channel.terms_url,
         "render_allowed": channel.render_allowed,
@@ -157,7 +159,7 @@ class SqlCatalogRepository:
                 if withdraw:
                     await _withdraw(session, channel.id, withdraw, event.at)
                 if requeue:
-                    await _requeue_open(session, channel.id, f"resume:{event.id}")
+                    await _requeue_open(session, channel.id)
         except IntegrityError:
             raise SupplyError(
                 409, "channel_exists", "this site is registered"
@@ -456,6 +458,24 @@ class SqlCatalogRepository:
                         "oldest_open_at": oldest,
                     }
                 )
+            if PROCESS_QUEUE in counts:
+                # 加工队列不是渠道（上传资料的加工，SDD 0045 第 3.4 节），一并列出
+                queued, running, waiting, failed, done, oldest = counts[PROCESS_QUEUE]
+                rows.append(
+                    {
+                        "channel_id": PROCESS_QUEUE,
+                        "name": PROCESS_QUEUE_NAME,
+                        "status": "active",
+                        "status_reason": None,
+                        "consecutive_failures": 0,
+                        "queued": int(queued),
+                        "running": int(running),
+                        "waiting": int(waiting),
+                        "failed_recent": int(failed),
+                        "done_recent": int(done),
+                        "oldest_open_at": oldest,
+                    }
+                )
             return {
                 "since": since,
                 "channels": rows,
@@ -512,7 +532,9 @@ class SqlCatalogRepository:
             )
             return {
                 **_job_row(job, int(items or 0)),
-                "channel_status": channel.status if channel else "disabled",
+                "channel_status": channel.status
+                if channel
+                else ("active" if job.channel_id == PROCESS_QUEUE else "disabled"),
                 "attempt_list": [
                     {
                         "started_at": a.started_at,
@@ -525,17 +547,15 @@ class SqlCatalogRepository:
             }
 
     async def requeue(self, job_id: str) -> None:
+        """马上再排：回到排队中、不再等重试的时间，调度下一轮就排它。"""
         async with self._sessions()() as session, session.begin():
-            row = await session.get(SupplyJob, uuid.UUID(job_id), with_for_update=True)
-            if row is None or row.status not in ("queued", "waiting"):
-                return
-            row.status = "queued"
-            await enqueue_task(
-                session,
-                topic=JOB_TOPIC,
-                key=job_id,
-                payload={"job_id": job_id},
-                deduplication_key=f"supply.job:{job_id}:requeue:{uuid.uuid4()}",
+            await session.execute(
+                update(SupplyJob)
+                .where(
+                    SupplyJob.id == uuid.UUID(job_id),
+                    SupplyJob.status.in_(("queued", "waiting")),
+                )
+                .values(status="queued", not_before=None)
             )
 
     # —— 原件留存 ——
@@ -573,7 +593,15 @@ def _job_row(job: SupplyJob, waiting_items: int) -> dict[str, object]:
         "job_id": str(job.id),
         "kind": job.kind,
         "channel_id": job.channel_id,
-        "key": dict(job.payload.get("key") or {}),
+        # 加工作业没有描述：给资料与版本（不给所有者，队列监控看不出是谁的）
+        "key": dict(
+            job.payload.get("key")
+            or {
+                k: job.payload[k]
+                for k in ("material_id", "version_no")
+                if k in job.payload
+            }
+        ),
         "status": job.status,
         "tier": job.tier,
         "attempts": job.attempts,
@@ -605,20 +633,13 @@ async def _withdraw(
     )
 
 
-async def _requeue_open(session: AsyncSession, channel_id: str, tag: str) -> None:
-    """渠道恢复：等着的作业马上再排（等重试的那条原排程到时会被跳过或接着跑）。"""
-    rows = await session.execute(
-        select(SupplyJob).where(
+async def _requeue_open(session: AsyncSession, channel_id: str) -> None:
+    """渠道恢复：等着的作业回到排队中，调度下一轮就排。"""
+    await session.execute(
+        update(SupplyJob)
+        .where(
             SupplyJob.channel_id == channel_id,
             SupplyJob.status.in_(("queued", "waiting")),
         )
+        .values(status="queued", not_before=None)
     )
-    for job in rows.scalars():
-        job.status = "queued"
-        await enqueue_task(
-            session,
-            topic=JOB_TOPIC,
-            key=str(job.id),
-            payload={"job_id": str(job.id)},
-            deduplication_key=f"supply.job:{job.id}:{tag}",
-        )

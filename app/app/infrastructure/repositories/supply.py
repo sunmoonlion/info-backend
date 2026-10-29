@@ -1,7 +1,8 @@
 """供给的记录（PostgreSQL，SDD 0045 第五节）：需求、作业与尝试、原件。
 
 需求项的状态每变一次，在同一个事务里排一条状态通知（`supply_status.py`）；受理时在同一个
-事务里按归属用户数配额。"""
+事务里按归属用户数配额。作业记下就算排进队列，由调度（`supply_schedule.py`）按渠道、
+四档、按用户轮流排出去；这里不直接投给 worker。"""
 
 from __future__ import annotations
 
@@ -23,7 +24,6 @@ from app.domain.supply.models import (
     can_move,
 )
 from app.domain.supply.quota import Quota, Usage, check_quota, hour_ago, month_start
-from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.supply import (
     SupplyAttempt,
     SupplyChannel,
@@ -54,6 +54,7 @@ def _channel(row: SupplyChannel) -> Channel:
         priority=row.priority,
         status=row.status,  # type: ignore[arg-type]
         consecutive_failures=row.consecutive_failures,
+        max_running=row.max_running,
         domain=row.domain,
         terms_url=row.terms_url,
         render_allowed=row.render_allowed,
@@ -77,6 +78,7 @@ def _demand(row: SupplyDemand) -> Demand:
         idempotency_key=row.idempotency_key,
         digest=row.digest,
         created_at=row.created_at,
+        conditions=dict(row.conditions or {}),
     )
 
 
@@ -93,6 +95,7 @@ def _item(row: SupplyDemandItem) -> DemandItem:
         channel_id=row.channel_id,
         reason=row.reason,
         receipt=dict(row.receipt or {}),
+        tried_channels=tuple(row.tried_channels or ()),
     )
 
 
@@ -108,6 +111,7 @@ def _job(row: SupplyJob) -> Job:
         created_at=row.created_at,
         tier=row.tier,
         last_error=row.last_error,
+        not_before=row.not_before,
     )
 
 
@@ -196,6 +200,7 @@ class SqlSupplyRepository:
                     confirmation_id=demand.confirmation_id,
                     idempotency_key=demand.idempotency_key,
                     digest=demand.digest,
+                    conditions=dict(demand.conditions),
                     created_at=demand.created_at,
                 )
             )
@@ -203,32 +208,10 @@ class SqlSupplyRepository:
             by_key: dict[str, uuid.UUID] = {}
             created: list[Job] = []
             for job in jobs:
-                existing = await session.scalar(
-                    select(SupplyJob)
-                    .where(
-                        SupplyJob.dedup_key == job.dedup_key,
-                        SupplyJob.status.in_(OPEN_JOB),
-                    )
-                    .with_for_update()
-                )
-                if existing is not None:
-                    by_key[job.dedup_key] = existing.id
-                    continue
-                session.add(
-                    SupplyJob(
-                        id=uuid.UUID(job.id),
-                        kind=job.kind,
-                        channel_id=job.channel_id,
-                        dedup_key=job.dedup_key,
-                        payload=dict(job.payload),
-                        status="queued",
-                        tier=job.tier,
-                        attempts=0,
-                        created_at=job.created_at,
-                    )
-                )
-                by_key[job.dedup_key] = uuid.UUID(job.id)
-                created.append(job)
+                found, new = await _job_for(session, job)
+                by_key[job.dedup_key] = found
+                if new:
+                    created.append(job)
             await session.flush()
             for item in items:
                 dedup = links.get(item.id)
@@ -245,19 +228,39 @@ class SqlSupplyRepository:
                         job_id=by_key.get(dedup) if dedup else None,
                         reason=item.reason,
                         receipt=dict(item.receipt),
+                        tried_channels=list(item.tried_channels),
                         created_at=item.created_at,
                         updated_at=item.updated_at,
                     )
                 )
-            for job in created:
-                await enqueue_task(
-                    session,
-                    topic=JOB_TOPIC,
-                    key=job.id,
-                    payload={"job_id": job.id},
-                    deduplication_key=f"supply.job:{job.id}:0",
-                )
         return created
+
+    async def move_items(
+        self,
+        moves: list[tuple[str, Job, tuple[str, ...], str]],
+        at: datetime,
+    ) -> None:
+        """取不到换下一个渠道（0045 第四节）：每项挂到下一个渠道的作业上（没有就建，有就
+        共享，档次取靠前的），记下试过的渠道与上一条为什么没取到；需求项照旧「取数中」。"""
+        if not moves:
+            return
+        async with self._sessions()() as session, session.begin():
+            for item_id, job, tried, reason in moves:
+                found, _ = await _job_for(session, job)
+                await session.execute(
+                    update(SupplyDemandItem)
+                    .where(
+                        SupplyDemandItem.id == uuid.UUID(item_id),
+                        SupplyDemandItem.status.not_in(tuple(TERMINAL)),
+                    )
+                    .values(
+                        channel_id=job.channel_id,
+                        job_id=found,
+                        tried_channels=list(tried),
+                        reason=reason[:200],
+                        updated_at=at,
+                    )
+                )
 
     async def hold_job(self, job_id: str) -> None:
         async with self._sessions()() as session, session.begin():
@@ -354,19 +357,27 @@ class SqlSupplyRepository:
             )
 
     async def retry_later(self, job_id: str, not_before: datetime) -> None:
-        """临时出错：作业回到等待，过一会儿再排一次（同一作业、新的去重键）。"""
+        """临时出错：作业回到等待，到 `not_before` 以后由调度再排。"""
         async with self._sessions()() as session, session.begin():
-            row = await session.get(SupplyJob, uuid.UUID(job_id), with_for_update=True)
-            if row is None:
-                return
-            row.status = "waiting"
-            await enqueue_task(
-                session,
-                topic=JOB_TOPIC,
-                key=job_id,
-                payload={"job_id": job_id},
-                deduplication_key=f"supply.job:{job_id}:{row.attempts}",
-                not_before=not_before,
+            await session.execute(
+                update(SupplyJob)
+                .where(SupplyJob.id == uuid.UUID(job_id))
+                .values(status="waiting", not_before=not_before)
+            )
+
+    async def defer(self, job_id: str, until: datetime, reason: str) -> None:
+        """渠道这会儿不能再问（日上限用完、要等太久）：放回队列，`until` 以后再排；被限流
+        等着不算一次失败，尝试次数退回去（采集讨论记录第 7 条「等到能取再取，不算失败」）。"""
+        async with self._sessions()() as session, session.begin():
+            await session.execute(
+                update(SupplyJob)
+                .where(SupplyJob.id == uuid.UUID(job_id))
+                .values(
+                    status="waiting",
+                    not_before=until,
+                    last_error=reason[:200],
+                    attempts=func.greatest(SupplyJob.attempts - 1, 0),
+                )
             )
 
     async def waiting_items(self, job_id: str) -> list[tuple[DemandItem, Demand]]:
@@ -412,12 +423,33 @@ class SqlSupplyRepository:
         )
 
     async def revive_original(self, original_id: str) -> None:
+        """内容放回去了：到期时间一起清掉，等这次交 knowbase 拿到回执再从头记 30 天，
+        免得交付之前正好赶上清理，把刚放回的内容又删了。"""
         async with self._sessions()() as session, session.begin():
             await session.execute(
                 update(SupplyOriginal)
                 .where(SupplyOriginal.id == uuid.UUID(original_id))
-                .values(purged_at=None)
+                .values(purged_at=None, purge_after=None)
             )
+
+    async def delivered_original(
+        self, channel_id: str, channel_doc_id: str
+    ) -> tuple[Original, list[str]] | None:
+        """这条渠道这一份以前交过 knowbase 的原件，连同那时就绪的读法；没交过回 None。"""
+        async with self._sessions()() as session:
+            row = await session.scalar(
+                select(SupplyOriginal)
+                .where(
+                    SupplyOriginal.channel_id == channel_id,
+                    SupplyOriginal.channel_doc_id == channel_doc_id,
+                    SupplyOriginal.knowbase_material_id.is_not(None),
+                )
+                .order_by(SupplyOriginal.fetched_at.desc())
+                .limit(1)
+            )
+            if row is None:
+                return None
+            return _original(row), list((row.meta or {}).get("readings") or [])
 
     async def find_original(self, sha256: str) -> Original | None:
         async with self._sessions()() as session:
@@ -458,18 +490,50 @@ class SqlSupplyRepository:
         purge_after: datetime,
         material_id: str,
         version_no: int,
+        readings: list[str] | None = None,
     ) -> None:
         async with self._sessions()() as session, session.begin():
-            await session.execute(
-                update(SupplyOriginal)
-                .where(SupplyOriginal.id == uuid.UUID(original_id))
-                .values(
-                    delivered_at=at,
-                    purge_after=purge_after,
-                    knowbase_material_id=material_id,
-                    knowbase_version_no=version_no,
-                )
+            row = await session.get(
+                SupplyOriginal, uuid.UUID(original_id), with_for_update=True
             )
+            if row is None:
+                return
+            row.delivered_at = at
+            row.purge_after = purge_after
+            row.knowbase_material_id = material_id
+            row.knowbase_version_no = version_no
+            if readings is not None:
+                # 交付时就绪的读法：窗里的同一份再要时不必重取（`delivered_original`）
+                row.meta = {**(row.meta or {}), "readings": sorted(readings)}
+
+
+async def _job_for(session: AsyncSession, job: Job) -> tuple[uuid.UUID, bool]:
+    """同一去重键的未办完作业跨用户共享：有就用它（新来的档次更靠前就提上去），没有就建。
+    回（作业编号，是不是新建的）。"""
+    existing = await session.scalar(
+        select(SupplyJob)
+        .where(SupplyJob.dedup_key == job.dedup_key, SupplyJob.status.in_(OPEN_JOB))
+        .with_for_update()
+    )
+    if existing is not None:
+        if job.tier < existing.tier:
+            existing.tier = job.tier
+        return existing.id, False
+    session.add(
+        SupplyJob(
+            id=uuid.UUID(job.id),
+            kind=job.kind,
+            channel_id=job.channel_id,
+            dedup_key=job.dedup_key,
+            payload=dict(job.payload),
+            status="queued",
+            tier=job.tier,
+            attempts=0,
+            created_at=job.created_at,
+        )
+    )
+    await session.flush()
+    return uuid.UUID(job.id), True
 
 
 async def settle_rows(
@@ -493,6 +557,8 @@ async def settle_rows(
         row.updated_at = at
         if reason is not None:
             row.reason = reason[:200]
+        elif status == "ready":
+            row.reason = None  # 换过渠道时记的上一条为什么没取到，办成了就不留
         if receipt is not None:
             row.receipt = dict(receipt)
         changed.add(row.demand_id)

@@ -109,7 +109,7 @@ import app.tasks.distribution  # noqa: E402, F401 — register tasks
 import app.tasks.durable_delivery  # noqa: E402, F401 — shared durable transport
 import app.tasks.ping  # noqa: E402, F401 — register tasks
 import app.tasks.search  # noqa: E402, F401 — register tasks
-import app.tasks.supply_upkeep  # noqa: E402, F401 — 原件到期删内容、待审网站过时限（SDD 0045）
+import app.tasks.supply_upkeep  # noqa: E402, F401 — 调度、领待加工、原件到期、待审网站（SDD 0045）
 
 celery_app.conf.beat_schedule = {
     **(celery_app.conf.beat_schedule or {}),
@@ -121,5 +121,12 @@ celery_app.conf.beat_schedule = {
     "supply-expire-sites": {
         "task": "app.tasks.supply_upkeep.expire_sites",
         "schedule": 3600.0,
+    },
+    # 调度：按渠道、四档、按用户轮流把作业排给 worker（SDD 0045 第 3.3 节）
+    "supply-dispatch": {"task": "app.tasks.supply_upkeep.dispatch", "schedule": 5.0},
+    # 领 knowbase 的待加工清单，建上传资料的加工作业（0045 第 3.4 节）
+    "supply-pull-processing": {
+        "task": "app.tasks.supply_upkeep.pull_processing",
+        "schedule": 60.0,
     },
 }

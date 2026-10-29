@@ -149,3 +149,74 @@ async def test_refusals_keep_their_code_and_outages_become_retryable():
     with pytest.raises(SupplyError) as caught:
         await down.processing_grant("m-1", 1)
     assert caught.value.status == 503  # 作业按可重试处理
+
+
+async def test_processing_uploads_pending_list_grant_text_and_reading_by_grant():
+    """上传资料的加工（0045 第 3.4 节）：待加工清单、本人的加工授权、正文写回（knowbase 契约
+    「读法写回格式」：UTF-8 文字，可带 title、published_on）、凭授权读原件与交还。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path.removeprefix("/api/internal/v2/user-data")
+        if path == "/processing/pending":
+            return httpx.Response(
+                200, json=[{"owner": "alice", "material_id": "m-9", "version_no": 2}]
+            )
+        if path == "/processing/grants":
+            return httpx.Response(201, json={"grant_id": "g-9"})
+        return httpx.Response(201, json={})
+
+    kb, seen = client(handler)
+    assert await kb.pending_processing(50) == [("alice", "m-9", 2)]
+    assert dict(seen[0].url.params) == {"limit": "50"}
+    assert await kb.processing_grant("m-9", 2, owner="alice") == "g-9"
+    assert json.loads(seen[1].content)["owner"] == "alice"
+    await kb.write_text(
+        "g-9", "text-1", "正文", title="标题", published_on=date(2026, 10, 1)
+    )
+    assert seen[2].url.path.endswith("/processing/grants/g-9/renditions/text")
+    assert dict(seen[2].url.params) == {
+        "processor_version": "text-1",
+        "title": "标题",
+        "published_on": "2026-10-01",
+    }
+    assert seen[2].content == "正文".encode()
+    await kb.write_text("g-9", "text-1", "正文", title=None, published_on=None)
+    assert dict(seen[3].url.params) == {"processor_version": "text-1"}
+
+
+async def test_the_reader_reads_content_by_grant_and_releases_it():
+    from app.infrastructure.external.knowbase_supply import HttpKnowbaseReader
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if "/run-grants/g-0/" in request.url.path:
+            return httpx.Response(404, json={"code": "grant_not_found"})
+        if request.url.path.endswith("/content"):
+            return httpx.Response(
+                200, content=b"%PDF-1.7", headers={"content-type": "application/pdf"}
+            )
+        if request.url.path.endswith("/release"):
+            return httpx.Response(204)
+        return httpx.Response(404, json={"code": "grant_not_found"})
+
+    reader = HttpKnowbaseReader(
+        "http://knowbase/api/internal/v2/user-data",
+        Tokens(),  # type: ignore[arg-type]
+        5,
+        transport=httpx.MockTransport(handler),
+    )
+    assert await reader.content("g-9", "m-9", 2) == (b"%PDF-1.7", "application/pdf")
+    assert seen[0].url.path == (
+        "/api/internal/v2/user-data/run-grants/g-9/materials/m-9/content"
+    )
+    assert dict(seen[0].url.params) == {"version_no": "2"}
+    await reader.release("g-9")
+    assert (seen[1].method, seen[1].url.path) == (
+        "POST",
+        "/api/internal/v2/user-data/run-grants/g-9/release",
+    )
+    with pytest.raises(SupplyError) as caught:
+        await reader.content("g-0", "m-0", 1)
+    assert (caught.value.status, caught.value.code) == (404, "grant_not_found")

@@ -266,6 +266,14 @@ class Settings(BaseSettings):
     supply_quota_subscriptions: int = Field(
         default=20, ge=1, validation_alias="SUPPLY_QUOTA_SUBSCRIPTIONS"
     )
+    # 调度（SDD 0045 第 3.1、3.3 节）：按出站地址的全局限速（每分钟问渠道几次，所有渠道
+    # 合计；生产出站是家庭宽带）、加工队列同时最多跑几个。缺省是拟值，交回报告里请 Opus 定
+    supply_global_rate_per_minute: int = Field(
+        default=60, ge=1, le=6000, validation_alias="SUPPLY_GLOBAL_RATE_PER_MINUTE"
+    )
+    supply_process_max_running: int = Field(
+        default=2, ge=1, le=50, validation_alias="SUPPLY_PROCESS_MAX_RUNNING"
+    )
 
     @field_validator("cross_app_sources_json")
     @classmethod

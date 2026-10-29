@@ -16,6 +16,7 @@ from app.domain.supply.models import (
     Original,
 )
 from app.domain.supply.quota import Quota
+from app.domain.supply.schedule import Usage
 
 
 class SupplyRepository(Protocol):
@@ -44,6 +45,20 @@ class SupplyRepository(Protocol):
         `SupplyError`，什么都不记。`links`：需求项编号 → 作业的去重键。返回新排的作业。
         """
         ...
+
+    async def move_items(
+        self, moves: list[tuple[str, Job, tuple[str, ...], str]], at: datetime
+    ) -> None:
+        """取不到换下一个渠道：（需求项，下一个渠道的作业，试过的渠道，上一条为什么没取到）。"""
+        ...
+
+    async def defer(self, job_id: str, until: datetime, reason: str) -> None:
+        """渠道这会儿不能再问：放回队列，`until` 以后再排，不算一次失败。"""
+        ...
+
+    async def delivered_original(
+        self, channel_id: str, channel_doc_id: str
+    ) -> tuple[Original, list[str]] | None: ...
 
     async def hold_job(self, job_id: str) -> None:
         """渠道暂停：作业不跑、回到等待，恢复渠道时再排。"""
@@ -108,6 +123,7 @@ class SupplyRepository(Protocol):
         purge_after: datetime,
         material_id: str,
         version_no: int,
+        readings: list[str] | None = None,
     ) -> None: ...
 
     async def cancel_items(self, demand_id: str, at: datetime, reason: str) -> int: ...
@@ -115,6 +131,35 @@ class SupplyRepository(Protocol):
     async def revive_original(self, original_id: str) -> None:
         """内容删过的原件又取回来了（重新取到同一份）：内容已重新放回，清掉删除记录。"""
         ...
+
+
+class ScheduleRepository(Protocol):
+    """调度（0045 第 3.3 节）：排作业、限速、预计时间用的队列数、加工作业。"""
+
+    async def dispatch(self, now: datetime, *, process_slots: int) -> list[str]: ...
+
+    async def take(
+        self,
+        channel_id: str,
+        *,
+        fetch: bool,
+        rate_per_minute: int,
+        daily_cap: int,
+        global_rate: int,
+        now: datetime,
+    ) -> datetime | None: ...
+
+    async def usage(self, channel_id: str, now: datetime) -> Usage: ...
+
+    async def queue_ahead(self, tier: int) -> dict[str, int]: ...
+
+    async def fetched_today(self, now: datetime) -> dict[str, int]: ...
+
+    async def add_process_jobs(
+        self, pending: list[tuple[str, str, int]], now: datetime
+    ) -> int: ...
+
+    async def prune_requests(self, before: datetime) -> int: ...
 
 
 class CatalogRepository(Protocol):
@@ -252,7 +297,25 @@ class Knowbase(Protocol):
         self, material_id: str, version_no: int, references: list[tuple[str, str]]
     ) -> int: ...
 
-    async def processing_grant(self, material_id: str, version_no: int) -> str: ...
+    async def processing_grant(
+        self, material_id: str, version_no: int, *, owner: str = ...
+    ) -> str:
+        """领一条加工授权：公开原件的所有者是 `public:disclosure`，上传的是本人。"""
+        ...
+
+    async def pending_processing(self, limit: int) -> list[tuple[str, str, int]]:
+        """knowbase 的待加工清单：（所有者，资料，版本）。"""
+        ...
+
+    async def write_text(
+        self,
+        grant_id: str,
+        processor_version: str,
+        body: str,
+        *,
+        title: str | None,
+        published_on: date | None,
+    ) -> dict[str, Any]: ...
 
     async def write_pages(
         self, grant_id: str, processor_version: str, pages: list[dict[str, object]]
@@ -269,6 +332,19 @@ class Knowbase(Protocol):
         raw: list[dict[str, object]],
         standard: list[dict[str, object]],
     ) -> dict[str, Any]: ...
+
+
+class KnowbaseReader(Protocol):
+    """凭加工授权读 knowbase 的原件（关系 `user-data-read`，0045 第 3.4 节「重新加工（拉）」：
+    经 knowbase 接口取原件，不碰桶）。"""
+
+    async def content(
+        self, grant_id: str, material_id: str, version_no: int
+    ) -> tuple[bytes, str]:
+        """（内容，内容类型）。"""
+        ...
+
+    async def release(self, grant_id: str) -> None: ...
 
 
 class ObjectStore(Protocol):

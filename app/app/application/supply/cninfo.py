@@ -160,6 +160,12 @@ def topics_of(title: str, category: str | None) -> tuple[str, ...]:
     return tuple(found)
 
 
+# 证券代码 → 巨潮的机构编号：整份证券列表一天取一次，同一进程里各作业共用（插件按渠道、
+# 按作业建，不在实例上缓存，免得每个作业多取一次列表、多占一次限速）
+ORG_IDS_TTL = timedelta(days=1)
+_ORG_IDS: dict[str, object] = {"at": None, "ids": {}}
+
+
 @dataclass
 class CninfoCatalog:
     http: Http
@@ -358,12 +364,18 @@ class CninfoCatalog:
 
     async def _org_id(self, code: str) -> str:
         if self._org_ids is None:
-            stocks = await self._stock_list()
-            self._org_ids = {
-                str(s.get("code")): str(s.get("orgId"))
-                for s in stocks
-                if _ORG_ID.fullmatch(str(s.get("orgId") or ""))
-            }
+            fetched_at = _ORG_IDS["at"]
+            now = datetime.now(UTC)
+            if isinstance(fetched_at, datetime) and now - fetched_at < ORG_IDS_TTL:
+                self._org_ids = dict(_ORG_IDS["ids"])  # type: ignore[call-overload]
+            else:
+                stocks = await self._stock_list()
+                self._org_ids = {
+                    str(s.get("code")): str(s.get("orgId"))
+                    for s in stocks
+                    if _ORG_ID.fullmatch(str(s.get("orgId") or ""))
+                }
+                _ORG_IDS.update(at=now, ids=dict(self._org_ids))
         if code not in self._org_ids:
             raise SupplyError(404, "security_not_found_at_source", "not on cninfo")
         return self._org_ids[code]

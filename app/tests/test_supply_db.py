@@ -19,9 +19,11 @@ from test_durable_delivery_db import sql
 from app.application.supply.demands import DemandService
 from app.application.supply.jobs import JobRunner
 from app.application.supply.processing import FIELD_TO_CODE, statements_from_pages
+from app.application.supply.scheduler import Scheduler
 from app.domain.securities.report_statements import PageWords, Word
 from app.domain.supply.models import DemandItemIn, DescriptionKey, Entry, SupplyError
 from app.infrastructure.repositories.supply import SqlSupplyRepository
+from app.infrastructure.repositories.supply_schedule import SqlScheduleRepository
 
 WORDS = Path(__file__).parent / "fixtures" / "securities" / "report_words"
 EXPECTED = json.loads((WORDS / "expected.json").read_text())
@@ -51,6 +53,7 @@ class FakeKnowbase:
         self.fail_deliver: SupplyError | None = None
         self.confirmations: dict[str, dict] = {}
         self.delivered: list[dict] = []
+        self.pending: list[tuple[str, str, int]] = []
 
     async def check_confirmation(self, confirmation_id, subject):
         found = self.confirmations.get(confirmation_id)
@@ -70,8 +73,20 @@ class FakeKnowbase:
         self.calls.append(("references", sorted(references)))
         return len(references)
 
-    async def processing_grant(self, material_id, version_no):
+    async def processing_grant(
+        self, material_id, version_no, *, owner="public:disclosure"
+    ):
+        self.calls.append(("grant", owner))
         return "g-1"
+
+    async def pending_processing(self, limit):
+        return list(self.pending)[:limit]
+
+    async def write_text(
+        self, grant_id, processor_version, body, *, title, published_on
+    ):
+        self.calls.append(("text", (body, title, published_on)))
+        return {}
 
     async def write_pages(self, grant_id, processor_version, pages):
         self.calls.append(("pages", len(pages)))
@@ -142,22 +157,37 @@ class World:
         self.knowbase = FakeKnowbase()
         self.objects = FakeObjects()
         self.demands = DemandService(self.repo, self.knowbase, clock=self.clock)
+        # 插件按渠道建（生产上给它这条渠道的、经限速的 Http）；这里按插件名换成假的
+        self.catalogs = {"cninfo": catalog or FakeCatalog()}
         self.runner = JobRunner(
             self.repo,
-            {"cninfo": catalog or FakeCatalog()},
+            lambda channel: self.catalogs.get(channel.plugin),
             self.knowbase,
             self.objects,
             pdf_pages=FakePages(),
             pdf_words=FixtureWords(),
             clock=self.clock,
         )
+        self.schedule = SqlScheduleRepository(lambda: db)
+        self.scheduler = Scheduler(self.schedule, process_slots=2, clock=self.clock)
 
-    def confirm(self, confirmation_id: str, subject: str, *keys: DescriptionKey):
+    async def dispatch(self) -> list[str]:
+        """调度排一轮（生产上 beat 每 5 秒一次）。"""
+        return await self.scheduler.dispatch()
+
+    def confirm(
+        self,
+        confirmation_id: str,
+        subject: str,
+        *keys: DescriptionKey,
+        supply: dict | None = None,
+    ):
         self.knowbase.confirmations[confirmation_id] = {
             "subject": subject,
             "items": [
                 {"item_id": f"c{n + 1}", "key": k.as_dict()} for n, k in enumerate(keys)
             ],
+            "supply": supply or {},
         }
 
     async def submit(
@@ -265,7 +295,7 @@ async def test_one_shared_job_delivers_to_knowbase_and_settles_every_waiting_ite
     assert await w.runner.run(job_id) == "done"
 
     kinds = [c[0] for c in w.knowbase.calls]
-    assert kinds == ["deliver", "pages", "facts", "references"]
+    assert kinds == ["deliver", "grant", "pages", "facts", "references"]
     refs = dict(w.knowbase.calls)["references"]
     assert [s for s, _ in refs] == ["alice", "bob"]
     raw, standard = dict(w.knowbase.calls)["facts"]
@@ -392,7 +422,7 @@ async def test_a_disclosure_window_delivers_each_announcement_as_its_own_materia
     job_id = str(await sql(db, "SELECT id FROM supply_job"))
     assert await w.runner.run(job_id) == "done"
     kinds = [c[0] for c in w.knowbase.calls]
-    assert kinds == ["deliver", "pages", "references"] * 2  # 不抽表
+    assert kinds == ["deliver", "grant", "pages", "references"] * 2  # 不抽表
     first = w.knowbase.delivered[0]
     assert (first["doc_type"], first["topics"], first["edition"]) == (
         "interim_announcement",

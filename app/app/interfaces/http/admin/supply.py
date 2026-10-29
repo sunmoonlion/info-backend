@@ -86,6 +86,7 @@ class ChannelRead(BaseModel):
     priority: int
     rate_per_minute: int
     daily_cap: int
+    max_running: int
     consecutive_failures: int
     domain: str | None
     terms_url: str | None
@@ -148,6 +149,7 @@ def _channel(c: Channel) -> ChannelRead:
         priority=c.priority,
         rate_per_minute=c.rate_per_minute,
         daily_cap=c.daily_cap,
+        max_running=c.max_running,
         consecutive_failures=c.consecutive_failures,
         domain=c.domain,
         terms_url=c.terms_url,
@@ -197,6 +199,7 @@ class RegistrationIn(BaseModel):
     license: Literal["self", "via_expert", "sale"]
     rate_per_minute: int = Field(ge=1)
     daily_cap: int = Field(ge=1)
+    max_running: int = Field(default=1, ge=1)
     domain: str | None = Field(default=None, max_length=253)
     terms_url: str | None = Field(default=None, max_length=2000)
     render_allowed: bool = False
@@ -213,6 +216,7 @@ class RegistrationIn(BaseModel):
             license=self.license,
             rate_per_minute=self.rate_per_minute,
             daily_cap=self.daily_cap,
+            max_running=self.max_running,
             domain=self.domain or None,
             terms_url=self.terms_url or None,
             render_allowed=self.render_allowed,

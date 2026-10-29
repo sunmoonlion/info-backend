@@ -1,16 +1,22 @@
 """调 knowbase 的供给接口（关系 `user-data-supply`，SDD 0043、0047）。
 
-和旧的入库接口共用 knowfeed 的服务客户端身份，只把要的 scope 换成
-`knowbase:user-data-supply`；knowbase 按关系逐调用方核。
+这条关系有自己的服务身份（10-29 Fable 回执第 2 条：部署里一个服务应用只有一个 scope，
+knowbase 的接收端绑定从调用方的 service_clients 推出来，不能借入库那份身份）：
+`KNOWBASE_INTERNAL_URL` 加 `KNOWBASE_USER_DATA_SUPPLY_SERVICE_{CLIENT_ID,CLIENT_SECRET,
+SCOPE,DISCOVERY_URL,BACKCHANNEL_ENDPOINT}`，读法同 knowbench、knowlab 的
+`service_relation("knowbase", "user-data-supply")`；缺一项就是没开。
 """
 
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -22,6 +28,7 @@ from app.infrastructure.external.knowbase_app import (
 from core.config import Settings, get_settings
 
 SUPPLY_SCOPE = "knowbase:user-data-supply"
+SUPPLY_PATH = "/api/internal/v2/user-data"
 
 
 @dataclass
@@ -175,17 +182,50 @@ class HttpKnowbase:
         return body if isinstance(body, dict) else {}
 
 
-@lru_cache(maxsize=1)
-def get_knowbase_supply() -> HttpKnowbase:
-    settings = get_settings()
-    if not settings.knowbase_supply_url:
-        raise KnowbaseAppNotConfiguredError("knowbase supply url is not configured")
-    return HttpKnowbase(
-        base_url=settings.knowbase_supply_url,
-        tokens=ServiceTokenProvider(_supply_settings(settings)),
-        timeout_seconds=settings.knowbase_supply_timeout_seconds,
+def supply_relation(environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
+    """这条关系配全了才返回；缺任何一项、scope 不对、内部地址不是 https 就是没开。"""
+    env = os.environ if environ is None else environ
+    prefix = "KNOWBASE_USER_DATA_SUPPLY_SERVICE_"
+    values = {
+        "internal_url": env.get("KNOWBASE_INTERNAL_URL", "").strip(),
+        "client_id": env.get(prefix + "CLIENT_ID", "").strip(),
+        "client_secret": env.get(prefix + "CLIENT_SECRET", "").strip(),
+        "scope": env.get(prefix + "SCOPE", "").strip(),
+        "discovery_url": env.get(prefix + "DISCOVERY_URL", "").strip(),
+        "backchannel_endpoint": env.get(prefix + "BACKCHANNEL_ENDPOINT", "").strip(),
+    }
+    if not all(values.values()) or values["scope"] != SUPPLY_SCOPE:
+        return None
+    if urlsplit(values["internal_url"]).scheme != "https":
+        return None
+    return values
+
+
+def supply_settings(settings: Settings, relation: dict[str, str]) -> Settings:
+    """令牌提供者读的是 knowbase_app_service_* 这组：换成这条关系自己的身份。"""
+    return settings.model_copy(
+        update={
+            "knowbase_app_service_client_id": relation["client_id"],
+            "knowbase_app_service_client_secret": relation["client_secret"],
+            "knowbase_app_service_scope": relation["scope"],
+            "knowbase_app_service_discovery_url": relation["discovery_url"],
+            "knowbase_app_service_backchannel_endpoint": relation[
+                "backchannel_endpoint"
+            ],
+        }
     )
 
 
-def _supply_settings(settings: Settings) -> Settings:
-    return settings.model_copy(update={"knowbase_app_service_scope": SUPPLY_SCOPE})
+@lru_cache(maxsize=1)
+def get_knowbase_supply() -> HttpKnowbase:
+    settings = get_settings()
+    relation = supply_relation()
+    if relation is None:
+        raise KnowbaseAppNotConfiguredError(
+            "knowbase user-data-supply relation is not configured"
+        )
+    return HttpKnowbase(
+        base_url=relation["internal_url"].rstrip("/") + SUPPLY_PATH,
+        tokens=ServiceTokenProvider(supply_settings(settings, relation)),
+        timeout_seconds=settings.knowbase_supply_timeout_seconds,
+    )

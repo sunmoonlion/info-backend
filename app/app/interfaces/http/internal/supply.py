@@ -1,8 +1,8 @@
 """给应用的需求接口（SDD 0045 第 2.4 节）：提精确描述的需求单、看进度、取消。
 
-应用以服务身份调（scope `knowfeed:supply-demand`），带 knowbase 的确认编号；knowfeed 受理前
-问 knowbase 核这张确认。哪个服务身份是哪个应用由部署配（`SUPPLY_SERVICE_APPS_JSON`）：
-需求单记在那个应用名下，进度只给它看。
+应用以服务身份调（关系 `supply-demand`，scope `knowfeed:supply-demand`），带 knowbase 的
+确认编号；knowfeed 受理前问 knowbase 核这张确认。按关系校验时就知道调用方是 knowbench 还是
+knowlab（`relation_auth`）：需求单记在那个应用名下，进度只给它看。
 
 需求状态的推送（经发件箱通知提需求的应用）随 knowbench 接上时做（0045 块 4）；现在应用
 按单号查进度。
@@ -13,17 +13,15 @@
 
 from __future__ import annotations
 
-import json
 from datetime import date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.application.errors.exceptions import AppException, ForbiddenError
+from app.application.errors.exceptions import AppException
 from app.application.supply.demands import DemandService
 from app.application.supply.directory import MAX_RESULTS, SecurityDirectory
-from app.domain.security import Principal
 from app.domain.supply.models import (
     Demand,
     DemandItem,
@@ -31,17 +29,18 @@ from app.domain.supply.models import (
     DescriptionKey,
     SupplyError,
 )
+from app.infrastructure.security.relation_auth import (
+    ServiceCaller,
+    require_supply_demand_service,
+)
 from app.infrastructure.storage.postgres import get_postgres
 from app.interfaces.http.internal.host_guard import internal_host_only
-from app.interfaces.http.middleware.auth import require_internal_scopes
-from core.config import get_settings
 
 router = APIRouter(
     prefix="/internal/v1/supply",
     tags=["内部-供给"],
     dependencies=[Depends(internal_host_only)],
 )
-require_supply_caller = require_internal_scopes("knowfeed:supply-demand")
 
 
 def get_demand_service() -> DemandService:
@@ -56,12 +55,11 @@ def get_directory() -> SecurityDirectory:
     return build_directory(get_postgres().session_factory)
 
 
-def caller_app(principal: Principal = Depends(require_supply_caller)) -> str:
-    apps = json.loads(get_settings().supply_service_apps_json or "{}")
-    app = apps.get(principal.subject)
-    if app not in ("knowbench", "knowlab"):
-        raise ForbiddenError("This service may not submit demands")
-    return str(app)
+def caller_app(
+    caller: ServiceCaller = Depends(require_supply_demand_service),
+) -> str:
+    """提需求的是哪个应用：按关系校验的结果（只认 knowbench、knowlab）。"""
+    return caller.caller
 
 
 class DescriptionKeyIn(BaseModel):

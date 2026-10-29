@@ -1,10 +1,11 @@
-"""供给的端口（SDD 0045）：记录、knowbase、渠道。"""
+"""供给的端口（SDD 0045）：记录、knowbase、渠道、对象存储、给应用的状态推送。"""
 
 from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any, Protocol
 
+from app.domain.supply.catalog import ChannelEvent, Trial
 from app.domain.supply.models import (
     Channel,
     Demand,
@@ -14,10 +15,13 @@ from app.domain.supply.models import (
     Job,
     Original,
 )
+from app.domain.supply.quota import Quota
 
 
 class SupplyRepository(Protocol):
     async def channels(self) -> list[Channel]: ...
+
+    async def get_channel(self, channel_id: str) -> Channel | None: ...
 
     async def find_demand(self, app: str, idempotency_key: str) -> Demand | None: ...
 
@@ -31,11 +35,29 @@ class SupplyRepository(Protocol):
         items: list[DemandItem],
         jobs: list[Job],
         links: dict[str, str],
+        *,
+        quota: Quota,
     ) -> list[Job]:
-        """一个事务里记需求单、需求项、新作业（已有的未办完作业照用），并排进队列。
+        """一个事务里核配额、记需求单、需求项、新作业（已有的未办完作业照用），并排进队列。
 
-        `links`：需求项编号 → 作业的去重键。返回新排的作业。
+        配额按归属用户在同一个事务里数（同一用户并发提单也不会一起超），超了抛
+        `SupplyError`，什么都不记。`links`：需求项编号 → 作业的去重键。返回新排的作业。
         """
+        ...
+
+    async def hold_job(self, job_id: str) -> None:
+        """渠道暂停：作业不跑、回到等待，恢复渠道时再排。"""
+        ...
+
+    async def channel_failed(
+        self, channel_id: str, at: datetime, *, pause_after: int
+    ) -> bool:
+        """渠道这次没取到（对方出错、取数失败）：连续失败次数加一，到了次数自动暂停、
+        记一条审核记录。回是不是这次暂停的。"""
+        ...
+
+    async def channel_succeeded(self, channel_id: str) -> None:
+        """渠道这次答了（有或没有都算）：连续失败次数清零。"""
         ...
 
     async def get_job(self, job_id: str) -> Job | None: ...
@@ -88,7 +110,110 @@ class SupplyRepository(Protocol):
         version_no: int,
     ) -> None: ...
 
-    async def cancel_items(self, demand_id: str, at: datetime) -> int: ...
+    async def cancel_items(self, demand_id: str, at: datetime, reason: str) -> int: ...
+
+    async def revive_original(self, original_id: str) -> None:
+        """内容删过的原件又取回来了（重新取到同一份）：内容已重新放回，清掉删除记录。"""
+        ...
+
+
+class CatalogRepository(Protocol):
+    """来源目录（0045 第 3.1 节）：渠道、审核记录、试采、待审网站。"""
+
+    async def channels(self) -> list[Channel]: ...
+
+    async def get_channel(self, channel_id: str) -> Channel | None: ...
+
+    async def add_channel(self, channel: Channel, event: ChannelEvent) -> None:
+        """编号或网站已登记过的拒绝（409）。"""
+        ...
+
+    async def save_channel(
+        self,
+        channel: Channel,
+        event: ChannelEvent,
+        *,
+        withdraw: str | None = None,
+        requeue: bool = False,
+    ) -> None:
+        """一个事务里改渠道、记审核记录。`withdraw`：渠道上没办完的作业取消，在等的需求项
+        转「无法满足」附这个原因（并通知应用）；`requeue`：等着的作业马上再排。"""
+        ...
+
+    async def reorder(
+        self, priorities: dict[str, int], events: list[ChannelEvent], at: datetime
+    ) -> None: ...
+
+    async def events(self, channel_id: str, *, limit: int) -> list[ChannelEvent]: ...
+
+    async def registration_changed_at(self, channel_id: str) -> datetime | None:
+        """最近一次登记或改登记的时间（试采要比它新才算数）。"""
+        ...
+
+    async def trials(self, channel_id: str, *, limit: int) -> list[Trial]: ...
+
+    async def latest_trial(self, channel_id: str) -> Trial | None: ...
+
+    async def add_trial(self, trial: Trial) -> None:
+        """记一次试采并排给 worker。"""
+        ...
+
+    async def start_trial(self, trial_id: str, at: datetime) -> Trial | None:
+        """排着的改成在跑；已经跑完的回 None。"""
+        ...
+
+    async def finish_trial(
+        self,
+        trial_id: str,
+        at: datetime,
+        *,
+        status: str,
+        listed: list[dict[str, object]] | None = None,
+        fetched: dict[str, object] | None = None,
+        error: str | None = None,
+    ) -> None: ...
+
+    async def channel_for_host(self, host: str) -> Channel | None: ...
+
+    async def add_site(self, channel: Channel, event: ChannelEvent) -> Channel:
+        """自动建一条待审网站；同时有人建了同一个网站就回已有的那条。"""
+        ...
+
+    async def pending_sites(self) -> list[dict[str, object]]: ...
+
+    async def expire_sites(self, before: datetime, at: datetime) -> int:
+        """待审在 `before` 之前就开始的网站：在等的需求项转「无法满足」。回转了几项。"""
+        ...
+
+
+class MonitorRepository(Protocol):
+    async def gaps(self, kind: str | None) -> list[dict[str, object]]: ...
+
+    async def queue(self, since: datetime) -> dict[str, object]: ...
+
+    async def jobs(
+        self, *, channel_id: str | None, status: str | None, limit: int
+    ) -> list[dict[str, object]]: ...
+
+    async def job(self, job_id: str) -> dict[str, object] | None: ...
+
+    async def requeue(self, job_id: str) -> None: ...
+
+
+class RetentionRepository(Protocol):
+    async def due_originals(self, now: datetime, limit: int) -> list[tuple[str, str]]:
+        """到期、内容还没删的原件：（编号，对象键）。"""
+        ...
+
+    async def mark_purged(self, original_id: str, at: datetime) -> bool: ...
+
+
+class StatusSender(Protocol):
+    """把需求状态通知交给提单的应用（契约 knowfeed-supply-status/v1）。"""
+
+    def configured(self, app: str) -> bool: ...
+
+    async def send(self, app: str, body: dict[str, object]) -> None: ...
 
 
 class Catalog(Protocol):
@@ -150,3 +275,7 @@ class ObjectStore(Protocol):
     async def put(self, key: str, content: bytes, media_type: str) -> None: ...
 
     async def get(self, key: str) -> bytes: ...
+
+    async def delete(self, key: str) -> None:
+        """真删这个键的内容（桶开了版本的，每个版本都删）；早就不在了也算删了。"""
+        ...

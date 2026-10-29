@@ -1,4 +1,5 @@
-"""供给的表（SDD 0045 第五节）：渠道、需求单与需求项、作业与尝试、留 30 天的原件。"""
+"""供给的表（SDD 0045 第五节）：渠道与审核、试采记录，需求单与需求项、作业与尝试、留 30 天
+的原件。"""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -54,6 +56,16 @@ class SupplyChannel(Base):
     consecutive_failures: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
+    # 0020 起（来源目录，0045 第 3.1 节）：网站、条款、规矩、状态原因、适配器配置
+    domain: Mapped[str | None] = mapped_column(String(253))
+    terms_url: Mapped[str | None] = mapped_column(Text)
+    render_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    obey_robots: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status_reason: Mapped[str | None] = mapped_column(String(200))
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -68,8 +80,62 @@ class SupplyChannel(Base):
             name="ck_supply_channel_review",
         ),
         CheckConstraint(
-            "status IN ('active', 'paused')", name="ck_supply_channel_status"
+            "status IN ('active', 'paused', 'disabled')",
+            name="ck_supply_channel_status",
         ),
+        Index(
+            "uq_supply_channel_domain",
+            "domain",
+            unique=True,
+            postgresql_where=text("domain IS NOT NULL"),
+        ),
+    )
+
+
+class SupplyChannelEvent(Base):
+    """审核记录与渠道上的每一次改动：谁、何时、做了什么、凭什么（0045 第 3.1 节）。"""
+
+    __tablename__ = "supply_channel_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    channel_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("supply_channel.id"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_supply_channel_event_channel", "channel_id", "at"),)
+
+
+class SupplyChannelTrial(Base):
+    """试采：放行之前对一条样例描述跑一次「列」和「取」（0045 第 3.1 节）。"""
+
+    __tablename__ = "supply_channel_trial"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    channel_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("supply_channel.id"), nullable=False
+    )
+    key: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    listed: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    fetched: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(String(200))
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'ok', 'failed')",
+            name="ck_supply_channel_trial_status",
+        ),
+        Index("ix_supply_channel_trial_channel", "channel_id", "created_at"),
     )
 
 
@@ -91,6 +157,7 @@ class SupplyDemand(Base):
 
     __table_args__ = (
         UniqueConstraint("app", "idempotency_key", name="uq_supply_demand_key"),
+        Index("ix_supply_demand_owner", "owner_subject", "created_at"),
     )
 
 
@@ -186,3 +253,11 @@ class SupplyOriginal(Base):
     purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     knowbase_material_id: Mapped[str | None] = mapped_column(String(64))
     knowbase_version_no: Mapped[int | None] = mapped_column(Integer)
+
+    __table_args__ = (
+        Index(
+            "ix_supply_original_purge",
+            "purge_after",
+            postgresql_where=text("purged_at IS NULL AND purge_after IS NOT NULL"),
+        ),
+    )

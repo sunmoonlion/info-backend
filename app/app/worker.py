@@ -109,8 +109,17 @@ import app.tasks.distribution  # noqa: E402, F401 — register tasks
 import app.tasks.durable_delivery  # noqa: E402, F401 — shared durable transport
 import app.tasks.ping  # noqa: E402, F401 — register tasks
 import app.tasks.search  # noqa: E402, F401 — register tasks
+import app.tasks.supply_upkeep  # noqa: E402, F401 — 原件到期删内容、待审网站过时限（SDD 0045）
 
 celery_app.conf.beat_schedule = {
     **(celery_app.conf.beat_schedule or {}),
     "durable-delivery": {"task": "app.tasks.durable_delivery.pump", "schedule": 5.0},
+    "supply-purge-originals": {
+        "task": "app.tasks.supply_upkeep.purge_originals",
+        "schedule": 3600.0,
+    },
+    "supply-expire-sites": {
+        "task": "app.tasks.supply_upkeep.expire_sites",
+        "schedule": 3600.0,
+    },
 }

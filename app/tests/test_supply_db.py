@@ -121,6 +121,9 @@ class FakeObjects:
     async def get(self, key):
         return self.data[key]
 
+    async def delete(self, key):
+        self.data.pop(key, None)
+
 
 class FakePages:
     def text_pages(self, pdf):
@@ -238,16 +241,14 @@ async def test_demand_intake_checks_confirmation_and_idempotency(db):
     await refused(
         w.submit(key=other, idem="idem-0002-abcd"), 403, "outside_confirmation"
     )
-    # 渠道里没有这一类：无法满足
+    # 来源目录里没有能供这一类的渠道：无法满足，原因是「这类数据还取不到」（进缺口清单）
     w.confirm("conf-2", "alice", DescriptionKey("000858.SZ", "announcement"))
     _, items, _ = await w.submit(
         confirmation="conf-2",
         key=DescriptionKey("000858.SZ", "announcement"),
         idem="idem-0003-abcd",
     )
-    assert [(i.status, i.reason) for i in items] == [
-        ("unsatisfiable", "no channel can supply this yet")
-    ]
+    assert [(i.status, i.reason) for i in items] == [("unsatisfiable", "no_channel")]
 
 
 async def test_one_shared_job_delivers_to_knowbase_and_settles_every_waiting_item(db):

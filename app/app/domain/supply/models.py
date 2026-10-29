@@ -65,6 +65,41 @@ def can_move(current: str, target: str) -> bool:
     return target in _FORWARD.get(current, frozenset())
 
 
+# 需求项结束时的原因（稳定的编码，给应用与管理端认；0045 第 2.5 节、第四节）。
+# 「无法满足」分几种：这类数据还取不到、渠道里没有这一份、网站审不过或没人审、渠道停用。
+REASON_NO_CHANNEL = "no_channel"  # 这类数据我们还取不到（来源目录里没有能供的渠道）
+REASON_CHANNEL_HAS_NONE = "channel_has_none"  # 渠道里没有这一份
+REASON_CHANNEL_DISABLED = "channel_disabled"  # 渠道停用（审核撤销）
+REASON_SITE_REJECTED = "site_rejected"  # 网站审不过
+REASON_SITE_EXPIRED = "site_review_expired"  # 网站待审超过时限没人审
+REASON_READINGS_INCOMPLETE = "readings_incomplete"  # 原件到了，要的读法没齐
+REASON_CANCELLED = "cancelled"
+
+# 缺口清单按哪种「无法满足」分组（0045 第四节「缺口清单」）：
+# uncovered 是「这类数据我们还取不到」，是补渠道的主要依据；其余几种一并列出，便于判断
+GAP_KINDS: dict[str, str] = {
+    REASON_NO_CHANNEL: "uncovered",
+    REASON_CHANNEL_DISABLED: "uncovered",
+    REASON_CHANNEL_HAS_NONE: "absent",
+    REASON_SITE_REJECTED: "site",
+    REASON_SITE_EXPIRED: "site",
+}
+
+
+def summarize(statuses: list[str] | set[str]) -> str:
+    """需求单状态由各项汇总（0045 第 2.5 节）：还有没结束的就是那个状态；都就绪才
+    算就绪；有就绪或部分就绪的算部分就绪；否则取各项里排在前面的那个终态。"""
+    found = set(statuses)
+    for open_status in ("fetching", "accepted"):
+        if open_status in found:
+            return open_status
+    if found == {"ready"}:
+        return "ready"
+    if "ready" in found or "partial" in found:
+        return "partial"
+    return sorted(found)[0] if found else "accepted"
+
+
 @dataclass(frozen=True)
 class DescriptionKey:
     """一条描述（词表同 knowbase，SDD 0049）：主体 × 类型 × 期间 × 版本形态，外加缩小
@@ -188,6 +223,9 @@ def check_demand(
 # —— 供给：渠道 ——
 
 ChannelKind = Literal["catalog", "feed", "web", "search"]
+# 在用；暂停（连续失败自动暂停或手动暂停，作业等着、恢复后接着跑）；停用（审核撤销，
+# 作业取消、在等的需求项转「无法满足」，0045 第 3.1、3.3 节）
+ChannelStatus = Literal["active", "paused", "disabled"]
 
 
 @dataclass(frozen=True)
@@ -205,13 +243,25 @@ class Channel:
     rate_per_minute: int
     daily_cap: int
     priority: int
-    status: Literal["active", "paused"] = "active"
+    status: ChannelStatus = "active"
     consecutive_failures: int = 0
+    # 通用网页按网站审：一个网站（域名）一条渠道；目录型渠道也可以写它所在的网站，
+    # 用户给的网址落在这个网站上就照这条渠道走（0045 第四节「给网址」）
+    domain: str | None = None
+    terms_url: str | None = None
+    render_allowed: bool = False  # 能否用无头浏览器渲染（审核时定）
+    obey_robots: bool = True  # 通用网页型默认守 robots，审核可逐渠道改
+    status_reason: str | None = None
+    config: dict[str, object] = field(default_factory=dict)  # 适配器配置
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     def covers(self, key: DescriptionKey) -> bool:
-        """渠道能供这一条：大类看它下面有没有这个渠道登记的细类。"""
+        """渠道能供这一条：审过、没停用，大类看它下面有没有这个渠道登记的细类。
+
+        暂停的渠道照样接：作业等着，恢复后接着跑，不让需求因为一时取不到变成缺口。"""
         return (
-            self.status == "active"
+            self.status in ("active", "paused")
             and self.review == "approved"
             and any(t in self.doc_types for t in types_of(key.doc_type))
         )
@@ -274,3 +324,4 @@ class Original:
     purge_after: datetime | None = None
     knowbase_material_id: str | None = None
     knowbase_version_no: int | None = None
+    purged_at: datetime | None = None  # 内容已删，只留出处与摘要

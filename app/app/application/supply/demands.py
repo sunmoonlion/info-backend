@@ -4,10 +4,12 @@
 1. 同一幂等钥匙、内容相同的回原结果；同一钥匙内容不同的拒绝；
 2. 格式；
 3. 凭证：确认编号真、7 天内、是这个用户的，条目对得上（问 knowbase）；
-4. 配额（每人每月新取份数等）随块 4 补齐，这一版不扣。
+4. 配额：请求频率、在途单数、每人每月新取份数（`domain/supply/quota.py`），在记录的
+   同一个事务里按归属用户数，只有真正的新受理才扣；当场没有渠道的项不算新取。
 
 受理后正式切合：按来源目录里覆盖这条描述、审过、在用的渠道先后排，取第一个；建（或挂上
-已有的）取数作业，同一渠道同一描述跨用户只取一次。没有渠道的转「无法满足」。
+已有的）取数作业，同一渠道同一描述跨用户只取一次。没有渠道的转「无法满足」（原因
+`no_channel`：这类数据我们还取不到，进缺口清单）。
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ from datetime import UTC, datetime
 
 from app.application.ports.supply import Knowbase, SupplyRepository
 from app.domain.supply.models import (
+    REASON_CANCELLED,
+    REASON_NO_CHANNEL,
     Demand,
     DemandItem,
     DemandItemIn,
@@ -27,6 +31,7 @@ from app.domain.supply.models import (
     SupplyError,
     check_demand,
 )
+from app.domain.supply.quota import Quota
 
 
 class DemandService:
@@ -35,11 +40,13 @@ class DemandService:
         repo: SupplyRepository,
         knowbase: Knowbase,
         *,
+        quota: Quota | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
         self.repo = repo
         self.knowbase = knowbase
+        self.quota = quota or Quota()
         self.now = clock
         self.new_id = new_id
 
@@ -106,7 +113,7 @@ class DemandService:
                         status="unsatisfiable",
                         created_at=now,
                         updated_at=now,
-                        reason="no channel can supply this yet",
+                        reason=REASON_NO_CHANNEL,
                     )
                 )
                 continue
@@ -139,7 +146,9 @@ class DemandService:
                     channel_id=channel.id,
                 )
             )
-        await self.repo.submit(demand, made, list(jobs.values()), links)
+        await self.repo.submit(
+            demand, made, list(jobs.values()), links, quota=self.quota
+        )
         return demand, await self.repo.items_of(demand.id), False
 
     async def get(self, app: str, demand_id: str) -> tuple[Demand, list[DemandItem]]:
@@ -151,7 +160,7 @@ class DemandService:
     async def cancel(self, app: str, demand_id: str) -> int:
         """取消只摘自己这张单的需求项；共享的作业照跑，别人还在等。"""
         demand, _ = await self.get(app, demand_id)
-        return await self.repo.cancel_items(demand.id, self.now())
+        return await self.repo.cancel_items(demand.id, self.now(), REASON_CANCELLED)
 
 
 def _digest(

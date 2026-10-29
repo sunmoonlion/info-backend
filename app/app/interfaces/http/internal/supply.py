@@ -4,8 +4,9 @@
 确认编号；knowfeed 受理前问 knowbase 核这张确认。按关系校验时就知道调用方是 knowbench 还是
 knowlab（`relation_auth`）：需求单记在那个应用名下，进度只给它看。
 
-需求状态的推送（经发件箱通知提需求的应用）随 knowbench 接上时做（0045 块 4）；现在应用
-按单号查进度。
+需求状态每变一次，knowfeed 经发件箱通知提这张单的应用（契约 knowfeed-supply-status/v1，
+`domain/supply/status_event.py`）；接收端没配的应用照旧按单号查进度。受理前按归属用户核
+配额，超了回 429（`quota_rate`、`quota_open_demands`、`quota_monthly`）。
 
 证券名录（`GET /securities`）：委托第 0 步模型按名字查证券代码（decisions ⑭「查主体」），
 同一个服务身份与 scope。
@@ -28,6 +29,7 @@ from app.domain.supply.models import (
     DemandItemIn,
     DescriptionKey,
     SupplyError,
+    summarize,
 )
 from app.infrastructure.security.relation_auth import (
     ServiceCaller,
@@ -122,19 +124,6 @@ class DemandRead(BaseModel):
     items: list[DemandItemRead]
 
 
-def _summary(items: list[DemandItem]) -> str:
-    """需求单状态由各项汇总（0045 第 2.5 节）。"""
-    statuses = {i.status for i in items}
-    for open_status in ("fetching", "accepted"):
-        if open_status in statuses:
-            return open_status
-    if statuses == {"ready"}:
-        return "ready"
-    if "ready" in statuses or "partial" in statuses:
-        return "partial"
-    return sorted(statuses)[0] if statuses else "accepted"
-
-
 def _read(
     demand: Demand, items: list[DemandItem], replayed: bool = False
 ) -> DemandRead:
@@ -143,7 +132,7 @@ def _read(
         owner=demand.owner,
         task_ref=demand.task_ref,
         confirmation_id=demand.confirmation_id,
-        status=_summary(items),
+        status=summarize([i.status for i in items]),
         replayed=replayed,
         items=[
             DemandItemRead(

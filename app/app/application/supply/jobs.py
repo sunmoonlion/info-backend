@@ -7,7 +7,10 @@
   内容不对的不重试、转「失败」。
 - 交付可安全重试：knowbase 按渠道编号与内容摘要认同一份，引用按需求依据只记一条。
 - 加工没成功原件照样交付，需求项照实写（只要原件的不因加工失败降级）。
-- 原件交 knowbase 拿到回执后再留 30 天。
+- 原件交 knowbase 拿到回执后再留 30 天，到期删内容（`retention.py`）。
+- 渠道（0045 第 3.1 节）：作业按渠道登记的插件取；渠道暂停时作业不跑、等恢复；停用或
+  审不过的，在等的需求项转「无法满足」。渠道每次没取到（对方出错、取数失败，限流不算）
+  连续失败次数加一，到 `AUTO_PAUSE_AFTER` 次自动暂停并告警；答了（有没有都算）就清零。
 - 定期报告一条描述交一份；其余类型一条是一个披露时间窗，窗里列出的逐份交付
   （SDD 0049）。交给 knowbase 的描述按插件认出的细类、版本形态、事项写。
 """
@@ -36,8 +39,13 @@ from app.application.supply.processing import (
     report_statements,
     wanted_readings,
 )
+from app.domain.supply.catalog import AUTO_PAUSE_AFTER
 from app.domain.supply.models import (
     MAX_ATTEMPTS,
+    REASON_CHANNEL_DISABLED,
+    REASON_CHANNEL_HAS_NONE,
+    REASON_READINGS_INCOMPLETE,
+    Channel,
     DescriptionKey,
     Entry,
     Original,
@@ -81,7 +89,34 @@ class JobRunner:
         self.new_id = new_id
 
     async def run(self, job_id: str) -> str:
-        """跑一次；返回这次的结果（done、absent、retry、failed、skipped）。"""
+        """跑一次；返回这次的结果（done、absent、retry、failed、held、withdrawn、skipped）。"""
+        job = await self.repo.get_job(job_id)
+        if job is None or job.status not in ("queued", "waiting", "running"):
+            return "skipped"
+        channel = await self.repo.get_channel(job.channel_id)
+        if (
+            channel is None
+            or channel.status == "disabled"
+            or channel.review != "approved"
+        ):
+            # 停用、审不过（撤销）的渠道：停用时已经收拾过，这里兜底
+            await self._settle_waiting(
+                job_id, "unsatisfiable", reason=REASON_CHANNEL_DISABLED
+            )
+            attempt = await self.repo.start_attempt(job_id, self.now())
+            if attempt is not None:
+                await self.repo.finish_attempt(
+                    job_id,
+                    attempt,
+                    self.now(),
+                    outcome="withdrawn",
+                    reason=REASON_CHANNEL_DISABLED,
+                    job_status="failed",
+                )
+            return "withdrawn"
+        if channel.status == "paused":
+            await self.repo.hold_job(job_id)
+            return "held"
         attempt = await self.repo.start_attempt(job_id, self.now())
         if attempt is None:
             return "skipped"
@@ -89,7 +124,7 @@ class JobRunner:
         assert job is not None
         key = DescriptionKey.from_dict(job.payload["key"])  # type: ignore[arg-type]
         try:
-            outcome = await self._fetch_and_deliver(job_id, job.channel_id, key)
+            outcome = await self._fetch_and_deliver(job_id, channel, key)
         except SupplyError as exc:
             retryable = exc.status >= 500 or exc.status == 429
             if retryable and job.attempts < MAX_ATTEMPTS:
@@ -146,16 +181,42 @@ class JobRunner:
         )
         return outcome
 
+    async def _ask_channel(self, channel: Channel, call):
+        """问渠道（列、取）：没取到记一次失败（限流不算），答了清零。"""
+        try:
+            answer = await call
+        except SupplyError as exc:
+            if exc.code != "channel_rate_limited":
+                await self._channel_failed(channel)
+            raise
+        except Exception:
+            await self._channel_failed(channel)
+            raise
+        await self.repo.channel_succeeded(channel.id)
+        return answer
+
+    async def _channel_failed(self, channel: Channel) -> None:
+        paused = await self.repo.channel_failed(
+            channel.id, self.now(), pause_after=AUTO_PAUSE_AFTER
+        )
+        if paused:
+            # 告警：日志按这个事件名报警（0045 第 3.1 节「自动暂停并告警」）
+            log.warning(
+                "supply_channel_auto_paused channel=%s failures=%s",
+                channel.id,
+                AUTO_PAUSE_AFTER,
+            )
+
     async def _fetch_and_deliver(
-        self, job_id: str, channel_id: str, key: DescriptionKey
+        self, job_id: str, channel: Channel, key: DescriptionKey
     ) -> str:
-        catalog = self.catalogs[channel_id]
-        entries = await catalog.list(key)
+        catalog = self.catalogs[channel.plugin]
+        entries = await self._ask_channel(channel, catalog.list(key))
         if not entries:
             # 渠道明说没有：不重试，转「无法满足」（报告还没披露、这家没有这一类、
             # 窗里没有这类公告）
             await self._settle_waiting(
-                job_id, "unsatisfiable", reason="the channel has no such document"
+                job_id, "unsatisfiable", reason=REASON_CHANNEL_HAS_NONE
             )
             return "absent"
         # 定期报告：新的在前，更正版是同一份资料的新版本，交最新那一条
@@ -165,7 +226,9 @@ class JobRunner:
         delivered: list[dict[str, object]] = []
         readings: set[str] | None = None
         for entry in chosen:
-            one, done = await self._deliver_one(entry, key, references)
+            one, done = await self._deliver_one(
+                channel, catalog, entry, key, references
+            )
             delivered.append(one)
             readings = done if readings is None else readings & done
         receipt: dict[str, object] = {"materials": delivered}
@@ -182,15 +245,20 @@ class JobRunner:
                 status,
                 self.now(),
                 receipt=receipt,
-                reason=None if status == "ready" else "some readings are not ready",
+                reason=None if status == "ready" else REASON_READINGS_INCOMPLETE,
             )
         return "done"
 
     async def _deliver_one(
-        self, entry: Entry, key: DescriptionKey, references: list[tuple[str, str]]
+        self,
+        channel: Channel,
+        catalog: Catalog,
+        entry: Entry,
+        key: DescriptionKey,
+        references: list[tuple[str, str]],
     ) -> tuple[dict[str, object], set[str]]:
         """取一份、留存、交 knowbase、加工、记引用；回（回执里的这一份，就绪的读法）。"""
-        content, media_type = await self.catalogs[entry.channel_id].fetch(entry)
+        content, media_type = await self._ask_channel(channel, catalog.fetch(entry))
         original = await self._keep(entry, content, media_type)
         periodic = is_periodic(entry.doc_type)
         delivered = await self.knowbase.deliver_public(
@@ -277,9 +345,13 @@ class JobRunner:
         """原件一个字节不改先存下，按摘要去重，记出处（0045 第 3.4 节）。"""
         sha = hashlib.sha256(content).hexdigest()
         found = await self.repo.find_original(sha)
-        if found is not None:
-            return found
         key = f"supply/originals/{sha[:2]}/{sha}"
+        if found is not None:
+            if found.purged_at is not None:
+                # 以前那份留满 30 天删了内容，这次又取到同一份：内容放回去，再从头留 30 天
+                await self.objects.put(found.object_key, content, media_type)
+                await self.repo.revive_original(found.id)
+            return found
         await self.objects.put(key, content, media_type)
         return await self.repo.save_original(
             Original(

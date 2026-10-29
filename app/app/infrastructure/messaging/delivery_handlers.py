@@ -46,6 +46,23 @@ async def refresh_security_directory(session, payload):
     await build_directory_refresh()
 
 
+async def run_channel_trial(session, payload):
+    # 试采（0045 第 3.1 节）：要出公网，只在 worker 跑；结果记在试采记录里给管理端看
+    from app.bootstrap.supply import build_trial_runner
+    from app.infrastructure.storage.postgres import get_postgres
+
+    await build_trial_runner(get_postgres().session_factory).run(
+        str(payload["trial_id"])
+    )
+
+
+async def notify_demand_status(session, payload):
+    # 需求状态推送（0045 第 2.5 节）：交给提单的应用；对方没收下抛错，由投递重试
+    from app.bootstrap.supply import build_notifier
+
+    await build_notifier().deliver(payload)
+
+
 def get_delivery_handlers() -> dict[str, Handler]:
     return {
         "knowfeed.crawl.v1": crawl,
@@ -53,4 +70,6 @@ def get_delivery_handlers() -> dict[str, Handler]:
         "knowfeed.distribution.dispatch.v1": distribute,
         "knowfeed.supply.job.v1": run_supply_job,
         "knowfeed.supply.directory.refresh.v1": refresh_security_directory,
+        "knowfeed.supply.channel.trial.v1": run_channel_trial,
+        "knowfeed.supply.demand.status.v1": notify_demand_status,
     }

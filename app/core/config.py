@@ -253,6 +253,19 @@ class Settings(BaseSettings):
     knowbase_supply_timeout_seconds: float = Field(
         default=120.0, validation_alias="KNOWBASE_SUPPLY_TIMEOUT_SECONDS"
     )
+    # 需求的配额（SDD 0045 第 2.4 节第 4 条），按归属用户算；缺省是拟值（domain/supply/quota.py）
+    supply_quota_per_hour: int = Field(
+        default=60, ge=1, validation_alias="SUPPLY_QUOTA_PER_HOUR"
+    )
+    supply_quota_open_demands: int = Field(
+        default=20, ge=1, validation_alias="SUPPLY_QUOTA_OPEN_DEMANDS"
+    )
+    supply_quota_monthly_items: int = Field(
+        default=500, ge=1, validation_alias="SUPPLY_QUOTA_MONTHLY_ITEMS"
+    )
+    supply_quota_subscriptions: int = Field(
+        default=20, ge=1, validation_alias="SUPPLY_QUOTA_SUBSCRIPTIONS"
+    )
 
     @field_validator("cross_app_sources_json")
     @classmethod

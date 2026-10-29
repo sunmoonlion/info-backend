@@ -1,4 +1,7 @@
-"""供给的记录（PostgreSQL，SDD 0045 第五节）。"""
+"""供给的记录（PostgreSQL，SDD 0045 第五节）：需求、作业与尝试、原件。
+
+需求项的状态每变一次，在同一个事务里排一条状态通知（`supply_status.py`）；受理时在同一个
+事务里按归属用户数配额。"""
 
 from __future__ import annotations
 
@@ -6,7 +9,7 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.supply.models import (
@@ -19,15 +22,18 @@ from app.domain.supply.models import (
     Original,
     can_move,
 )
+from app.domain.supply.quota import Quota, Usage, check_quota, hour_ago, month_start
 from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.supply import (
     SupplyAttempt,
     SupplyChannel,
+    SupplyChannelEvent,
     SupplyDemand,
     SupplyDemandItem,
     SupplyJob,
     SupplyOriginal,
 )
+from app.infrastructure.repositories.supply_status import enqueue_status
 
 JOB_TOPIC = "knowfeed.supply.job.v1"
 OPEN_JOB = ("queued", "running", "waiting")
@@ -48,6 +54,14 @@ def _channel(row: SupplyChannel) -> Channel:
         priority=row.priority,
         status=row.status,  # type: ignore[arg-type]
         consecutive_failures=row.consecutive_failures,
+        domain=row.domain,
+        terms_url=row.terms_url,
+        render_allowed=row.render_allowed,
+        obey_robots=row.obey_robots,
+        status_reason=row.status_reason,
+        config=dict(row.config or {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -112,6 +126,7 @@ def _original(row: SupplyOriginal) -> Original:
         purge_after=row.purge_after,
         knowbase_material_id=row.knowbase_material_id,
         knowbase_version_no=row.knowbase_version_no,
+        purged_at=row.purged_at,
     )
 
 
@@ -125,6 +140,11 @@ class SqlSupplyRepository:
                 select(SupplyChannel).order_by(SupplyChannel.priority, SupplyChannel.id)
             )
             return [_channel(r) for r in rows.scalars()]
+
+    async def get_channel(self, channel_id: str) -> Channel | None:
+        async with self._sessions()() as session:
+            row = await session.get(SupplyChannel, channel_id)
+            return _channel(row) if row is not None else None
 
     async def find_demand(self, app: str, idempotency_key: str) -> Demand | None:
         async with self._sessions()() as session:
@@ -160,8 +180,11 @@ class SqlSupplyRepository:
         items: list[DemandItem],
         jobs: list[Job],
         links: dict[str, str],
+        *,
+        quota: Quota,
     ) -> list[Job]:
         async with self._sessions()() as session, session.begin():
+            await _check_quota(session, demand, items, quota)
             session.add(
                 SupplyDemand(
                     id=uuid.UUID(demand.id),
@@ -235,6 +258,55 @@ class SqlSupplyRepository:
                     deduplication_key=f"supply.job:{job.id}:0",
                 )
         return created
+
+    async def hold_job(self, job_id: str) -> None:
+        async with self._sessions()() as session, session.begin():
+            await session.execute(
+                update(SupplyJob)
+                .where(
+                    SupplyJob.id == uuid.UUID(job_id),
+                    # 跑着的是上次被打断的（同一作业同时只有一个在跑）：一样等着
+                    SupplyJob.status.in_(OPEN_JOB),
+                )
+                .values(status="waiting", last_error="channel_paused")
+            )
+
+    async def channel_failed(
+        self, channel_id: str, at: datetime, *, pause_after: int
+    ) -> bool:
+        async with self._sessions()() as session, session.begin():
+            row = await session.get(SupplyChannel, channel_id, with_for_update=True)
+            if row is None:
+                return False
+            row.consecutive_failures += 1
+            if row.status != "active" or row.consecutive_failures < pause_after:
+                return False
+            row.status = "paused"
+            row.status_reason = f"auto_paused: {row.consecutive_failures} failures"
+            row.updated_at = at
+            session.add(
+                SupplyChannelEvent(
+                    id=uuid.uuid4(),
+                    channel_id=channel_id,
+                    action="auto_pause",
+                    actor="system",
+                    reason=row.status_reason,
+                    detail={"consecutive_failures": row.consecutive_failures},
+                    at=at,
+                )
+            )
+            return True
+
+    async def channel_succeeded(self, channel_id: str) -> None:
+        async with self._sessions()() as session, session.begin():
+            await session.execute(
+                update(SupplyChannel)
+                .where(
+                    SupplyChannel.id == channel_id,
+                    SupplyChannel.consecutive_failures != 0,
+                )
+                .values(consecutive_failures=0)
+            )
 
     async def get_job(self, job_id: str) -> Job | None:
         async with self._sessions()() as session:
@@ -321,30 +393,31 @@ class SqlSupplyRepository:
     ) -> int:
         if not item_ids:
             return 0
-        changed = 0
         async with self._sessions()() as session, session.begin():
-            rows = await session.execute(
-                select(SupplyDemandItem)
-                .where(SupplyDemandItem.id.in_([uuid.UUID(i) for i in item_ids]))
-                .with_for_update()
+            return await settle_rows(
+                session,
+                select(SupplyDemandItem).where(
+                    SupplyDemandItem.id.in_([uuid.UUID(i) for i in item_ids])
+                ),
+                status,
+                at,
+                reason=reason,
+                receipt=receipt,
             )
-            for row in rows.scalars():
-                if not can_move(row.status, status):
-                    continue  # 迟到的事件不能把已取消、超时改成已就绪
-                row.status = status
-                row.updated_at = at
-                if reason is not None:
-                    row.reason = reason[:200]
-                if receipt is not None:
-                    row.receipt = dict(receipt)
-                changed += 1
-        return changed
 
-    async def cancel_items(self, demand_id: str, at: datetime) -> int:
+    async def cancel_items(self, demand_id: str, at: datetime, reason: str) -> int:
         items = await self.items_of(demand_id)
         return await self.settle_items(
-            [i.id for i in items], "cancelled", at, reason="cancelled by the app"
+            [i.id for i in items], "cancelled", at, reason=reason
         )
+
+    async def revive_original(self, original_id: str) -> None:
+        async with self._sessions()() as session, session.begin():
+            await session.execute(
+                update(SupplyOriginal)
+                .where(SupplyOriginal.id == uuid.UUID(original_id))
+                .values(purged_at=None)
+            )
 
     async def find_original(self, sha256: str) -> Original | None:
         async with self._sessions()() as session:
@@ -397,3 +470,77 @@ class SqlSupplyRepository:
                     knowbase_version_no=version_no,
                 )
             )
+
+
+async def settle_rows(
+    session: AsyncSession,
+    query,
+    status: str,
+    at: datetime,
+    *,
+    reason: str | None = None,
+    receipt: dict[str, object] | None = None,
+) -> int:
+    """在调用方的事务里把查到的需求项往前推到 `status`（结束了的不动），给变了的单各排一条
+    状态通知。回改了几项。"""
+    rows = await session.execute(query.with_for_update())
+    changed: set[uuid.UUID] = set()
+    count = 0
+    for row in rows.scalars():
+        if not can_move(row.status, status):
+            continue  # 迟到的事件不能把已取消、超时改成已就绪
+        row.status = status
+        row.updated_at = at
+        if reason is not None:
+            row.reason = reason[:200]
+        if receipt is not None:
+            row.receipt = dict(receipt)
+        changed.add(row.demand_id)
+        count += 1
+    if changed:
+        await session.flush()
+        await enqueue_status(session, changed, at)
+    return count
+
+
+async def _check_quota(
+    session: AsyncSession, demand: Demand, items: list[DemandItem], quota: Quota
+) -> None:
+    """按归属用户数配额（0045 第 2.4 节第 4 条）。同一用户的受理排队数，并发也不会一起超。"""
+    owner = demand.owner
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"knowfeed.supply.quota:{owner}"},
+    )
+    now = demand.created_at
+    last_hour = await session.scalar(
+        select(func.count())
+        .select_from(SupplyDemand)
+        .where(
+            SupplyDemand.owner_subject == owner,
+            SupplyDemand.created_at >= hour_ago(now),
+        )
+    )
+    open_demands = await session.scalar(
+        select(func.count(func.distinct(SupplyDemandItem.demand_id)))
+        .join(SupplyDemand, SupplyDemand.id == SupplyDemandItem.demand_id)
+        .where(
+            SupplyDemand.owner_subject == owner,
+            SupplyDemandItem.status.not_in(tuple(TERMINAL)),
+        )
+    )
+    this_month = await session.scalar(
+        select(func.count())
+        .select_from(SupplyDemandItem)
+        .join(SupplyDemand, SupplyDemand.id == SupplyDemandItem.demand_id)
+        .where(
+            SupplyDemand.owner_subject == owner,
+            SupplyDemandItem.channel_id.is_not(None),
+            SupplyDemandItem.created_at >= month_start(now),
+        )
+    )
+    check_quota(
+        quota,
+        Usage(int(last_hour or 0), int(open_demands or 0), int(this_month or 0)),
+        new_items=sum(1 for i in items if i.channel_id is not None),
+    )

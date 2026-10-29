@@ -87,6 +87,50 @@ class ObjectStorage:
             raise RuntimeError("stored_object_digest_mismatch")
         return data
 
+    def delete_all_versions(self, *, object_key: str) -> int:
+        """真删一个键：桶开了版本，只删最新版会留下旧版本与删除标记，所以每个版本、
+        每个删除标记都删（原件留存到期，SDD 0045 第 3.4 节）。回删了几个版本；早就不在了
+        的回 0。"""
+        if self._settings.storage_backend.lower() == "s3":
+            client = self.s3_client()
+            try:
+                removed = 0
+                marker: dict[str, str] = {}
+                while True:
+                    page = client.list_object_versions(
+                        Bucket=self.bucket, Prefix=object_key, **marker
+                    )
+                    for entry in [
+                        *page.get("Versions", []),
+                        *page.get("DeleteMarkers", []),
+                    ]:
+                        if entry.get("Key") != object_key:
+                            continue  # 前缀相同的别的键不动
+                        client.delete_object(
+                            Bucket=self.bucket,
+                            Key=object_key,
+                            VersionId=entry["VersionId"],
+                        )
+                        removed += 1
+                    if not page.get("IsTruncated"):
+                        return removed
+                    marker = {
+                        "KeyMarker": page["NextKeyMarker"],
+                        "VersionIdMarker": page["NextVersionIdMarker"],
+                    }
+            finally:
+                client.close()
+        root = Path(self._settings.storage_local_root).resolve()
+        target = (root / self.bucket / object_key).resolve()
+        if root not in target.parents:
+            raise RuntimeError("stored_object_key_invalid")
+        removed = 0
+        for path in (target, target.with_suffix(target.suffix + ".metadata.json")):
+            if path.exists():
+                path.unlink()
+                removed += 1
+        return removed
+
     def put_json(self, *, object_key: str, payload: object) -> StoredObject:
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         return self.put_bytes(
@@ -199,9 +243,7 @@ def make_artifact_key(
 ) -> str:
     safe_source = "".join(c if c.isalnum() or c in "-_" else "-" for c in source_code)
     safe_name = artifact_name.replace("/", "-").replace("\\", "-")
-    return (
-        f"knowfeed/original/source={safe_source}/date={date_path}/job={job_id}/{safe_name}"
-    )
+    return f"knowfeed/original/source={safe_source}/date={date_path}/job={job_id}/{safe_name}"
 
 
 def get_object_storage() -> ObjectStorage:

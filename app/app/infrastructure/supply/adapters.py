@@ -83,7 +83,7 @@ def _check(status: int) -> None:
 
 
 class StorageObjects:
-    """原件放 knowfeed 自己的桶（留 30 天）。"""
+    """原件放 knowfeed 自己的桶（交付后留 30 天，到期删内容）。"""
 
     def __init__(self, storage: ObjectStorage) -> None:
         self._storage = storage
@@ -100,6 +100,9 @@ class StorageObjects:
         return await asyncio.to_thread(
             self._storage.get_bytes, object_key=key, max_bytes=MAX_PDF_BYTES
         )
+
+    async def delete(self, key: str) -> None:
+        await asyncio.to_thread(self._storage.delete_all_versions, object_key=key)
 
 
 class PdfPlumberPages:

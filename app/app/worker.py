@@ -110,6 +110,7 @@ import app.tasks.durable_delivery  # noqa: E402, F401 — shared durable transpo
 import app.tasks.ping  # noqa: E402, F401 — register tasks
 import app.tasks.search  # noqa: E402, F401 — register tasks
 import app.tasks.supply_upkeep  # noqa: E402, F401 — 调度、领待加工、原件到期、待审网站（SDD 0045）
+import app.tasks.wind_dynamic_task  # noqa: E402, F401 — register tasks
 
 celery_app.conf.beat_schedule = {
     **(celery_app.conf.beat_schedule or {}),

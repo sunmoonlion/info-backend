@@ -351,23 +351,16 @@ async def list_document_version_artifacts(
 @router.post(
     "/admin/distributions/knowledge",
     response_model=DistributionRead,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_410_GONE,
 )
 async def create_knowledge_distribution(
     payload: DistributionCreate, session: AsyncSession = Depends(get_db_session)
 ):
-    try:
-        record = await info_crawl_service.create_knowledge_distribution(
-            session,
-            document_version_id=payload.document_version_id,
-            target_dataset=payload.target_dataset,
-            dispatch=payload.dispatch,
-        )
-        return record
-    except info_crawl_service.ArtifactNotDistributableError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # SDD 0045 第六节退旧线（F3）：运营建作业直接分发进 knowbase 的旧线已退役，统一经供给管道处理
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="legacy distribution pipeline is retired; use supply pipeline instead",
+    )
 
 
 @router.get("/admin/distributions", response_model=list[DistributionRead])
@@ -435,18 +428,18 @@ async def retry_distribution(
 
 
 @router.post(
-    "/admin/distributions/{distribution_id}/dispatch", response_model=DistributionRead
+    "/admin/distributions/{distribution_id}/dispatch",
+    response_model=DistributionRead,
+    status_code=status.HTTP_410_GONE,
 )
 async def dispatch_distribution(
     distribution_id: uuid.UUID, session: AsyncSession = Depends(get_db_session)
 ):
-    try:
-        record = await info_crawl_service.request_distribution_dispatch(
-            session, distribution_id=distribution_id
-        )
-        return record
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # SDD 0045 第六节退旧线（F3）：分发调度已退役
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="legacy distribution dispatch is retired; use supply pipeline instead",
+    )
 
 
 @router.post("/admin/search-index/rebuild", response_model=SearchIndexRebuildRead)

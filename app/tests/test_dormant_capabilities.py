@@ -120,18 +120,7 @@ DORMANT: tuple[Dormant, ...] = (
             'search_backend: str = Field(default="disabled"' in _read("core/config.py")
         ),
     ),
-    Dormant(
-        name="多下游分发",
-        kind="deliberate",
-        evidence="分发目标硬编码 knowbase-app，其余 target_app 一律拒绝",
-        anchor_exists=lambda: (
-            "target_app" in _read("app/application/services/info_crawl_service.py")
-        ),
-        still_dormant=lambda: (
-            'if record.target_app != "knowbase-app":'
-            in _read("app/application/services/info_crawl_service.py")
-        ),
-    ),
+
 )
 
 
@@ -151,6 +140,13 @@ def test_delivery_metrics_internal_surface_is_now_wired() -> None:
     # B7h activated this capability. Signed identity and rejection tests live in
     # test_delivery_metrics_http.py; it must no longer be declared dormant.
     assert "/api/internal/v1/delivery/metrics" in _mounted_paths("/api/internal")
+
+
+def test_supply_notification_replaces_legacy_distribution() -> None:
+    """SDD 0045 块 4 与块 11（F3）验收：「分发只投 knowbase」休眠声明不再成立。
+    状态变更通过发件箱契约通知提单应用（knowbench、knowlab 等），旧分发线路退役。"""
+    from app.domain.supply.status_event import CONTRACT as SUPPLY_STATUS_CONTRACT
+    assert SUPPLY_STATUS_CONTRACT == "knowfeed-supply-status/v1"
 
 
 @pytest.mark.parametrize("item", DORMANT, ids=lambda i: i.name)

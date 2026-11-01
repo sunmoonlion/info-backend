@@ -1,4 +1,4 @@
-"""给应用的需求接口（SDD 0045 第 2.4 节）：提精确描述的需求单、看进度、取消。
+"""给应用的需求接口（SDD 0045 第 2.4 节）：提需求单（精确描述、给网址）、看进度、取消。
 
 应用以服务身份调（关系 `supply-demand`，scope `knowfeed:supply-demand`），带 knowbase 的
 确认编号；knowfeed 受理前问 knowbase 核这张确认。按关系校验时就知道调用方是 knowbench 还是
@@ -33,6 +33,7 @@ from app.domain.supply.models import (
     DemandItemIn,
     DescriptionKey,
     SupplyError,
+    refused,
     summarize,
 )
 from app.domain.supply.prematch import PrematchRequestV1, PrematchResponseV1
@@ -90,18 +91,35 @@ class DescriptionKeyIn(BaseModel):
     industry: str | None = Field(default=None, max_length=16)
 
 
+class PrefillIn(BaseModel):
+    """给网址时预填的描述（选填）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str | None = Field(default=None, max_length=64)
+    doc_type: str | None = Field(default=None, max_length=32)
+    title: str | None = Field(default=None, max_length=200)
+
+
 class DemandItemModel(BaseModel):
+    """精确描述给 `key`；给网址给 `url`（确认里那一条的网址），两样只给一样。"""
+
     model_config = ConfigDict(extra="forbid")
 
     confirmation_item: str = Field(min_length=1, max_length=16)
-    key: DescriptionKeyIn
+    key: DescriptionKeyIn | None = None
+    url: str | None = Field(default=None, max_length=2000)
+    follow_links: bool = False
+    prefill: PrefillIn | None = None
+    # 用户声明「公开页面、不用登录」（0045 第 2.2 节），照记
+    declared_public: bool = False
     readings: list[Literal["original", "text", "pages", "table"]] = Field(
         min_length=1, max_length=4
     )
 
 
 class DemandIn(BaseModel):
-    """应用代用户提（或替运行中的专家提）的精确描述需求。"""
+    """应用代用户提（或替运行中的专家提）的精确描述或给网址需求。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -111,13 +129,17 @@ class DemandIn(BaseModel):
     task_ref: str | None = Field(default=None, max_length=255)
     confirmation_id: str = Field(min_length=1, max_length=64)
     idempotency_key: str = Field(min_length=8, max_length=128)
+    deadline: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
     items: list[DemandItemModel] = Field(min_length=1, max_length=50)
 
 
 class DemandItemRead(BaseModel):
     item_id: str
     confirmation_item: str
-    key: dict[str, object]
+    key: dict[str, object] | None
+    url: str | None = None
+    declared_public: bool = False
     readings: list[str]
     status: str
     reason: str | None
@@ -132,6 +154,8 @@ class DemandRead(BaseModel):
     confirmation_id: str
     status: str
     replayed: bool = False
+    deadline: datetime | None = None
+    note: str | None = None
     items: list[DemandItemRead]
 
 
@@ -145,11 +169,15 @@ def _read(
         confirmation_id=demand.confirmation_id,
         status=summarize([i.status for i in items]),
         replayed=replayed,
+        deadline=demand.deadline,
+        note=demand.note,
         items=[
             DemandItemRead(
                 item_id=i.id,
                 confirmation_item=i.confirmation_item,
-                key=i.key.as_dict(),
+                key=i.key.as_dict() if i.key is not None else None,
+                url=i.url,
+                declared_public=i.declared_public,
                 readings=list(i.readings),
                 status=i.status,
                 reason=i.reason,
@@ -170,30 +198,46 @@ async def _call(work):
         ) from None
 
 
+def item_in(i: DemandItemModel) -> DemandItemIn:
+    key = (
+        DescriptionKey(
+            i.key.subject,
+            i.key.doc_type,
+            i.key.period_start,
+            i.key.period_end,
+            edition=i.key.edition,
+            topics=tuple(i.key.topics),
+            industry=i.key.industry,
+        )
+        if i.key is not None
+        else None
+    )
+    prefill = i.prefill.model_dump(exclude_none=True) if i.prefill else {}
+    return DemandItemIn(
+        key=key,
+        readings=tuple(i.readings),
+        confirmation_item=i.confirmation_item,
+        url=i.url,
+        follow_links=i.follow_links,
+        prefill=prefill,
+        declared_public=i.declared_public,
+    )
+
+
 @router.post("/demands", response_model=DemandRead, status_code=status.HTTP_201_CREATED)
 async def submit(
     payload: DemandIn,
     app: str = Depends(caller_app),
     service: DemandService = Depends(get_demand_service),
 ):
-    items = [
-        DemandItemIn(
-            key=DescriptionKey(
-                i.key.subject,
-                i.key.doc_type,
-                i.key.period_start,
-                i.key.period_end,
-                edition=i.key.edition,
-                topics=tuple(i.key.topics),
-                industry=i.key.industry,
-            ),
-            readings=tuple(i.readings),
-            confirmation_item=i.confirmation_item,
-        )
-        for i in payload.items
-    ]
-    demand, made, replayed = await _call(
-        lambda: service.submit(
+    items = [item_in(i) for i in payload.items]
+
+    async def _run():
+        if any(i.url is not None and not i.declared_public for i in items):
+            raise refused("public_declaration_required", "declare the pages public")
+        if payload.proposer == "user" and payload.deadline is None:
+            raise refused("deadline_required", "say when you need it by")
+        return await service.submit(
             app=app,
             owner=payload.owner,
             proposer=payload.proposer,
@@ -202,8 +246,11 @@ async def submit(
             confirmation_id=payload.confirmation_id,
             idempotency_key=payload.idempotency_key,
             items=items,
+            deadline=payload.deadline,
+            note=payload.note,
         )
-    )
+
+    demand, made, replayed = await _call(_run)
     return _read(demand, made, replayed)
 
 

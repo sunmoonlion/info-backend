@@ -39,6 +39,11 @@ PROCESS_QUEUE = "_processing"
 # 许可档从窄到宽（knowbase 的三档）：只许本人用、可以经专家给别人用、可以出售
 LICENSE_RANK: dict[str, int] = {"self": 0, "via_expert": 1, "sale": 2}
 
+# 卡住的「在跑」（拟值）：排出去多久还没开始跑算投递丢了；一次尝试最多跑多久（大年报
+# 下载 3 分钟、加工几分钟）。调度自动收回、管理端手动重排都按这两个数
+LOST_AFTER = timedelta(minutes=15)
+ATTEMPT_LIMIT = timedelta(hours=2)
+
 # 作业里问渠道要等多久以内就原地等；更久的放回队列
 INLINE_WAIT_SECONDS = 30.0
 

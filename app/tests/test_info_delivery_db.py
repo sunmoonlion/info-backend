@@ -83,7 +83,8 @@ async def test_uploaded_version_and_index_command_commit_together(db, monkeypatc
         version = await upload(s, monkeypatch)
         assert await sql(db, "SELECT count(*) FROM knowfeed_document_version") == 1
         assert await sql(
-            db, "SELECT aggregate_key FROM outbox_message WHERE topic='knowfeed.index.v1'"
+            db,
+            "SELECT aggregate_key FROM outbox_message WHERE topic='knowfeed.index.v1'",
         ) == str(version.id)
 
 
@@ -110,7 +111,8 @@ async def test_distribution_retries_preserve_remote_business_identity(db, monkey
         )
         record_id = record.id
     message_id = await sql(
-        db, "SELECT id FROM outbox_message WHERE topic='knowfeed.distribution.dispatch.v1'"
+        db,
+        "SELECT id FROM outbox_message WHERE topic='knowfeed.distribution.dispatch.v1'",
     )
     calls = []
 
@@ -253,7 +255,9 @@ async def test_rebuild_reports_queued_and_defers_remote_indexing(db, monkeypatch
     assert result["queued"] == 1
     assert result["indexed"] == 0
     assert (
-        await sql(db, "SELECT count(*) FROM outbox_message WHERE topic='knowfeed.index.v1'")
+        await sql(
+            db, "SELECT count(*) FROM outbox_message WHERE topic='knowfeed.index.v1'"
+        )
         == 2
     )
 
@@ -322,7 +326,9 @@ async def test_legacy_migration_preserves_id_and_completed_receipt(db, monkeypat
     spec.loader.exec_module(module)
 
     rename_path = ROOT / "alembic/versions/20261015_0014_knowfeed_rename.py"
-    rename_spec = importlib.util.spec_from_file_location("rename_migration", rename_path)
+    rename_spec = importlib.util.spec_from_file_location(
+        "rename_migration", rename_path
+    )
     rename = importlib.util.module_from_spec(rename_spec)
     rename_spec.loader.exec_module(rename)
 

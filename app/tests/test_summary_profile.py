@@ -1,7 +1,9 @@
 from app.application.services.info_crawl_service import _document_summary_metadata
 
 
-def test_document_summary_metadata_normalizes_tags_and_preserves_existing_metadata() -> None:
+def test_document_summary_metadata_normalizes_tags_and_preserves_existing_metadata() -> (
+    None
+):
     metadata = _document_summary_metadata(
         existing={"entity_links": {"topics": ["AI"]}},
         summary="  Concise market update.  ",
@@ -16,7 +18,10 @@ def test_document_summary_metadata_normalizes_tags_and_preserves_existing_metada
     assert metadata["summary_profile"]["summary"] == "Concise market update."
     assert metadata["summary_profile"]["tags"] == ["Markets", "Policy"]
     assert metadata["summary_profile"]["importance_score"] == 0.8
-    assert metadata["summary_profile"]["importance_reason"] == "market-moving policy signal"
+    assert (
+        metadata["summary_profile"]["importance_reason"]
+        == "market-moving policy signal"
+    )
     assert metadata["last_summary_update"]["reviewer"] == "alice"
     assert len(metadata["summary_history"]) == 1
     assert metadata["last_audit"]["action"] == "summary_profile"

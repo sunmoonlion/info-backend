@@ -38,3 +38,12 @@ def test_the_copy_is_the_knowbase_vocabulary():
         "annual_report",
         "interim_announcement",
     }
+
+
+def test_subject_kinds_and_org_collectables_follow_knowbase():
+    """主体编号的几种写法与机构编号能采哪些细类，同 knowbase 词表（0049；0045 发版前补齐）。"""
+    source = _vocabulary()
+    assert [kind for kind, _ in vocabulary.SUBJECT_KINDS] == source["subject_kinds"]
+    assert sorted(vocabulary.COLLECTABLE_BY_ORG) == sorted(source["collectable"]["org"])
+    assert vocabulary.subject_kind("600519.SH") == "cn_security"
+    assert vocabulary.is_org("org:kb-stats-bureau")

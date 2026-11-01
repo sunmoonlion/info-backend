@@ -1,4 +1,4 @@
-"""供给的装配（SDD 0045）：把渠道插件、取数边界、限速、对象存储、knowbase 客户端接起来。"""
+"""供给的装配（SDD 0045）：把渠道插件、取数边界、限速、渲染、对象存储、knowbase 客户端接起来。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from app.application.supply.demands import DemandService
 from app.application.supply.directory import SecurityDirectory
 from app.application.supply.jobs import JobRunner
 from app.application.supply.matching import PreMatch
+from app.application.supply.mine import MyDemands
 from app.application.supply.monitor import SupplyMonitor
 from app.application.supply.notify import StatusNotifier
 from app.application.supply.retention import OriginalRetention
@@ -22,6 +23,9 @@ from app.application.supply.scheduler import (
     ProcessingIntake,
     Scheduler,
 )
+from app.application.supply.searches import SearchRunner, SearchService
+from app.application.supply.subscriptions import SubscriptionService, WatchRunner
+from app.application.supply.web import WebSite
 from app.domain.supply.models import Channel
 from app.domain.supply.quota import Quota
 from app.infrastructure.external.app_supply_status import HttpStatusSender
@@ -31,10 +35,15 @@ from app.infrastructure.external.knowbase_supply import (
     get_knowbase_supply,
     read_relation,
 )
+from app.infrastructure.external.knowbase_user import HttpKnowbaseUser
+from app.infrastructure.external.render_client import HttpRenderer
 from app.infrastructure.repositories.supply import SqlSupplyRepository
 from app.infrastructure.repositories.supply_catalog import SqlCatalogRepository
 from app.infrastructure.repositories.supply_directory import SqlDirectoryRepository
 from app.infrastructure.repositories.supply_schedule import SqlScheduleRepository
+from app.infrastructure.repositories.supply_subscription import (
+    SqlSubscriptionRepository,
+)
 from app.infrastructure.securities.fetcher import CrawlHttpFetcher
 from app.infrastructure.securities.pdf_words import PdfPlumberWordsReader
 from app.infrastructure.storage.object_storage import get_object_storage
@@ -46,12 +55,35 @@ from app.infrastructure.supply.adapters import (
 )
 from core.config import get_settings
 
+
+def _site(http, channel: Channel) -> WebSite:
+    settings = get_settings()
+    return WebSite(
+        http,
+        channel,
+        renderer=renderer(),
+        user_agent=settings.crawl_user_agent,
+    )
+
+
 # 渠道插件：插件名 → 按渠道建适配器（给它这条渠道的、经限速的 Http）。加渠道是登记一条
-# 记录、选现有的插件；通用网页型等随块 3 加进来（同时改 `catalog.PLUGINS`）
+# 记录、选现有的插件（同 `catalog.PLUGINS`）：目录型、通用网页型、订阅源型、搜索型
 PLUGIN_FACTORIES: dict[str, Callable[[Http, Channel], Catalog]] = {
     "cninfo": lambda http, channel: CninfoCatalog(http),
     "cninfo-irm": lambda http, channel: CninfoIrmCatalog(http, channel.id),
+    "web": _site,
+    "feed": _site,
+    "site-search": _site,
 }
+
+
+def renderer() -> HttpRenderer:
+    """渲染工作负载的客户端；`SUPPLY_RENDER_URL` 没配就是没有渲染。"""
+    settings = get_settings()
+    return HttpRenderer(
+        base_url=settings.supply_render_url,
+        timeout_seconds=settings.supply_render_timeout_seconds,
+    )
 
 
 class ChannelPlugins:
@@ -82,7 +114,51 @@ def build_demand_service(
     sessions: async_sessionmaker[AsyncSession],
 ) -> DemandService:
     return DemandService(
-        SqlSupplyRepository(lambda: sessions), get_knowbase_supply(), quota=quota()
+        SqlSupplyRepository(lambda: sessions),
+        get_knowbase_supply(),
+        quota=quota(),
+        sites=build_catalog(sessions).ensure_site,
+    )
+
+
+def build_my_demands(sessions: async_sessionmaker[AsyncSession]) -> MyDemands:
+    return MyDemands(
+        build_demand_service(sessions),
+        SqlSupplyRepository(lambda: sessions),
+        HttpKnowbaseUser(),
+    )
+
+
+def build_searches(sessions: async_sessionmaker[AsyncSession]) -> SearchService:
+    return SearchService(
+        SqlSubscriptionRepository(lambda: sessions),
+        SqlSupplyRepository(lambda: sessions),
+        build_demand_service(sessions),
+        get_knowbase_supply(),
+        HttpKnowbaseUser(),
+    )
+
+
+async def build_discovery_prune(sessions: async_sessionmaker[AsyncSession]) -> int:
+    """订阅发现记录留 400 天（订阅最长一年，留出续订前后的余量）。"""
+    from datetime import UTC, datetime, timedelta
+
+    return await SqlSubscriptionRepository(lambda: sessions).prune_discoveries(
+        datetime.now(UTC) - timedelta(days=400)
+    )
+
+
+def build_subscriptions(
+    sessions: async_sessionmaker[AsyncSession],
+) -> SubscriptionService:
+    return SubscriptionService(
+        SqlSubscriptionRepository(lambda: sessions),
+        SqlSupplyRepository(lambda: sessions),
+        SqlCatalogRepository(lambda: sessions),
+        get_knowbase_supply(),
+        HttpKnowbaseUser(),
+        build_searches(sessions),
+        quota=quota(),
     )
 
 
@@ -122,10 +198,20 @@ def build_directory(sessions: async_sessionmaker[AsyncSession]) -> SecurityDirec
 
 
 async def build_directory_refresh() -> int:
+    """证券名录从巨潮的证券列表刷新：经巨潮这条渠道的限速（独立审第 14 条：原来绕过了
+    限速）。巨潮渠道没登记的照旧取（名录是查主体用的，不是采集）。"""
     from app.infrastructure.storage.postgres import get_postgres
 
     sessions = get_postgres().session_factory
-    return await build_directory(sessions).refresh(CninfoCatalog(_crawl_http()))
+    channel = await SqlSupplyRepository(lambda: sessions).get_channel("cninfo")
+    http: Http = _crawl_http()
+    if channel is not None:
+        limiter = ChannelLimiter(
+            SqlScheduleRepository(lambda: sessions),
+            global_rate=get_settings().supply_global_rate_per_minute,
+        )
+        http = LimitedHttp(http, limiter, channel)
+    return await build_directory(sessions).refresh(CninfoCatalog(http))
 
 
 def build_scheduler(sessions: async_sessionmaker[AsyncSession]) -> Scheduler:
@@ -178,4 +264,9 @@ def build_job_runner(sessions: async_sessionmaker[AsyncSession]) -> JobRunner:
         pdf_pages=PdfPlumberPages(),
         pdf_words=PdfPlumberWordsReader(),
         reader=_reader(),
+        watches=WatchRunner(SqlSubscriptionRepository(lambda: sessions)),
+        searches=SearchRunner(
+            SqlSubscriptionRepository(lambda: sessions),
+            SqlCatalogRepository(lambda: sessions),
+        ),
     )

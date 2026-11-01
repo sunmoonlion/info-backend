@@ -200,7 +200,9 @@ async def test_originals_lose_their_content_thirty_days_after_delivery(db):
     # 记录留着：出处、摘要、交给 knowbase 的编号都在，记下删的时间
     row = await sql(
         db,
-        "SELECT knowbase_material_id FROM supply_original WHERE purged_at IS NOT NULL",
+        """SELECT d.knowbase_material_id FROM supply_original o
+        JOIN supply_original_delivery d ON d.original_id = o.id
+        WHERE o.purged_at IS NOT NULL""",
     )
     assert row == "m-1"
     assert await retention.purge_due() == 0
@@ -218,7 +220,8 @@ async def test_originals_lose_their_content_thirty_days_after_delivery(db):
 
 
 async def test_a_revived_original_is_not_purged_before_it_is_delivered_again(db):
-    """内容放回去到再交给 knowbase 之间，到期时间是空的，清理不碰它。"""
+    """内容放回去到再交给 knowbase 之间，到期时间按放回时算 30 天：清理不马上碰它，交付
+    一直没成也不会永远留着（独立审第 13 条）。"""
     w = World(db)
     w.confirm("conf-1", "alice", KEY)
     await w.submit()
@@ -228,9 +231,15 @@ async def test_a_revived_original_is_not_purged_before_it_is_delivered_again(db)
     w.clock.now += timedelta(days=31)
     assert await retention.purge_due() == 1
     original = str(await sql(db, "SELECT id FROM supply_original"))
-    await SqlSupplyRepository(lambda: db).revive_original(original)
-    assert await sql(db, "SELECT purge_after FROM supply_original") is None
+    await SqlSupplyRepository(lambda: db).revive_original(
+        original, w.clock.now + timedelta(days=30)
+    )
+    assert await sql(db, "SELECT purge_after FROM supply_original") == (
+        w.clock.now + timedelta(days=30)
+    )
     assert await retention.purge_due() == 0
+    w.clock.now += timedelta(days=31)
+    assert await retention.purge_due() == 1
 
 
 class FailingObjects:

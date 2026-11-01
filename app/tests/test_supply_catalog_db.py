@@ -112,10 +112,13 @@ async def test_register_trial_and_review_with_a_record_of_who_and_why(db):
     assert trials[0].listed[0]["title"] == "五粮液2025年年度报告"
     assert trials[0].fetched["size_bytes"] > 0 and trials[0].fetched["sha256"]
 
-    # 试采之后又改了登记：要重新试采
+    # 试采之后又改了实质登记（如提供范围/许可档）：要重新试采；仅改运维参数不作废试采
     desk.tick(seconds=1)
     await desk.catalog.update(
-        "sse", replace(REG, daily_cap=800), actor="op-2", reason="放宽"
+        "sse",
+        replace(REG, daily_cap=800, license="sale"),
+        actor="op-2",
+        reason="放宽并改许可档",
     )
     await refused(
         desk.catalog.review("sse", "approve", actor="op", reason="官方披露"),
@@ -152,7 +155,22 @@ async def test_a_trial_that_lists_nothing_or_has_no_plugin_fails(db):
     assert (trials[0].status, trials[0].error) == ("failed", "nothing_listed")
 
     site = await desk.catalog.ensure_site("https://www.stats.gov.cn/sj/zxfb/1.html")
-    trial = await desk.catalog.request_trial(site.id, KEY, actor="op")
+    # 通用网页的样例是这个网站上的网址
+    await refused(
+        desk.catalog.request_trial(site.id, KEY, actor="op"),
+        422,
+        "trial_sample_invalid",
+    )
+    await refused(
+        desk.catalog.request_trial(
+            site.id, actor="op", url="https://www.example.com/a.html"
+        ),
+        422,
+        "trial_sample_invalid",
+    )
+    trial = await desk.catalog.request_trial(
+        site.id, actor="op", url="https://www.stats.gov.cn/sj/zxfb/1.html"
+    )
     assert await desk.trials.run(trial.id) == "failed"
     _, _, trials = await desk.catalog.detail(site.id)
     assert trials[0].error == "plugin_unavailable"
@@ -328,6 +346,7 @@ async def test_sites_are_reviewed_per_domain_and_expire_without_review(db):
                 readings=("original",),
                 confirmation_item="c1",
                 status="accepted",
+                reason="site_pending",
                 created_at=w.clock.now,
                 updated_at=w.clock.now,
                 channel_id=site.id,
@@ -384,11 +403,13 @@ async def test_queue_shows_jobs_attempts_and_requeues_waiting_ones(db):
     assert [(j["job_id"], j["waiting_items"]) for j in jobs] == [(job_id, 1)]
     detail = await desk.monitor.job(job_id)
     assert [a["outcome"] for a in detail["attempt_list"]] == ["retry"]
-    requeued = await desk.monitor.requeue(job_id)
+    requeued = await desk.monitor.requeue(job_id, actor="op-9")
     assert requeued["status"] == "queued"
+    # 记下是谁点的（独立审第 17 条）
+    assert requeued["attempt_list"][-1]["reason"] == "requeued_by:op-9"
     w.knowbase.fail_deliver = None
     assert await w.runner.run(job_id) == "done"
-    await refused(desk.monitor.requeue(job_id), 409, "job_not_open")
+    await refused(desk.monitor.requeue(job_id, actor="op"), 409, "job_not_open")
     await refused(desk.monitor.job("nope"), 404, "job_not_found")
 
 

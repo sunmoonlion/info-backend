@@ -36,7 +36,10 @@ async def run_supply_job(session, payload):
     from app.bootstrap.supply import build_job_runner
     from app.infrastructure.storage.postgres import get_postgres
 
-    await build_job_runner(get_postgres().session_factory).run(str(payload["job_id"]))
+    token = payload.get("dispatch_token")
+    await build_job_runner(get_postgres().session_factory).run(
+        str(payload["job_id"]), str(token) if token else None
+    )
 
 
 async def refresh_security_directory(session, payload):

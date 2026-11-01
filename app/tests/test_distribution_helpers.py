@@ -179,7 +179,12 @@ async def test_distribution_rejects_unversioned_artifact() -> None:
     with pytest.raises(ArtifactNotDistributableError, match="versioned S3"):
         await _select_distribution_artifact(
             cast(Any, Session()),
-            cast(Any, SimpleNamespace(id=version_id, clean_artifact_id=UUID(int=4), text_artifact_id=None)),
+            cast(
+                Any,
+                SimpleNamespace(
+                    id=version_id, clean_artifact_id=UUID(int=4), text_artifact_id=None
+                ),
+            ),
         )
 
 

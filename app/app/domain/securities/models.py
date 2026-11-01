@@ -120,6 +120,7 @@ class RawResponse:
     content: bytes
     final_url: str
     decoded_from: str | None = None  # 服务器用了压缩时记下原编码；content 是解压后的
+    content_disposition: str | None = None
 
 
 @dataclass(frozen=True)

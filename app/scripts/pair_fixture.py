@@ -44,8 +44,10 @@ def _error(status: int, code: str) -> JSONResponse:
 
 def _principal(surface: str, *, operator: bool = False) -> Principal:
     now = datetime.now(UTC)
-    roles = ("operator",) if operator else (
-        ("admin",) if surface == "admin" else ("member",)
+    roles = (
+        ("operator",)
+        if operator
+        else (("admin",) if surface == "admin" else ("member",))
     )
     return Principal(
         actor_type="user",

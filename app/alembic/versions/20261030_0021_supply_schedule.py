@@ -110,6 +110,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # 删渠道之前先收拾挂在它上面的：没办完的作业取消，在等的需求项转「无法满足」（渠道停用），
+    # 免得回退后作业、需求项指着一条不存在的渠道（独立审第 16 条）。回退在迁移里跑，状态
+    # 通知不经发件箱推，应用按单号查得到。
+    op.execute(
+        """
+        UPDATE supply_job SET status = 'failed', last_error = 'channel_removed',
+            finished_at = now()
+        WHERE channel_id = 'cninfo-irm'
+            AND status IN ('queued', 'running', 'waiting')
+        """
+    )
+    op.execute(
+        """
+        UPDATE supply_demand_item SET status = 'unsatisfiable',
+            reason = 'channel_disabled', updated_at = now()
+        WHERE channel_id = 'cninfo-irm'
+            AND status NOT IN ('ready', 'partial', 'failed', 'unsatisfiable',
+                'cancelled', 'timeout')
+        """
+    )
     op.execute("DELETE FROM supply_channel_trial WHERE channel_id = 'cninfo-irm'")
     op.execute("DELETE FROM supply_channel_event WHERE channel_id = 'cninfo-irm'")
     op.execute("DELETE FROM supply_channel WHERE id = 'cninfo-irm'")

@@ -124,6 +124,10 @@ celery_app.conf.beat_schedule = {
     },
     # 调度：按渠道、四档、按用户轮流把作业排给 worker（SDD 0045 第 3.3 节）
     "supply-dispatch": {"task": "app.tasks.supply_upkeep.dispatch", "schedule": 5.0},
+    "supply-subscription-rounds": {
+        "task": "app.tasks.supply_upkeep.subscription_rounds",
+        "schedule": 60.0,
+    },
     # 领 knowbase 的待加工清单，建上传资料的加工作业（0045 第 3.4 节）
     "supply-pull-processing": {
         "task": "app.tasks.supply_upkeep.pull_processing",

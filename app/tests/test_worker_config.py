@@ -16,7 +16,9 @@ def test_configure_celery_binds_default_queue_to_platform_exchange(monkeypatch) 
     assert conf.task_default_exchange_type == "direct"
     assert conf.task_default_routing_key == "knowfeed.admin.default"
 
-    queue = next(item for item in conf.task_queues if item.name == "knowfeed.admin.default")
+    queue = next(
+        item for item in conf.task_queues if item.name == "knowfeed.admin.default"
+    )
     assert queue.exchange.name == "knowfeed.admin.default"
     assert queue.exchange.type == "direct"
     assert queue.routing_key == "knowfeed.admin.default"

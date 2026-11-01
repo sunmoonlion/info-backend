@@ -176,7 +176,9 @@ async def test_a_crawl_with_a_source_survives_its_own_commit(db, monkeypatch):
         )
         result = await service.process_crawl_job(s, job.id)
         assert (result.status, result.error_message) == ("succeeded", None)
-    assert await sql(db, "SELECT source_id::text FROM knowfeed_document") == str(source_id)
+    assert await sql(db, "SELECT source_id::text FROM knowfeed_document") == str(
+        source_id
+    )
 
 
 async def test_row_lock_refreshes_preloaded_current_version(db):
@@ -362,7 +364,9 @@ async def test_migration_roundtrip_preserves_rows_urls_versions_and_intents(db):
     )
     assert (
         await sql(
-            db, "SELECT current_version_id FROM knowfeed_document WHERE id=:id", id=doc_id
+            db,
+            "SELECT current_version_id FROM knowfeed_document WHERE id=:id",
+            id=doc_id,
         )
         == version_id
     )
@@ -378,7 +382,9 @@ async def test_new_writer_fails_closed_before_schema_upgrade(db):
     await migrate(db, "downgrade")
     with pytest.raises(DBAPIError):
         async with db() as s:
-            await s.execute(text("SELECT set_config('search_path', current_schema(), false)"))
+            await s.execute(
+                text("SELECT set_config('search_path', current_schema(), false)")
+            )
             await document(s)
     assert await sql(db, "SELECT count(*) FROM info_document") == 0
 
@@ -421,12 +427,15 @@ async def test_preflight_and_migration_cross_page_boundary_without_skipping(db):
     assert report["normalization_changes"] == 503
     await migrate(db, "upgrade")
     assert (
-        await sql(db, "SELECT count(DISTINCT canonical_identity) FROM knowfeed_document")
+        await sql(
+            db, "SELECT count(DISTINCT canonical_identity) FROM knowfeed_document"
+        )
         == 503
     )
     assert (
         await sql(
-            db, "SELECT count(*) FROM knowfeed_document WHERE canonical_url LIKE '%#old'"
+            db,
+            "SELECT count(*) FROM knowfeed_document WHERE canonical_url LIKE '%#old'",
         )
         == 503
     )

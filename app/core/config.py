@@ -129,6 +129,9 @@ class Settings(BaseSettings):
     # The JSON object maps an exact token subject to its maximum allowed scopes.
     service_auth_audience: str = ""
     service_auth_subject_bindings_json: str = "{}"
+    # 本人在 knowfeed web端提需求、建订阅时，用户令牌换成给谁：knowbase 在 Casdoor 里的
+    # 客户端编号（knowbase 的 USER_TOKEN_AUDIENCE；SDD 0042，0045 第 2.4 节）
+    knowbase_user_audience: str = ""
 
     celery_broker_url: str | None = Field(
         default=None, validation_alias="CELERY_BROKER_URL"
@@ -270,6 +273,13 @@ class Settings(BaseSettings):
     # 合计；生产出站是家庭宽带）、加工队列同时最多跑几个。缺省是拟值，交回报告里请 Opus 定
     supply_global_rate_per_minute: int = Field(
         default=60, ge=1, le=6000, validation_alias="SUPPLY_GLOBAL_RATE_PER_MINUTE"
+    )
+    # 渲染工作负载（SDD 0045 第 3.2 节「无头浏览器放 knowfeed 自己的一个单独工作负载」；
+    # decisions 10-29「发版前补齐」④：工作负载与出网规则由平台起）。地址没配就不渲染，
+    # 要渲染的渠道照实回 render_unavailable
+    supply_render_url: str = Field(default="", validation_alias="SUPPLY_RENDER_URL")
+    supply_render_timeout_seconds: float = Field(
+        default=60.0, gt=0, le=300, validation_alias="SUPPLY_RENDER_TIMEOUT_SECONDS"
     )
     supply_process_max_running: int = Field(
         default=2, ge=1, le=50, validation_alias="SUPPLY_PROCESS_MAX_RUNNING"

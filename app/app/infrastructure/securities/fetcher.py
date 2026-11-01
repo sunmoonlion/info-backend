@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.application.ports.securities import FetchFailed
 from app.domain.securities import FetchRequest, RawResponse
 from app.infrastructure.external.crawl_http import CrawlFetchError, fetch_crawl_url
@@ -30,7 +32,12 @@ class CrawlHttpFetcher:
             timeout_ceiling_seconds or timeout_seconds, timeout_seconds
         )
 
-    async def fetch(self, request: FetchRequest) -> RawResponse:
+    async def fetch(
+        self,
+        request: FetchRequest,
+        *,
+        allow_redirect: Callable[[str], bool] | None = None,
+    ) -> RawResponse:
         try:
             response = await fetch_crawl_url(
                 request.url,
@@ -48,6 +55,7 @@ class CrawlHttpFetcher:
                 # 来源网站有时无视「不要压缩」的请求头（2026-09-27 实测）；
                 # 解压有上限，超限即止
                 decode=True,
+                allow_redirect=allow_redirect,
             )
         except CrawlFetchError as exc:
             raise FetchFailed(str(exc)) from None
@@ -59,4 +67,5 @@ class CrawlHttpFetcher:
             content=response.content,
             final_url=str(response.url),
             decoded_from=response.headers.get("x-crawl-decoded-from"),
+            content_disposition=response.headers.get("content-disposition"),
         )

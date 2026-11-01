@@ -52,12 +52,17 @@ class SupplyMonitor:
             raise SupplyError(404, "job_not_found", "no such job")
         return found
 
-    async def requeue(self, job_id: str) -> dict[str, object]:
-        """等着的作业（排队中、等重试）马上再排一次；渠道没在用的不排。"""
+    async def requeue(self, job_id: str, *, actor: str) -> dict[str, object]:
+        """没办完的作业（排队中、等重试、卡住的在跑）马上再排一次；在跑而没卡住的不排
+        （超过尝试时限、或投递丢了才算卡住）；渠道没在用的不排。
+        记下是谁点的（独立审第 4、17 条）。"""
         found = await self.job(job_id)
-        if found["status"] not in ("queued", "waiting"):
-            raise SupplyError(409, "job_not_open", "only queued or waiting jobs")
+        if found["status"] not in ("queued", "waiting", "running"):
+            raise SupplyError(409, "job_not_open", "only unfinished jobs")
         if found["channel_status"] != "active":
             raise SupplyError(409, "channel_not_active", "resume the channel first")
-        await self.repo.requeue(job_id)
+        if not await self.repo.requeue(job_id, actor, self.now()):
+            raise SupplyError(
+                409, "job_still_running", "it is running; wait until it times out"
+            )
         return await self.job(job_id)

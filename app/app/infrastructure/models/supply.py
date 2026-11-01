@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -65,6 +66,8 @@ class SupplyChannel(Base):
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # 0021 起：同时最多跑几个作业（登记的并发，0045 第 3.3 节）
     max_running: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # 0022 起：审核定的「区」：法定披露 / 为用户采集（0045 第 3.5 节）
+    zone: Mapped[str] = mapped_column(String(16), nullable=False, default="collected")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -84,6 +87,9 @@ class SupplyChannel(Base):
         CheckConstraint(
             "status IN ('active', 'paused', 'disabled')",
             name="ck_supply_channel_status",
+        ),
+        CheckConstraint(
+            "zone IN ('disclosure', 'collected')", name="ck_supply_channel_zone"
         ),
         Index(
             "uq_supply_channel_domain",
@@ -155,12 +161,20 @@ class SupplyDemand(Base):
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
     # 0021 起：确认时的供给条件（许可档下限、只用哪几条渠道，0045 第四节）
     conditions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # 0022 起：最晚什么时候要、说明（0045 第 2.2 节公共部分）
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
 
     __table_args__ = (
         UniqueConstraint("app", "idempotency_key", name="uq_supply_demand_key"),
+        Index(
+            "ix_supply_demand_deadline",
+            "deadline",
+            postgresql_where=text("deadline IS NOT NULL"),
+        ),
         Index("ix_supply_demand_owner", "owner_subject", "created_at"),
     )
 
@@ -183,6 +197,15 @@ class SupplyDemandItem(Base):
     receipt: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # 0021 起：试过、取不到的渠道（换下一个时跳过，0045 第四节）
     tried_channels: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # 0022 起：给网址的那一项（网址、连不连它直接链到的文件、预填的描述）、再试一次挂在
+    # 哪一项下
+    url: Mapped[str | None] = mapped_column(Text)
+    follow_links: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    prefill: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    retry_of: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    declared_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -190,7 +213,10 @@ class SupplyDemandItem(Base):
         DateTime(timezone=True), nullable=False
     )
 
-    __table_args__ = (Index("ix_supply_demand_item_job", "job_id", "status"),)
+    __table_args__ = (
+        Index("ix_supply_demand_item_job", "job_id", "status"),
+        Index("ix_supply_demand_item_channel_open", "channel_id", "status"),
+    )
 
 
 class SupplyJob(Base):
@@ -212,6 +238,8 @@ class SupplyJob(Base):
     # 0021 起：这之前不排（等重试、日上限用完）；调度排出去的时间
     not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 0022 起：派发代次，随投递消息带；只有拿着这一代的 worker 能开跑（二审第 6 条）
+    dispatch_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -298,8 +326,6 @@ class SupplyOriginal(Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     purge_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    knowbase_material_id: Mapped[str | None] = mapped_column(String(64))
-    knowbase_version_no: Mapped[int | None] = mapped_column(Integer)
 
     __table_args__ = (
         Index(
@@ -307,4 +333,212 @@ class SupplyOriginal(Base):
             "purge_after",
             postgresql_where=text("purged_at IS NULL AND purge_after IS NOT NULL"),
         ),
+    )
+
+
+class SupplyOriginalDelivery(Base):
+    """原文交付记录（0022 起，三审第 1 条）：按（渠道，文档编号，区，归属）单记，不跨区共用。"""
+
+    __tablename__ = "supply_original_delivery"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    original_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("supply_original.id"), nullable=False
+    )
+    channel_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    channel_doc_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    zone: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    knowbase_material_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    knowbase_version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    readings: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[\"original\"]'::jsonb")
+    )
+    delivered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "zone IN ('disclosure', 'collected')",
+            name="ck_supply_original_delivery_zone",
+        ),
+        UniqueConstraint(
+            "channel_id",
+            "channel_doc_id",
+            "zone",
+            "owner_subject",
+            name="uq_supply_original_delivery",
+        ),
+    )
+
+
+class SupplySubscription(Base):
+    """订阅（0022 起，SDD 0045 第 2.2、2.5 节）。"""
+
+    __tablename__ = "supply_subscription"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    by: Mapped[str] = mapped_column(String(16), nullable=False)
+    subjects: Mapped[list] = mapped_column(JSONB, nullable=False)
+    doc_types: Mapped[list] = mapped_column(JSONB, nullable=False)
+    urls: Mapped[list] = mapped_column(JSONB, nullable=False)
+    topic: Mapped[str | None] = mapped_column(String(200))
+    readings: Mapped[list] = mapped_column(JSONB, nullable=False)
+    every_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ends_on: Mapped[date] = mapped_column(Date, nullable=False)
+    monthly_cap: Mapped[int] = mapped_column(Integer, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    status_reason: Mapped[str | None] = mapped_column(String(200))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    skip_backlog: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    channels: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    round_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "by IN ('description', 'url', 'topic')", name="ck_supply_subscription_by"
+        ),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'expired', 'cancelled', 'disabled')",
+            name="ck_supply_subscription_status",
+        ),
+        Index("ix_supply_subscription_owner", "owner_subject", "created_at"),
+        Index(
+            "ix_supply_subscription_due",
+            "next_check_at",
+            postgresql_where=text("status IN ('active', 'paused')"),
+        ),
+    )
+
+
+class SupplySubscriptionRound(Base):
+    """订阅的每一轮：查的时间、发现几份、取了几份、因上限没取几份。"""
+
+    __tablename__ = "supply_subscription_round"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("supply_subscription.id"), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    taken: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    over_cap: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    demand_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    note: Mapped[str | None] = mapped_column(String(200))
+
+    __table_args__ = (
+        Index(
+            "ix_supply_subscription_round_subscription",
+            "subscription_id",
+            "started_at",
+        ),
+    )
+
+
+class SupplySubscriptionTake(Base):
+    """各订阅自己的进度：渠道里的哪一份这条订阅取了、本月超额没取、跳过。"""
+
+    __tablename__ = "supply_subscription_take"
+
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("supply_subscription.id"), primary_key=True
+    )
+    channel_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    channel_doc_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    entry: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    target: Mapped[str] = mapped_column(String(400), nullable=False)
+    round_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('taken', 'over_cap', 'skipped')",
+            name="ck_supply_subscription_take_status",
+        ),
+        Index("ix_supply_subscription_take_month", "subscription_id", "status", "at"),
+    )
+
+
+class SupplyDiscovery(Base):
+    """渠道里看新的发现的条目（订同一个对象的人共用）。"""
+
+    __tablename__ = "supply_discovery"
+
+    channel_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    target: Mapped[str] = mapped_column(String(400), primary_key=True)
+    channel_doc_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    entry: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    disclosed_on: Mapped[date | None] = mapped_column(Date)
+    found_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SupplyWatchCursor(Base):
+    """发现游标：渠道 × 订阅对象，订同一个的人共用。"""
+
+    __tablename__ = "supply_watch_cursor"
+
+    channel_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    target: Mapped[str] = mapped_column(String(400), primary_key=True)
+    cursor: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SupplySearch(Base):
+    """按主题找（0022 起）：正在找 → 候选已出（7 天）→ 已结束。"""
+
+    __tablename__ = "supply_search"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    topic: Mapped[str] = mapped_column(String(200), nullable=False)
+    sites: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    wanted: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    candidates: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    note: Mapped[str | None] = mapped_column(String(200))
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('searching', 'ready', 'ended')", name="ck_supply_search_status"
+        ),
+        Index("ix_supply_search_owner", "owner_subject", "created_at"),
+    )
+
+
+class SupplyWebSubmission(Base):
+    """web端的一次提交（0022 起）：按（用户，幂等钥匙）先占位，再去 knowbase 记确认。"""
+
+    __tablename__ = "supply_web_submission"
+
+    owner_subject: Mapped[str] = mapped_column(String(255), primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    demand_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )

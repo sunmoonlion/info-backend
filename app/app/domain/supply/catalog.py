@@ -13,12 +13,13 @@
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
-from app.domain.supply.models import SupplyError, refused
+from app.domain.supply.models import Channel, DemandItemIn, Job, SupplyError, refused
 
 # 拟值（0045 只写了 N）：连续失败几次自动暂停；待审网站几天没人审就转「无法满足」；
 # 待审网站多少个、最久等了多久就在管理端告警
@@ -46,15 +47,90 @@ _STATUS_MOVES: dict[str, dict[str, str]] = {
 
 
 def site_of(url: str) -> str:
-    """网址落在哪个网站：小写主机名，去掉端口与结尾的点。不是 http、https 的不认。"""
+    """网址落在哪个网站：小写主机名，去掉结尾的点。取数边界不取的网址这里就拒（二审第 3
+    条：受理时就拒，免得取的时候算成渠道的错）：不是 http、https 的，带用户名口令的，不是
+    默认端口的，主机写成 IP 地址的（`_HOST` 要求域名）。"""
     try:
         parts = urlsplit(url.strip())
+        port = parts.port
     except ValueError:
         raise refused("url_invalid", "the URL is invalid") from None
     host = (parts.hostname or "").rstrip(".").lower()
     if parts.scheme not in ("http", "https") or not _HOST.fullmatch(host):
         raise refused("url_invalid", "only public http(s) URLs with a host name")
+    if parts.username or parts.password:
+        raise refused("url_invalid", "no user name or password in the URL")
+    if port not in (None, {"http": 80, "https": 443}[parts.scheme]):
+        raise refused("url_invalid", "only the default port")
     return host
+
+
+def normalize_url(url: str) -> str:
+    """规范化网址（0045 第 3.3 节「通用网页按规范化网址」）：协议、主机小写，去掉默认端口、
+    片段；路径为空的补 `/`。查询串照原样（顺序也算网址的一部分）。"""
+    host = site_of(url)
+    parts = urlsplit(url.strip())
+    port = parts.port
+    default = {"http": 80, "https": 443}[parts.scheme.lower()]
+    netloc = host if port in (None, default) else f"{host}:{port}"
+    return urlunsplit(
+        (parts.scheme.lower(), netloc, parts.path or "/", parts.query, "")
+    )
+
+
+def web_doc_id(url: str) -> str:
+    """网页在渠道里的编号：规范化网址的摘要。网址是身份不是版本，重取后由 knowbase 按内容
+    摘要决定是不是新版本。"""
+    import hashlib  # noqa: PLC0415 - 只在这里用
+
+    return "url:" + hashlib.sha256(normalize_url(url).encode("utf-8")).hexdigest()[:40]
+
+
+def url_job(
+    site_or_id: Channel | str,
+    url_or_site: str | Channel,
+    url: str | None = None,
+    given: DemandItemIn | None = None,
+    tier: int = 1,
+    now: datetime | None = None,
+    *,
+    job_id: str | None = None,
+    follow_links: bool | None = None,
+) -> Job:
+    """给网址的取数作业：同一网站同一网址（规范化后）、同样要不要连文件的跨用户共享。
+    作业里不带谁的预填：为用户采集的，每人的预填跟着他自己的需求项交（二审第 10 条）。"""
+    if isinstance(site_or_id, Channel):
+        site = site_or_id
+        target_url = str(url_or_site)
+        actual_job_id = job_id or str(uuid.uuid4())
+        actual_now = now or datetime.now(UTC)
+        follow_val = (
+            follow_links
+            if follow_links is not None
+            else (given.follow_links if given else False)
+        )
+    else:
+        actual_job_id = site_or_id
+        site = url_or_site  # type: ignore[assignment]
+        target_url = url or ""
+        actual_now = now or datetime.now(UTC)
+        follow_val = (
+            follow_links
+            if follow_links is not None
+            else (given.follow_links if given else False)
+        )
+    follow = "links" if follow_val else "page"
+    return Job(
+        id=actual_job_id,
+        kind="fetch",
+        channel_id=site.id,
+        dedup_key=f"fetch:{site.id}:{follow}:{web_doc_id(target_url)}",
+        payload={"url": target_url, "follow_links": bool(follow_val)},
+        status="queued",
+        attempts=0,
+        created_at=actual_now,
+        tier=tier,
+    )
 
 
 def on_site(host: str, domain: str) -> bool:
@@ -100,6 +176,7 @@ class Registration:
     obey_robots: bool = True
     config: dict[str, object] = field(default_factory=dict)
     max_running: int = 1  # 同时最多跑几个作业（登记的并发，0045 第 3.3 节）
+    zone: str | None = None
 
 
 def check_registration(reg: Registration, known_types: frozenset[str]) -> Registration:
@@ -109,6 +186,8 @@ def check_registration(reg: Registration, known_types: frozenset[str]) -> Regist
         raise refused("kind_invalid", "kind is catalog/feed/web/search")
     if reg.license not in LICENSES:
         raise refused("license_invalid", "license is self/via_expert/sale")
+    if reg.zone is not None and reg.zone not in ("disclosure", "collected"):
+        raise refused("zone_invalid", "zone is disclosure or collected")
     unknown = [t for t in reg.doc_types if t not in known_types]
     if unknown:
         raise refused("doc_type_unknown", f"not in the vocabulary: {unknown[0]}")
@@ -143,6 +222,7 @@ def check_registration(reg: Registration, known_types: frozenset[str]) -> Regist
         obey_robots=reg.obey_robots,
         config=dict(reg.config),
         max_running=reg.max_running,
+        zone=reg.zone,
     )
 
 

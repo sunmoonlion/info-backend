@@ -132,19 +132,19 @@ DORMANT: tuple[Dormant, ...] = (
             in _read("app/application/services/info_crawl_service.py")
         ),
     ),
-    Dormant(
-        name="内置爬虫引擎",
-        kind="deliberate",
-        evidence="不内嵌 Scrapy/Playwright，采集结果须由外部注入",
-        anchor_exists=lambda: _exists("pyproject.toml"),
-        still_dormant=lambda: (
-            not any(
-                dep in _read("pyproject.toml").lower()
-                for dep in ("scrapy", "playwright")
-            )
-        ),
-    ),
 )
+
+
+def test_the_crawler_is_now_wired() -> None:
+    """SDD 0045 块 3 验收：「内置爬虫引擎」休眠声明不再成立。通用网页、订阅源、站内搜索的
+    适配器接进了渠道插件；要渲染的网页交 knowfeed 自己的渲染工作负载（客户端在本仓，浏览器
+    内核在那个单独的工作负载里，不进本仓依赖）。"""
+    from app.application.supply.catalog import PLUGINS
+    from app.bootstrap.supply import PLUGIN_FACTORIES
+
+    assert {"web", "feed", "site-search"} <= set(PLUGIN_FACTORIES) <= set(PLUGINS)
+    assert _exists("app/infrastructure/external/render_client.py")
+    assert "SUPPLY_RENDER_URL" in _read("core/config.py")
 
 
 def test_delivery_metrics_internal_surface_is_now_wired() -> None:

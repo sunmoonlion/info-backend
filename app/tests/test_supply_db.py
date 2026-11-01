@@ -69,6 +69,24 @@ class FakeKnowbase:
         number = len(self.delivered)
         return {"material_id": f"m-{number}", "version_no": 1, "created": self.created}
 
+    async def deliver_collected(self, **kw):
+        """为用户采集：每位受益人各得一份自己名下的资料。"""
+        if self.fail_deliver:
+            raise self.fail_deliver
+        self.calls.append(("collected", kw["channel_doc_id"]))
+        self.delivered.append(kw)
+        number = len(self.delivered)
+        return [
+            {
+                "subject": b["subject"],
+                "item_ref": b["item_ref"],
+                "material_id": f"m-{number}-{n}",
+                "version_no": 1,
+                "created": self.created,
+            }
+            for n, b in enumerate(kw["beneficiaries"], start=1)
+        ]
+
     async def add_references(self, material_id, version_no, references):
         self.calls.append(("references", sorted(references)))
         return len(references)
@@ -307,7 +325,10 @@ async def test_one_shared_job_delivers_to_knowbase_and_settles_every_waiting_ite
     _, b_items = await w.demands.get("knowbench", b.id)
     assert b_items[0].status == "ready" and b_items[0].receipt["material_id"] == "m-1"
     assert await sql(db, "SELECT count(*) FROM supply_original") == 1
-    assert await sql(db, "SELECT knowbase_material_id FROM supply_original") == "m-1"
+    assert (
+        await sql(db, "SELECT knowbase_material_id FROM supply_original_delivery")
+        == "m-1"
+    )
     assert await sql(db, "SELECT status FROM supply_job") == "done"
     # 跑过的作业再投一次什么也不做
     assert await w.runner.run(job_id) == "skipped"

@@ -61,7 +61,12 @@ async def approve(desk: Desk, channel_id: str, registration, license=None) -> No
     trial = await desk.catalog.request_trial(channel_id, KEY, actor="op")
     await desk.trials.run(trial.id)
     await desk.catalog.review(
-        channel_id, "approve", actor="op", reason="审过", license=license
+        channel_id,
+        "approve",
+        actor="op",
+        reason="审过",
+        license=license,
+        zone="disclosure",  # 测试里的目录型渠道当法定披露
     )
 
 
@@ -259,6 +264,11 @@ class RefusingCatalog(FakeCatalog):
         raise SupplyError(422, "channel_refused", "the channel answered 403")
 
 
+class BrokenCatalog(FakeCatalog):
+    async def list(self, key):
+        raise SupplyError(503, "channel_unavailable", "the channel answered 502")
+
+
 async def test_an_absent_document_moves_to_the_next_channel(db):
     w = World(db)
     desk = Desk(db, w)
@@ -298,13 +308,28 @@ async def test_when_every_channel_fails_the_item_ends_with_the_right_reason(db):
     _, items = await w.demands.get("knowbench", d1.id)
     assert (items[0].status, items[0].reason) == ("unsatisfiable", "channel_has_none")
 
-    # 一条没有、一条拒绝：结局是「失败」，原因是取不成的那条
+    # 一条没有、一条回 4xx：4xx 也是「这一条没有」（独立审第 3 条），结局是「渠道里没有」，
+    # 也不计渠道的连续失败
     w.catalogs["cninfo-irm"] = RefusingCatalog()
     d2, items = await submit(w, "bob", year(2024))
     await w.runner.run(await job_of(db, items[0].id))
-    assert await w.runner.run(await job_of(db, items[0].id)) == "failed"
+    assert await w.runner.run(await job_of(db, items[0].id)) == "absent"
     _, items = await w.demands.get("knowbench", d2.id)
-    assert (items[0].status, items[0].reason) == ("failed", "channel_refused")
+    assert (items[0].status, items[0].reason) == ("unsatisfiable", "channel_has_none")
+    assert (
+        await sql(db, "SELECT consecutive_failures FROM supply_channel WHERE id='sse'")
+        == 0
+    )
+
+    # 一条没有、一条取不成（对方 5xx，重试用完）：结局是「失败」，原因是取不成的那条
+    w.catalogs["cninfo-irm"] = BrokenCatalog()
+    d3, items = await submit(w, "carol", year(2023))
+    await w.runner.run(await job_of(db, items[0].id))
+    job = await job_of(db, items[0].id)
+    await sql(db, "UPDATE supply_job SET attempts = 5 WHERE id = :j", j=job)
+    assert await w.runner.run(job) == "failed"
+    _, items = await w.demands.get("knowbench", d3.id)
+    assert (items[0].status, items[0].reason) == ("failed", "channel_unavailable")
 
 
 async def test_the_confirmed_supply_conditions_choose_the_channel(db):
@@ -477,11 +502,23 @@ async def test_prematch_over_http(db):
     body = made.json()
     assert body["contract"] == "knowfeed-supply-prematch/v1"
     assert body["items"][0]["status"] == "available"
+    # 坏网址只这一项回 item_invalid，不拒整个请求（独立审第 12 条）
     bad = await client.post(
         "/api/internal/v1/supply/prematch",
-        json={"items": [{"ref": "x", "url": "ftp://example.com/a"}]},
+        json={
+            "items": [
+                {"ref": "x", "url": "ftp://example.com/a"},
+                {"ref": "c1", "key": KEY.as_dict()},
+            ]
+        },
     )
-    assert (bad.status_code, bad.json()["code"]) == (422, "url_invalid")
+    assert bad.status_code == 200, bad.text
+    answers = {a["ref"]: a for a in bad.json()["items"]}
+    assert (answers["x"]["status"], answers["x"]["reason"]) == (
+        "unavailable",
+        "item_invalid",
+    )
+    assert answers["c1"]["status"] == "available"
 
 
 def test_the_published_prematch_schema_is_generated_from_the_model():

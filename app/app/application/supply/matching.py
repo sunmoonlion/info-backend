@@ -6,16 +6,15 @@
 
 - 描述：来源目录里能供这条描述的渠道按先后排（同受理时的切合，`schedule.candidates`），
   满足给的条件（许可档下限、只用哪几条渠道）的列为候选；没有能供的回「取不到」
-  （`no_channel`），能供的都不满足条件回 `conditions_unmet`。主体现在只认 A 股证券代码
-  （同受理时的格式核验）。
+  （`no_channel`），能供的都不满足条件回 `conditions_unmet`。主体按 knowbase 词表认
+  （证券代码、机构编号，同受理时的格式核验）。
 - 网址：看落在哪个网站。已登记的网站照那条渠道：审过的能取、待审的「网站待审」、审不过
-  或停用的「取不到」。
+  或停用的「取不到」。网址本身不对的，只这一项回 `item_invalid`，不拒整个请求（独立审第 12 条）。
 - 预计时间按调度的档次算：knowlab 提的第 ② 档，其余第 ① 档（`schedule.demand_tier`）。
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -24,12 +23,16 @@ from app.application.ports.supply import (
     ScheduleRepository,
     SupplyRepository,
 )
+from app.application.supply.demands import URL_KINDS
 from app.domain.supply.catalog import site_of
 from app.domain.supply.models import (
+    REASON_CATALOG_SITE,
     REASON_NO_CHANNEL,
     REASON_SITE_REJECTED,
     Channel,
     DescriptionKey,
+    SupplyError,
+    check_subject,
 )
 from app.domain.supply.prematch import (
     CandidateV1,
@@ -43,8 +46,6 @@ from app.domain.supply.schedule import (
     demand_tier,
     estimate_seconds,
 )
-
-_SUBJECT = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 
 
 class PreMatch:
@@ -102,10 +103,10 @@ class PreMatch:
         eta: Callable[[Channel], int | None],
     ) -> PrematchAnswerV1:
         assert item.key is not None
-        if not _SUBJECT.fullmatch(item.key.subject):
-            return PrematchAnswerV1(
-                ref=item.ref, status="unavailable", reason="subject_unsupported"
-            )
+        try:
+            check_subject(item.key.subject, item.key.doc_type)
+        except SupplyError as exc:
+            return PrematchAnswerV1(ref=item.ref, status="unavailable", reason=exc.code)
         key = DescriptionKey(
             item.key.subject,
             item.key.doc_type,
@@ -131,11 +132,21 @@ class PreMatch:
         eta: Callable[[Channel], int | None],
     ) -> PrematchAnswerV1:
         assert item.url is not None
-        host = site_of(item.url)
+        try:
+            host = site_of(item.url)
+        except SupplyError:
+            return PrematchAnswerV1(
+                ref=item.ref, status="unavailable", reason="item_invalid"
+            )
         channel = await self.catalog.channel_for_host(host)
         if channel is None:
             return PrematchAnswerV1(
                 ref=item.ref, status="site_pending", reason="site_unregistered"
+            )
+        if channel.kind not in URL_KINDS:
+            # 目录型渠道只按描述取（二审第 4 条，同受理）
+            return PrematchAnswerV1(
+                ref=item.ref, status="unavailable", reason=REASON_CATALOG_SITE
             )
         if channel.review == "pending":
             return PrematchAnswerV1(

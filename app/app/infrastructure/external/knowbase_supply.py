@@ -21,11 +21,11 @@ from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
-from app.domain.supply.models import SupplyError
+from app.domain.supply.models import REASON_AWAITING_KNOWBASE, SupplyError
 from app.infrastructure.external.knowbase_app import (
     KnowbaseAppNotConfiguredError,
     ServiceTokenProvider,
@@ -54,6 +54,67 @@ class HttpKnowbase:
             params={"subject": subject},
         )
 
+    async def deliver_collected(
+        self,
+        *,
+        channel: str,
+        channel_doc_id: str,
+        name: str,
+        content: bytes,
+        license: str,
+        source_url: str,
+        beneficiaries: list[dict[str, object]],
+        default_description: dict[str, object] | None = None,
+    ) -> list[dict[str, Any]]:
+        """为用户采集的一份原件（0045 第 3.5 节「非公开的内容只存一份、每个用户各得一份
+        自己名下的资料」）：`POST /service/collected-originals`，查询参数写渠道、渠道内编号、
+        渠道审定的许可档、出处、文件名；multipart：`file` 是原件字节，`beneficiaries`
+        是 JSON `[{subject, prefill, item_ref, basis}]`（预填的描述只用在这个人自己那份），
+        `default_description` 是渠道条目给的未确认候选描述（`confirmed: false`）。回
+        `[{subject, material_id, version_no, created, has_readings, readings}]`。knowbase
+        这条路没上（404、405）抛 409 `awaiting_knowbase`，调用方不交付，绝不改走公开原件层。"""
+        data: dict[str, str] = {
+            "beneficiaries": json.dumps(beneficiaries, ensure_ascii=False)
+        }
+        if default_description is not None:
+            data["default_description"] = json.dumps(
+                default_description, ensure_ascii=False
+            )
+        body = await self._send(
+            "POST",
+            "/service/collected-originals",
+            params=[
+                ("channel", channel),
+                ("channel_doc_id", channel_doc_id),
+                ("name", name),
+                ("license", license),
+                ("source_url", source_url),
+            ],
+            files={"file": (name, content, "application/octet-stream")},
+            data=data,
+        )
+        found = body if isinstance(body, list) else []
+        return [dict(b) for b in found if isinstance(b, dict)]
+
+    async def check_subscription(
+        self, subscription_id: str, revision: int, subject: str
+    ) -> dict[str, Any] | None:
+        """订阅范围同意还在不在（knowbase `GET /service/subscriptions/{订阅}/revisions/{修订}`，
+        关系 user-data-supply）：撤了回 None；因到期失效回 `{"status": "expired"}`（三审第 10 条）。"""
+        try:
+            return await self._call(
+                "GET",
+                f"/service/subscriptions/{quote(subscription_id, safe='')}"
+                f"/revisions/{int(revision)}",
+                params={"subject": subject},
+            )
+        except SupplyError as exc:
+            if exc.code in ("subscription_expired", "consent_expired"):
+                return {"status": "expired", "code": exc.code}
+            if exc.status == 404:
+                return None
+            raise
+
     async def deliver_public(
         self,
         *,
@@ -61,7 +122,7 @@ class HttpKnowbase:
         channel_doc_id: str,
         name: str,
         content: bytes,
-        subject: str,
+        subject: str | None,
         doc_type: str,
         period_start: date | None,
         period_end: date | None,
@@ -70,15 +131,18 @@ class HttpKnowbase:
         disclosed_on: str | None,
         source_url: str,
     ) -> dict[str, Any]:
+        """交一份法定披露（审核定为 `disclosure` 区的渠道取来的）：进公开原件层，许可由
+        knowbase 定为「可以经专家给别人用」。描述按渠道给的，不带任何用户的预填。"""
         params: list[tuple[str, str]] = [
             ("channel", channel),
             ("channel_doc_id", channel_doc_id),
             ("name", name),
-            ("subject", subject),
             ("doc_type", doc_type),
             ("edition", edition),
             ("source_url", source_url),
         ]
+        if subject:
+            params.append(("subject", subject))
         params += [("topics", t) for t in topics]
         for field, value in (
             ("period_start", period_start),
@@ -95,12 +159,20 @@ class HttpKnowbase:
     async def add_references(
         self, material_id: str, version_no: int, references: list[tuple[str, str]]
     ) -> int:
+        payload_refs: list[dict[str, object]] = []
+        for item in references:
+            s, r = item
+            ref_dict: dict[str, object] = {"subject": s, "ref": r}
+            basis = getattr(item, "basis", None)
+            if isinstance(basis, dict) and basis:
+                ref_dict["basis"] = basis
+            payload_refs.append(ref_dict)
         body = await self._call(
             "POST",
             f"/service/public-originals/{material_id}/references",
             json_body={
                 "version_no": version_no,
-                "references": [{"subject": s, "ref": r} for s, r in references],
+                "references": payload_refs,
             },
         )
         return int(body["recorded"])
@@ -215,6 +287,8 @@ class HttpKnowbase:
         params: dict[str, str] | list[tuple[str, str]] | None = None,
         json_body: dict[str, Any] | None = None,
         content: bytes | None = None,
+        files: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
     ) -> Any:
         token = await self.tokens.get_token()
         async with httpx.AsyncClient(
@@ -226,6 +300,8 @@ class HttpKnowbase:
                 params=params,
                 json=json_body,
                 content=content,
+                files=files,
+                data=data,
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
@@ -237,6 +313,11 @@ class HttpKnowbase:
             body = {}
         if response.status_code >= 400:
             code = body.get("code") if isinstance(body, dict) else None
+            if files is not None and response.status_code in (404, 405) and not code:
+                # knowbase 还没有「为某用户采集」这条路（路由不在）：不交付，也不重试
+                raise SupplyError(
+                    409, REASON_AWAITING_KNOWBASE, "knowbase has no collected originals"
+                )
             # knowbase 说「不对」的照实转；它暂时不可用的标成可重试
             status = response.status_code if response.status_code < 500 else 503
             raise SupplyError(status, str(code or "knowbase_error"), "knowbase refused")

@@ -80,6 +80,7 @@ class ChannelRead(BaseModel):
     doc_types: list[str]
     readings: list[str]
     license: str
+    zone: str
     review: str
     status: str
     status_reason: str | None
@@ -143,6 +144,7 @@ def _channel(c: Channel) -> ChannelRead:
         doc_types=list(c.doc_types),
         readings=list(c.readings),
         license=c.license,
+        zone=c.zone,
         review=c.review,
         status=c.status,
         status_reason=c.status_reason,
@@ -239,6 +241,8 @@ class ReviewIn(BaseModel):
     decision: Literal["approve", "reject"]
     reason: str = Field(min_length=1, max_length=500, description="凭什么")
     license: Literal["self", "via_expert", "sale"] | None = None
+    # 区：法定披露（进公开原件层）/ 为用户采集（每位受益人各得一份），放行时定
+    zone: Literal["disclosure", "collected"] | None = None
 
 
 class StatusIn(BaseModel):
@@ -255,14 +259,17 @@ class OrderIn(BaseModel):
 
 
 class TrialIn(BaseModel):
-    """样例描述（词表同 knowbase）：主体、类型、期间。"""
+    """试采的样例：目录型给描述（主体、类型、期间，词表同 knowbase）；通用网页、订阅源给
+    这个网站上的样例网址；站内搜索给样例话题。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    subject: str = Field(min_length=1, max_length=64)
-    doc_type: str = Field(min_length=1, max_length=32)
+    subject: str | None = Field(default=None, min_length=1, max_length=64)
+    doc_type: str | None = Field(default=None, min_length=1, max_length=32)
     period_start: date | None = None
     period_end: date | None = None
+    url: str | None = Field(default=None, max_length=2000)
+    topic: str | None = Field(default=None, max_length=200)
 
 
 # —— 来源目录 ——
@@ -354,6 +361,7 @@ async def review_channel(
             actor=actor_of(principal),
             reason=payload.reason,
             license=payload.license,
+            zone=payload.zone,
         )
     )
     return _channel(changed)
@@ -385,11 +393,21 @@ async def request_trial(
     principal: Admin,
     catalog: ChannelCatalog = Depends(get_catalog),
 ):
-    key = DescriptionKey(
-        payload.subject, payload.doc_type, payload.period_start, payload.period_end
+    key = (
+        DescriptionKey(
+            payload.subject, payload.doc_type, payload.period_start, payload.period_end
+        )
+        if payload.subject and payload.doc_type
+        else None
     )
     trial = await _call(
-        lambda: catalog.request_trial(channel_id, key, actor=actor_of(principal))
+        lambda: catalog.request_trial(
+            channel_id,
+            key,
+            actor=actor_of(principal),
+            url=payload.url,
+            topic=payload.topic,
+        )
     )
     return _trial(trial)
 
@@ -547,5 +565,9 @@ async def job_detail(job_id: str, monitor: SupplyMonitor = Depends(get_monitor))
 
 
 @router.post("/jobs/{job_id}/requeue", response_model=JobDetailRead)
-async def requeue_job(job_id: str, monitor: SupplyMonitor = Depends(get_monitor)):
-    return JobDetailRead(**await _call(lambda: monitor.requeue(job_id)))  # type: ignore[arg-type]
+async def requeue_job(
+    job_id: str, admin: Admin, monitor: SupplyMonitor = Depends(get_monitor)
+):
+    return JobDetailRead(
+        **await _call(lambda: monitor.requeue(job_id, actor=actor_of(admin)))  # type: ignore[arg-type]
+    )

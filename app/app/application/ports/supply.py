@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Protocol
 
@@ -14,6 +16,7 @@ from app.domain.supply.models import (
     Entry,
     Job,
     Original,
+    OriginalDelivery,
 )
 from app.domain.supply.quota import Quota
 from app.domain.supply.schedule import Usage
@@ -30,6 +33,28 @@ class SupplyRepository(Protocol):
 
     async def items_of(self, demand_id: str) -> list[DemandItem]: ...
 
+    async def item(self, item_id: str) -> tuple[DemandItem, Demand] | None: ...
+
+    async def claim_submission(
+        self, owner: str, key: str, digest: str, at: datetime
+    ) -> dict[str, object] | None: ...
+
+    async def save_submission_progress(
+        self, owner: str, key: str, progress: dict[str, object]
+    ) -> None: ...
+
+    async def finish_submission(
+        self, owner: str, key: str, demand_id: str | None, result: dict[str, object]
+    ) -> None: ...
+
+    async def drop_submission(self, owner: str, key: str) -> None: ...
+
+    async def demands_of(
+        self, owner: str, limit: int
+    ) -> list[tuple[Demand, list[DemandItem]]]: ...
+
+    async def expire_deadlines(self, now: datetime) -> int: ...
+
     async def submit(
         self,
         demand: Demand,
@@ -37,7 +62,7 @@ class SupplyRepository(Protocol):
         jobs: list[Job],
         links: dict[str, str],
         *,
-        quota: Quota,
+        quota: Quota | None,
     ) -> list[Job]:
         """一个事务里核配额、记需求单、需求项、新作业（已有的未办完作业照用），并排进队列。
 
@@ -52,16 +77,12 @@ class SupplyRepository(Protocol):
         """取不到换下一个渠道：（需求项，下一个渠道的作业，试过的渠道，上一条为什么没取到）。"""
         ...
 
-    async def defer(self, job_id: str, until: datetime, reason: str) -> None:
-        """渠道这会儿不能再问：放回队列，`until` 以后再排，不算一次失败。"""
-        ...
-
     async def delivered_original(
         self, channel_id: str, channel_doc_id: str
-    ) -> tuple[Original, list[str]] | None: ...
+    ) -> tuple[Original, OriginalDelivery] | None: ...
 
-    async def hold_job(self, job_id: str) -> None:
-        """渠道暂停：作业不跑、回到等待，恢复渠道时再排。"""
+    async def hold_job(self, job_id: str, *, token: str | None = None) -> bool:
+        """渠道暂停或待审：作业不跑、回到等待，恢复渠道时再排。带 token 时校验派发代次。"""
         ...
 
     async def channel_failed(
@@ -77,8 +98,11 @@ class SupplyRepository(Protocol):
 
     async def get_job(self, job_id: str) -> Job | None: ...
 
-    async def start_attempt(self, job_id: str, at: datetime) -> str | None:
-        """作业开跑：排队中的改成跑着、记一次尝试；已结束的返回 None。"""
+    async def start_attempt(
+        self, job_id: str, at: datetime, *, token: str | None = None
+    ) -> str | None:
+        """作业开跑：排队中的改成跑着、记一次尝试；已结束的、派发代次不对的、另有尝试
+        没结束的返回 None。"""
         ...
 
     async def finish_attempt(
@@ -90,9 +114,15 @@ class SupplyRepository(Protocol):
         outcome: str,
         reason: str | None,
         job_status: str,
-    ) -> None: ...
-
-    async def retry_later(self, job_id: str, not_before: datetime) -> None: ...
+        not_before: datetime | None = None,
+        refund: bool = False,
+        token: str | None = None,
+    ) -> None:
+        """结束这次尝试，作业改成 `job_status`，一个事务里做完（独立审第 10 条）：
+        `not_before` 是放回队列后什么时候再排，`refund` 是这次不算一次尝试（限流、等名额）。
+        作业要结束（done、failed）时还有等它的需求项（跑的中途才挂上来的），作业改回排队中，
+        再跑一次（独立审第 2 条）。"""
+        ...
 
     async def waiting_items(self, job_id: str) -> list[tuple[DemandItem, Demand]]:
         """还在等这个作业的需求项（没结束的），连同各自的需求单。"""
@@ -121,15 +151,18 @@ class SupplyRepository(Protocol):
         original_id: str,
         at: datetime,
         purge_after: datetime,
-        material_id: str,
-        version_no: int,
-        readings: list[str] | None = None,
+        deliveries: Sequence[OriginalDelivery] | None = None,
+        *,
+        channel_id: str | None = None,
+        channel_doc_id: str | None = None,
+        zone: str = "disclosure",
     ) -> None: ...
 
     async def cancel_items(self, demand_id: str, at: datetime, reason: str) -> int: ...
 
-    async def revive_original(self, original_id: str) -> None:
-        """内容删过的原件又取回来了（重新取到同一份）：内容已重新放回，清掉删除记录。"""
+    async def revive_original(self, original_id: str, purge_after: datetime) -> None:
+        """内容删过的原件又取回来了（重新取到同一份）：内容已重新放回，清掉删除记录，
+        到期时间先按取到时算（交付成了再从交付时算）。"""
         ...
 
 
@@ -180,9 +213,16 @@ class CatalogRepository(Protocol):
         *,
         withdraw: str | None = None,
         requeue: bool = False,
+        release: list[tuple[str, Job | None]] | None = None,
+        release_waiting_site: bool = False,
     ) -> None:
         """一个事务里改渠道、记审核记录。`withdraw`：渠道上没办完的作业取消，在等的需求项
-        转「无法满足」附这个原因（并通知应用）；`requeue`：等着的作业马上再排。"""
+        转「无法满足」附这个原因（并通知应用）；`requeue`：等着的作业马上再排；`release`：
+        网站审过，在等它的给网址需求项挂上这些作业（None 的转「当前供给条件不满足」）。"""
+        ...
+
+    async def site_waiting(self, channel_id: str) -> list[tuple[DemandItem, Demand]]:
+        """在等这个网站审核的给网址需求项（已受理、还没有作业），连同各自的需求单。"""
         ...
 
     async def reorder(
@@ -242,7 +282,9 @@ class MonitorRepository(Protocol):
 
     async def job(self, job_id: str) -> dict[str, object] | None: ...
 
-    async def requeue(self, job_id: str) -> None: ...
+    async def requeue(self, job_id: str, actor: str, at: datetime) -> bool:
+        """回能不能重排：在跑的只有卡住了（超过尝试时限、或投递丢了）才重排。"""
+        ...
 
 
 class RetentionRepository(Protocol):
@@ -267,6 +309,44 @@ class Catalog(Protocol):
     async def fetch(self, entry: Entry) -> tuple[bytes, str]: ...
 
 
+@dataclass(frozen=True)
+class Page:
+    """取回的一页（不论对方回什么状态都给出来，由适配器判定）。"""
+
+    status: int
+    media_type: str
+    content: bytes
+    final_url: str
+    filename: str | None = None
+
+
+class PageHttp(Protocol):
+    """通用网页、订阅源、站内搜索用的取数边界（只连公网、限大小与重定向、经限速）。
+    `fetch` 是这次要取回一份（算渠道的日上限）。"""
+
+    async def page(
+        self,
+        url: str,
+        *,
+        max_bytes: int,
+        timeout_seconds: float,
+        fetch: bool,
+        site: str | None = None,
+    ) -> Page:
+        """`site` 给了就只许在这个网站里跳转，跳出去的那一跳不发。"""
+        ...
+
+
+class Renderer(Protocol):
+    """渲染工作负载的客户端（0045 第 3.2 节）：服务本身由平台起，地址没配就不渲染。"""
+
+    def configured(self) -> bool: ...
+
+    async def render(
+        self, url: str, *, max_bytes: int, timeout_seconds: float
+    ) -> Page: ...
+
+
 class Knowbase(Protocol):
     """knowbase 的供给接口（关系 `user-data-supply`）。"""
 
@@ -281,7 +361,7 @@ class Knowbase(Protocol):
         channel_doc_id: str,
         name: str,
         content: bytes,
-        subject: str,
+        subject: str | None,
         doc_type: str,
         period_start: date | None,
         period_end: date | None,
@@ -290,7 +370,29 @@ class Knowbase(Protocol):
         disclosed_on: str | None,
         source_url: str,
     ) -> dict[str, Any]:
-        """交一份公开原件；描述是这一份的（细类、版本形态、事项，SDD 0049）。"""
+        """交一份法定披露进公开原件层；描述是这一份的（细类、版本形态、事项，SDD 0049），
+        按渠道给的，不带用户的预填。"""
+        ...
+
+    async def deliver_collected(
+        self,
+        *,
+        channel: str,
+        channel_doc_id: str,
+        name: str,
+        content: bytes,
+        license: str,
+        source_url: str,
+        beneficiaries: list[dict[str, object]],
+        default_description: dict[str, object] | None = None,
+    ) -> list[dict[str, Any]]:
+        """交一份为用户采集的原件：每位受益人各得一份自己名下的资料。"""
+        ...
+
+    async def check_subscription(
+        self, subscription_id: str, revision: int, subject: str
+    ) -> dict[str, Any] | None:
+        """订阅范围同意还在不在；撤了回 None。"""
         ...
 
     async def add_references(
@@ -355,3 +457,24 @@ class ObjectStore(Protocol):
     async def delete(self, key: str) -> None:
         """真删这个键的内容（桶开了版本的，每个版本都删）；早就不在了也算删了。"""
         ...
+
+
+class KnowbaseUser(Protocol):
+    """凭本人令牌调 knowbase：记确认、建续撤订阅范围同意。"""
+
+    async def confirm(
+        self,
+        token: str,
+        *,
+        kind: str,
+        items: list[dict[str, object]],
+        supply: dict[str, object],
+    ) -> dict[str, Any]: ...
+
+    async def subscribe(
+        self, token: str, subscription_id: str, revision: int, scope: dict[str, object]
+    ) -> dict[str, Any]: ...
+
+    async def unsubscribe(
+        self, token: str, subscription_id: str, revision: int
+    ) -> None: ...

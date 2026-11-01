@@ -66,5 +66,7 @@ async def test_apply_duplicate_metadata_records_exact_and_near_candidates() -> N
     assert current.metadata_json["review_history"] == [{"status": "reviewed"}]
     assert current.metadata_json["duplicate_state"] == "exact_duplicate"
     assert current.metadata_json["content_fingerprint"]["algorithm"] == "simhash64"
-    assert current.metadata_json["duplicate_candidates"][0]["match_type"] == "exact_hash"
+    assert (
+        current.metadata_json["duplicate_candidates"][0]["match_type"] == "exact_hash"
+    )
     assert current.metadata_json["duplicate_candidates"][1]["match_type"] == "simhash64"

@@ -14,7 +14,7 @@ import math
 import socket
 import threading
 import zlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from urllib.parse import urlencode
 
 import httpx
@@ -146,6 +146,14 @@ async def _target(url: httpx.URL) -> str:
     return _public_ip(host)
 
 
+async def ensure_public_url(url: str) -> str:
+    """交渲染工作负载之前先核一遍：只许 http、https 与默认端口，域名解析到的地址都是公网
+    （0045 第 3.2 节执行层的安全边界）。渲染服务自己还要再核每个子资源与重定向。回规范的网址。"""
+    checked = _url(url)
+    await _target(checked)
+    return str(checked)
+
+
 def _origin(url: httpx.URL) -> tuple[str, str, int | None]:
     return url.scheme, url.host, url.port
 
@@ -196,6 +204,7 @@ async def fetch_crawl_url(
     method: str = "GET",
     form: Mapping[str, str] | None = None,
     decode: bool = False,
+    allow_redirect: Callable[[str], bool] | None = None,
 ) -> httpx.Response:
     """Fetch a bounded identity-encoded response; redirects share one deadline.
 
@@ -213,6 +222,10 @@ async def fetch_crawl_url(
     input and the inflated output are bounded by max_bytes. The returned
     response carries the inflated body and names the original encoding in
     ``x-crawl-decoded-from``. Other encodings are still refused.
+
+    allow_redirect is asked before each redirect hop is sent; returning False stops
+    with ``crawl_redirect_off_site`` (a site-reviewed channel must not send even one
+    request to a site nobody reviewed, SDD 0045 3.1).
     """
     if (
         not math.isfinite(timeout_seconds)
@@ -270,6 +283,10 @@ async def fetch_crawl_url(
                             ):
                                 raise CrawlFetchError("crawl_redirect_invalid")
                             following = _url(str(current.join(location)))
+                            if allow_redirect is not None and not allow_redirect(
+                                str(following)
+                            ):
+                                raise CrawlFetchError("crawl_redirect_off_site")
                             if (
                                 current.scheme == "https"
                                 and following.scheme != "https"

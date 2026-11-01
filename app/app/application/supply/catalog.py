@@ -7,8 +7,12 @@
   暂停只让作业等着，恢复后接着跑。
 - 试采要出公网，放在 worker 里跑（API 不出公网）：管理端点了排一条，页面看结果。
 - 通用网页按网站审：用户给的网址落在没登记的网站上，`ensure_site` 建一条「待审」渠道
-  （给网址这种需求随块 4、块 10 接上时调它）；待审超过时限，`expire_sites` 让在等的
-  需求项转「无法满足」。
+  （受理给网址的需求时调，`demands.py`）；网站审过，在等它的需求项当场挂上取数作业；
+  待审超过时限，`expire_sites` 让在等的需求项转「无法满足」。
+- 改登记（能提供什么、怎么取、许可档、规矩）后，已放行的渠道打回「待审」，重新试采、放行
+  才再用上；这期间它上面的作业等着（独立审第 6 条）。
+- 试采：目录型对样例描述跑「列」「取」；通用网页、订阅源对样例网址跑「取」或「看新的」；
+  站内搜索对样例话题跑「搜」。
 
 每一次改动都记一条审核记录：谁、何时、做了什么、凭什么。
 """
@@ -32,26 +36,52 @@ from app.domain.supply.catalog import (
     check_channel_id,
     check_registration,
     move_status,
+    on_site,
     site_channel_id,
     site_of,
 )
 from app.domain.supply.models import (
     REASON_CHANNEL_DISABLED,
     REASON_SITE_REJECTED,
+    REASON_SUBJECT_REQUIRED,
+    ZONES,
     Channel,
+    Demand,
     DescriptionKey,
     SupplyError,
+    check_subject,
     refused,
 )
-from app.domain.supply.schedule import ChannelDeferred
-from app.domain.supply.vocabulary import DOC_TYPE_CLASS
+from app.domain.supply.schedule import ChannelDeferred, Conditions
+from app.domain.supply.vocabulary import DOC_TYPE_CLASS, subject_kind
 
 log = logging.getLogger(__name__)
 
-# 有哪些适配器（插件名 → 大类）。加渠道是登记一条记录，选现有的插件加配置；
-# 通用网页型适配器随块 3 接上，在那之前「web」渠道只能登记与审核，试采不了
-PLUGINS: dict[str, str] = {"cninfo": "catalog", "cninfo-irm": "catalog", "web": "web"}
+# 有哪些适配器（插件名 → 大类）。加渠道是登记一条记录，选现有的插件加配置（0045 第 3.2
+# 节）：目录型（巨潮、互动易）、通用网页型、订阅源型（RSS、Atom、栏目页）、搜索型（站内搜索）
+PLUGINS: dict[str, str] = {
+    "cninfo": "catalog",
+    "cninfo-irm": "catalog",
+    "web": "web",
+    "feed": "feed",
+    "site-search": "search",
+}
 TRIAL_LISTED = 5  # 试采结果里列出几条
+# 只有涉及「能提供什么、怎么取、许可档、区、域名、配置、抓取与渲染规矩」的字段改动才打回
+# 待审并要求重新试采；仅改运维参数（name、rate_per_minute、daily_cap、max_running、readings）
+# 不打回 pending、也不要求重跑试采（三审第 4 条）
+REVIEW_FIELDS: frozenset[str] = frozenset(
+    {
+        "doc_types",
+        "license",
+        "zone",
+        "domain",
+        "config",
+        "render_allowed",
+        "obey_robots",
+        "terms_url",
+    }
+)
 
 
 def _known_types() -> frozenset[str]:
@@ -124,6 +154,7 @@ class ChannelCatalog:
             doc_types=reg.doc_types,
             readings=reg.readings,
             license=reg.license,
+            zone=reg.zone or "collected",
             review="pending",
             rate_per_minute=reg.rate_per_minute,
             daily_cap=reg.daily_cap,
@@ -146,18 +177,20 @@ class ChannelCatalog:
         self, channel_id: str, registration: Registration, *, actor: str, reason: str
     ) -> Channel:
         """改登记（能提供什么、怎么取、条款与许可、规矩）。大类、插件不能改：换了就是另一条
-        渠道。改过的要重新试采才能再放行。"""
+        渠道。涉及提供范围、许可档、区、域名、配置、抓取与渲染规矩的改动打回待审并重新试采；
+        仅改运维参数的不打回；没有任何实质字段变化时不落空改动（三审第 4 条）。"""
         current = await self.get(channel_id)
         reg = check_registration(registration, _known_types())
         if (reg.kind, reg.plugin) != (current.kind, current.plugin):
             raise refused("kind_fixed", "register another channel to change its kind")
         _need_reason(reason)
-        changed = replace(
+        probe = replace(
             current,
             name=reg.name,
             doc_types=reg.doc_types,
             readings=reg.readings,
             license=reg.license,
+            zone=reg.zone if reg.zone is not None else current.zone,
             rate_per_minute=reg.rate_per_minute,
             daily_cap=reg.daily_cap,
             max_running=reg.max_running,
@@ -166,16 +199,38 @@ class ChannelCatalog:
             render_allowed=reg.render_allowed,
             obey_robots=reg.obey_robots,
             config=reg.config,
-            updated_at=self.now(),
         )
-        before, after = _shape(current), _shape(changed)
-        diff = {
+        before, after = _shape(current), _shape(probe)
+        diff: dict[str, object] = {
             k: {"from": before[k], "to": after[k]}
             for k in after
             if before[k] != after[k]
         }
+        if not diff:
+            return current
+        needs_review = any(k in REVIEW_FIELDS for k in diff)
+        was_approved = (
+            current.review == "approved" or current.status_reason == "re_review"
+        )
+        review = (
+            "pending"
+            if needs_review and current.review == "approved"
+            else current.review
+        )
+        status_reason = (
+            "re_review"
+            if needs_review and was_approved and current.status == "active"
+            else current.status_reason
+        )
+        changed = replace(
+            probe,
+            review=review,
+            status_reason=status_reason,
+            updated_at=self.now(),
+        )
+        detail: dict[str, object] = {**diff, "_needs_review": needs_review}
         await self.repo.save_channel(
-            changed, self._event(channel_id, "update", actor, reason, diff)
+            changed, self._event(channel_id, "update", actor, reason, detail)
         )
         return changed
 
@@ -187,8 +242,10 @@ class ChannelCatalog:
         actor: str,
         reason: str,
         license: str | None = None,
+        zone: str | None = None,
     ) -> Channel:
-        """审核：放行（白名单）或审不过。放行要最近一次试采成功；都要写凭什么。
+        """审核：放行（白名单）或审不过。放行要最近一次试采成功；都要写凭什么。放行时定
+        许可档与「区」（法定披露 / 为用户采集，0045 第 3.5 节：网站审过不等于页面是法定披露）。
 
         审不过（包括撤销已放行的）：渠道上没办完的作业取消，在等的需求项转「无法满足」。"""
         current = await self.get(channel_id)
@@ -207,9 +264,37 @@ class ChannelCatalog:
             chosen = license or current.license
             if chosen not in ("self", "via_expert", "sale"):
                 raise refused("license_invalid", "license is self/via_expert/sale")
+            area = zone or current.zone
+            if area not in ZONES:
+                raise refused("zone_invalid", "zone is disclosure or collected")
+            if area == "disclosure" and current.kind != "catalog":
+                raw_subject = current.config.get("subject")
+                subject = raw_subject.strip() if isinstance(raw_subject, str) else ""
+                if not subject or subject_kind(subject) is None:
+                    raise refused(
+                        REASON_SUBJECT_REQUIRED,
+                        "a disclosure site/feed/search requires config.subject",
+                    )
+                cfg_doc_type = current.config.get("doc_type")
+                doc_types = (
+                    (cfg_doc_type,)
+                    if isinstance(cfg_doc_type, str) and cfg_doc_type
+                    else tuple(dt for dt in current.doc_types if dt != "webpage")
+                )
+                for dt in doc_types:
+                    check_subject(subject, dt)
             changed = replace(
-                current, review="approved", license=chosen, updated_at=self.now()
+                current,
+                review="approved",
+                license=chosen,
+                zone=area,
+                status_reason=None
+                if current.status_reason == "re_review"
+                else current.status_reason,
+                updated_at=self.now(),
             )
+            # 网站审过：在同一个事务里锁住渠道行并把在等它的给网址需求项当场挂上取数作业
+            # （三审第 13 条）；等重新放行的作业接着排
             await self.repo.save_channel(
                 changed,
                 self._event(
@@ -217,13 +302,22 @@ class ChannelCatalog:
                     "approve",
                     actor,
                     reason,
-                    {"license": chosen, "trial_id": trial.id},
+                    {"license": chosen, "zone": area, "trial_id": trial.id},
                 ),
+                requeue=True,
+                release_waiting_site=changed.status != "disabled",
             )
             return changed
         if decision != "reject":
             raise refused("decision_invalid", "decision is approve or reject")
-        changed = replace(current, review="rejected", updated_at=self.now())
+        changed = replace(
+            current,
+            review="rejected",
+            status_reason=None
+            if current.status_reason == "re_review"
+            else current.status_reason,
+            updated_at=self.now(),
+        )
         withdraw = (
             REASON_SITE_REJECTED if current.kind == "web" else REASON_CHANNEL_DISABLED
         )
@@ -285,16 +379,39 @@ class ChannelCatalog:
         return await self.repo.channels()
 
     async def request_trial(
-        self, channel_id: str, key: DescriptionKey, *, actor: str
+        self,
+        channel_id: str,
+        key: DescriptionKey | None = None,
+        *,
+        actor: str,
+        url: str | None = None,
+        topic: str | None = None,
     ) -> Trial:
-        """排一次试采（worker 去跑）。停用的渠道不试。"""
+        """排一次试采（worker 去跑）。停用的渠道不试。目录型给样例描述；通用网页、
+        订阅源给样例网址（要在登记的网站上）；站内搜索给样例话题。"""
         channel = await self.get(channel_id)
         if channel.status == "disabled":
             raise SupplyError(409, "channel_disabled", "enable the channel first")
+        sample: dict[str, object]
+        if channel.kind == "catalog":
+            if key is None:
+                raise refused("trial_sample_invalid", "give a sample description")
+            sample = key.as_dict()
+        elif channel.kind == "search":
+            if not topic or not topic.strip() or len(topic) > 200:
+                raise refused("trial_sample_invalid", "give a sample topic")
+            sample = {"topic": topic.strip()}
+        else:
+            if not url:
+                raise refused("trial_sample_invalid", "give a sample URL")
+            host = site_of(url)
+            if not channel.domain or not on_site(host, channel.domain):
+                raise refused("trial_sample_invalid", "the URL is not on this site")
+            sample = {"url": url}
         trial = Trial(
             id=self.new_id(),
             channel_id=channel_id,
-            key=key.as_dict(),
+            key=sample,
             status="queued",
             requested_by=actor,
             created_at=self.now(),
@@ -382,27 +499,17 @@ class TrialRunner:
                 trial_id, self.now(), status="failed", error="plugin_unavailable"
             )
             return "failed"
-        key = DescriptionKey.from_dict(trial.key)
         try:
-            entries = await catalog.list(key)
-            listed = [
-                {
-                    "channel_doc_id": e.channel_doc_id,
-                    "title": e.title,
-                    "url": e.url,
-                    "disclosed_on": e.disclosed_on.isoformat()
-                    if e.disclosed_on
-                    else None,
-                    "doc_type": e.doc_type,
-                }
-                for e in entries[:TRIAL_LISTED]
-            ]
-            if not entries:
+            listed, fetched = await self._sample(channel, catalog, trial.key)  # type: ignore[arg-type]
+            if fetched is None:
                 await self.repo.finish_trial(
-                    trial_id, self.now(), status="failed", error="nothing_listed"
+                    trial_id,
+                    self.now(),
+                    status="failed",
+                    listed=listed,
+                    error="nothing_listed",
                 )
                 return "failed"
-            content, media_type = await catalog.fetch(entries[0])
         except ChannelDeferred:
             # 这条渠道这会儿名额用完了（日上限、限速）：试采照实记没成，过会儿再试
             await self.repo.finish_trial(
@@ -422,22 +529,72 @@ class TrialRunner:
                 trial_id, self.now(), status="failed", error=type(exc).__name__[:200]
             )
             return "failed"
-        fetched = {
-            "channel_doc_id": entries[0].channel_doc_id,
-            "media_type": media_type,
-            "size_bytes": len(content),
-            "sha256": hashlib.sha256(content).hexdigest(),
-        }
-        status = "ok" if content else "failed"
+        status = "ok" if fetched.get("size_bytes") else "failed"
         await self.repo.finish_trial(
             trial_id,
             self.now(),
             status=status,
             listed=listed,
             fetched=fetched,
-            error=None if content else "empty_content",
+            error=None if status == "ok" else "empty_content",
         )
         return status
+
+    async def _sample(
+        self, channel: Channel, adapter, sample: dict[str, object]
+    ) -> tuple[list[dict[str, object]], dict[str, object] | None]:
+        """跑一次样例：（列出的前几条，取回的那一份的大小、类型、摘要；什么也没列出是 None）。"""
+        if "topic" in sample:
+            found = await adapter.search(str(sample["topic"]), TRIAL_LISTED)
+            listed = [
+                {"title": c["title"], "url": c["url"]} for c in found[:TRIAL_LISTED]
+            ]
+            # 搜索型只会「搜」：搜得出候选就算试采成了
+            return listed, (
+                {"candidates": len(found), "size_bytes": len(found)} if found else None
+            )
+        if "url" in sample:
+            url = str(sample["url"])
+            listed = []
+            if channel.kind == "feed":
+                entries, _ = await adapter.watch(url, {})
+                listed = [_listed(e) for e in entries[:TRIAL_LISTED]]
+                if not entries:
+                    return listed, None
+                url = entries[0].url
+            content, media_type, _ = await adapter.fetch_url(url)
+            return listed, _fetched(url, content, media_type)
+        key = DescriptionKey.from_dict(sample)
+        entries = await adapter.list(key)
+        listed = [_listed(e) for e in entries[:TRIAL_LISTED]]
+        if not entries:
+            return listed, None
+        content, media_type = await adapter.fetch(entries[0])
+        return listed, _fetched(entries[0].channel_doc_id, content, media_type)
+
+
+def _listed(e) -> dict[str, object]:
+    return {
+        "channel_doc_id": e.channel_doc_id,
+        "title": e.title,
+        "url": e.url,
+        "disclosed_on": e.disclosed_on.isoformat() if e.disclosed_on else None,
+        "doc_type": e.doc_type,
+    }
+
+
+def _fetched(doc_id: str, content: bytes, media_type: str) -> dict[str, object]:
+    return {
+        "channel_doc_id": doc_id,
+        "media_type": media_type,
+        "size_bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+
+
+def _allowed(channel: Channel, demand: Demand) -> bool:
+    """确认时的供给条件让不让用这个网站。"""
+    return Conditions.from_dict(demand.conditions).allows(channel)
 
 
 def _check_plugin(reg: Registration) -> None:
@@ -461,6 +618,7 @@ def _shape(channel: Channel) -> dict[str, object]:
         "doc_types": list(channel.doc_types),
         "readings": list(channel.readings),
         "license": channel.license,
+        "zone": channel.zone,
         "rate_per_minute": channel.rate_per_minute,
         "daily_cap": channel.daily_cap,
         "max_running": channel.max_running,

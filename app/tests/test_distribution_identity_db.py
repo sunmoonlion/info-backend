@@ -25,9 +25,7 @@ MIGRATION = (
     Path(__file__).resolve().parents[1]
     / "alembic/versions/20260913_0009_distribution_identity.py"
 )
-COUNT_COMMANDS = (
-    "SELECT count(*) FROM outbox_message WHERE topic='knowfeed.distribution.dispatch.v1'"
-)
+COUNT_COMMANDS = "SELECT count(*) FROM outbox_message WHERE topic='knowfeed.distribution.dispatch.v1'"
 
 
 async def migrate(db, action):

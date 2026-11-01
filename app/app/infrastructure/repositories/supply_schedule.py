@@ -7,6 +7,11 @@ worker；每问一次渠道记一次，按它限速；上传资料的加工作�
 - 等它的需求项都撤了的取数作业不再排，直接取消（0045 第 3.3 节「所有请求都撤了作业才
   取消」）。
 - 限速：一个事务里拿限速锁，数近一分钟问了几次（渠道、全局）、今天取回几份，没超就记一次。
+- 卡住的「在跑」收回来（独立审第 4 条）：排出去 `LOST_AFTER` 还没开始跑（投递丢了、进了
+  死信）的，或一次尝试跑了 `ATTEMPT_LIMIT` 还没结束（worker 被杀）的，放回等待；没结束的
+  那次尝试记「被打断」（0045 第 3.3 节「被打断记『被打断』，调度按规矩重排、计入次数」）。
+  不收回的话它一直占着渠道「同时最多跑几个」的名额，巨潮这种只许一个的整条渠道就停了。
+- 订阅的「看新的」、按主题的「搜」作业没有需求项挂着，按载荷里的用户轮流（同加工作业）。
 """
 
 from __future__ import annotations
@@ -19,8 +24,10 @@ from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.supply.models import REASON_NO_ONE_WAITING, TERMINAL
+from app.domain.supply.models import REASON_NO_ONE_WAITING
 from app.domain.supply.schedule import (
+    ATTEMPT_LIMIT,
+    LOST_AFTER,
     PROCESS_QUEUE,
     TIER_BACKGROUND,
     Candidate,
@@ -31,6 +38,7 @@ from app.domain.supply.schedule import (
 )
 from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.supply import (
+    SupplyAttempt,
     SupplyChannel,
     SupplyChannelRequest,
     SupplyDemand,
@@ -38,7 +46,7 @@ from app.infrastructure.models.supply import (
     SupplyJob,
     SupplyTurn,
 )
-from app.infrastructure.repositories.supply import JOB_TOPIC, OPEN_JOB
+from app.infrastructure.repositories.supply import JOB_TOPIC, OPEN_JOB, still_waiting
 
 DISPATCH_LOCK = "knowfeed.supply.dispatch"
 RATE_LOCK = "knowfeed.supply.rate"
@@ -59,6 +67,7 @@ class SqlScheduleRepository:
             )
             if not locked:
                 return []
+            await _recover(session, now)
             channels = (
                 await session.execute(
                     select(SupplyChannel)
@@ -233,6 +242,49 @@ async def _fetched_today(session: AsyncSession, now: datetime) -> dict[str, int]
     return {cid: int(n) for cid, n in rows.all()}
 
 
+async def _recover(session: AsyncSession, now: datetime) -> int:
+    """卡住的「在跑」放回等待；回收回了几个。"""
+    stuck = (
+        await session.execute(
+            select(SupplyJob)
+            .where(
+                SupplyJob.status == "running",
+                or_(
+                    SupplyJob.dispatched_at.is_(None),
+                    SupplyJob.dispatched_at < now - LOST_AFTER,
+                ),
+            )
+            .with_for_update(skip_locked=True)
+        )
+    ).scalars()
+    recovered = 0
+    for job in stuck:
+        open_attempts = list(
+            (
+                await session.execute(
+                    select(SupplyAttempt).where(
+                        SupplyAttempt.job_id == job.id,
+                        SupplyAttempt.finished_at.is_(None),
+                    )
+                )
+            ).scalars()
+        )
+        if any(a.started_at > now - ATTEMPT_LIMIT for a in open_attempts):
+            continue  # 还在跑，没超时
+        for attempt in open_attempts:
+            attempt.finished_at = now
+            attempt.outcome = "interrupted"
+            attempt.reason = "attempt_timed_out"
+        job.status = "waiting"
+        job.not_before = None
+        job.dispatch_token = None  # 原来那一代作废：迟到的 worker 拿着它开不了跑
+        job.last_error = "interrupted" if open_attempts else "dispatch_lost"
+        recovered += 1
+    if recovered:
+        await session.flush()
+    return recovered
+
+
 async def _fill(
     session: AsyncSession, queue: str, slots: int, now: datetime
 ) -> list[str]:
@@ -256,21 +308,18 @@ async def _fill(
         return []
     owners: dict[uuid.UUID, set[str]] = {j.id: set() for j in jobs}
     for job in jobs:
-        if job.kind == "process":
+        if job.kind != "fetch":
             owners[job.id].add(str(job.payload.get("owner") or ""))
-    fetch_ids = [j.id for j in jobs if j.kind != "process"]
+    fetch_ids = [j.id for j in jobs if j.kind == "fetch"]
     if fetch_ids:
         rows = await session.execute(
             select(SupplyDemandItem.job_id, SupplyDemand.owner_subject)
             .join(SupplyDemand, SupplyDemand.id == SupplyDemandItem.demand_id)
-            .where(
-                SupplyDemandItem.job_id.in_(fetch_ids),
-                SupplyDemandItem.status.not_in(tuple(TERMINAL)),
-            )
+            .where(SupplyDemandItem.job_id.in_(fetch_ids), still_waiting())
         )
         for job_id, owner in rows.all():
             owners[job_id].add(owner)
-    orphans = [j for j in jobs if j.kind != "process" and not owners[j.id]]
+    orphans = [j for j in jobs if j.kind == "fetch" and not owners[j.id]]
     for job in orphans:
         job.status = "failed"
         job.last_error = REASON_NO_ONE_WAITING
@@ -302,11 +351,13 @@ async def _fill(
         job.status = "running"
         job.dispatched_at = now
         job.not_before = None
+        # 派发代次随消息带：同一作业被重复投递或重排后，只有拿着这一代的 worker 能开跑
+        job.dispatch_token = uuid.uuid4()
         await enqueue_task(
             session,
             topic=JOB_TOPIC,
             key=job_id,
-            payload={"job_id": job_id},
+            payload={"job_id": job_id, "dispatch_token": str(job.dispatch_token)},
             deduplication_key=f"supply.job:{job_id}:dispatch:{uuid.uuid4()}",
         )
         await session.execute(

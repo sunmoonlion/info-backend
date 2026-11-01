@@ -12,9 +12,12 @@
 - 只有深市公司（渠道登记的 `config.markets` 是 `["SZ"]`）；沪市的投资者问答在上证 e 互动，
   另接渠道（见交回报告）。
 
-接口照 akshare 1.18.97（MIT License）的 stock_irm_cninfo、stock_irm_ans_cninfo；2026-10-29
-实测：公司问答列表只回最近的 20 条，起止日期参数不起作用，所以窗口早于这 20 条的，这条
-渠道列不全（照实列出能看到的，交回报告里写明）。
+接口照 akshare 1.18.97（MIT License）的 stock_irm_cninfo、stock_irm_ans_cninfo；起止日期
+参数不起作用（2026-10-29 实测），所以按回包的 `totalPage` 往后翻（新的在前），最多翻
+`MAX_PAGES` 页（akshare 也封顶 10 页；独立审第 8 条：原来只取第一页）。什么时候停按**回答**
+时间判断（披露时间就是回答时间）：一整页的回答都早于时间窗起点才算「旧页」，连着两页旧页
+才停——多翻一页的余量，免得早提问、晚回答、回答落在窗里的漏掉（二审第 18 条）。窗口早于
+这些页的列不全，照实列出能看到的。
 """
 
 from __future__ import annotations
@@ -31,6 +34,8 @@ _BASE = "https://irm.cninfo.com.cn"
 _SHANGHAI = timezone(timedelta(hours=8))
 DEFAULT_WINDOW = timedelta(days=365)
 PAGE_SIZE = 100
+MAX_PAGES = 10
+OLD_PAGES_TO_STOP = 2  # 连着几页回答都早于窗口起点才停（多翻一页的余量）
 MAX_TEXT = 20_000  # 一条问答最多留这么多字（接口给的远小于这个）
 DETAIL_MAX_BYTES = 2 * 1024 * 1024
 DETAIL_TIMEOUT_SECONDS = 30.0
@@ -49,33 +54,51 @@ class CninfoIrmCatalog:
         secid = await self._secid(code)
         if secid is None:
             return []
-        payload = _json(
-            await self.http.post_form(
-                f"{_BASE}/newircs/company/question",
-                (
-                    ("stockcode", code),
-                    ("orgId", secid),
-                    ("pageSize", str(PAGE_SIZE)),
-                    ("pageNum", "1"),
-                    ("keyWord", ""),
-                    ("startDay", ""),
-                    ("endDay", ""),
-                ),
-            ),
-            "question list",
-        )
-        rows = payload.get("rows") if isinstance(payload, dict) else None
-        if not isinstance(rows, list):
-            raise SupplyError(502, "unexpected_response", "question list")
         end = key.period_end or datetime.now(_SHANGHAI).date()
         start = key.period_start or end - DEFAULT_WINDOW
         entries = []
-        for row in rows:
-            entry = self._entry(code, row)
-            if entry is None or entry.disclosed_on is None:
-                continue
-            if start <= entry.disclosed_on <= end:
-                entries.append(entry)
+        page, total, old_pages = 1, 1, 0
+        while page <= min(total, MAX_PAGES):
+            payload = _json(
+                await self.http.post_form(
+                    f"{_BASE}/newircs/company/question",
+                    (
+                        ("stockcode", code),
+                        ("orgId", secid),
+                        ("pageSize", str(PAGE_SIZE)),
+                        ("pageNum", str(page)),
+                        ("keyWord", ""),
+                        ("startDay", ""),
+                        ("endDay", ""),
+                    ),
+                ),
+                "question list",
+            )
+            rows = payload.get("rows") if isinstance(payload, dict) else None
+            if not isinstance(rows, list):
+                raise SupplyError(502, "unexpected_response", "question list")
+            try:
+                total = int(payload.get("totalPage") or 1)
+            except (TypeError, ValueError):
+                total = 1
+            old = 0
+            for row in rows:
+                entry = self._entry(code, row)
+                answered = (
+                    _day(row.get("updateDate")) or _day(row.get("pubDate"))
+                    if isinstance(row, dict)
+                    else None
+                )
+                if answered is not None and answered < start:
+                    old += 1
+                if entry is None or entry.disclosed_on is None:
+                    continue
+                if start <= entry.disclosed_on <= end:
+                    entries.append(entry)
+            old_pages = old_pages + 1 if rows and old == len(rows) else 0
+            if not rows or old_pages >= OLD_PAGES_TO_STOP:
+                break
+            page += 1
         entries.sort(key=lambda e: e.disclosed_on or date.min, reverse=True)
         return entries
 

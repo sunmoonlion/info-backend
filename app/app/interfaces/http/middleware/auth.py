@@ -6,7 +6,11 @@ from typing import Annotated
 from fastapi import Cookie, Depends, Header, Request
 
 from app.application.audit_context import set_actor
-from app.application.errors.exceptions import ForbiddenError, UnauthorizedError
+from app.application.errors.exceptions import (
+    ForbiddenError,
+    ServiceUnavailableError,
+    UnauthorizedError,
+)
 from app.application.services.auth_service import AuthService
 from app.bootstrap.auth import build_auth_service
 from app.domain.security import BrowserSession, Principal
@@ -69,6 +73,25 @@ async def get_web_browser_session(
         session_id=session_id,
         csrf_token=csrf_token,
     )
+
+
+async def get_web_knowbase_token(
+    session: Annotated[BrowserSession, Depends(get_web_browser_session)],
+    session_id: str | None = Cookie(
+        default=None, alias=_web_profile.session_cookie_name
+    ),
+) -> str:
+    """调 knowbase 本人接口用的用户令牌（SDD 0042；0045 第 2.4 节「本人亲手提：本人令牌，
+    knowfeed 凭它请 knowbase 记确认」）：这个会话的访问令牌按 RFC 8693 换成 `aud` 是
+    knowbase 的。先过会话与 CSRF 的检查，再换；没配 knowbase 就 503。写法同 knowbench、
+    knowlab 的 `get_web_knowbase_token`。"""
+    del session
+    audience = get_settings().knowbase_user_audience.strip()
+    if not audience:
+        raise ServiceUnavailableError(
+            "knowbase is not configured", code="knowbase_unconfigured"
+        )
+    return await web_auth_service.user_token(session_id, audience=audience)
 
 
 async def get_admin_current_user(

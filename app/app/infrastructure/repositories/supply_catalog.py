@@ -7,20 +7,31 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.supply.catalog import ChannelEvent, Trial, on_site
+from app.domain.supply.catalog import ChannelEvent, Trial, on_site, url_job
 from app.domain.supply.models import (
     GAP_KINDS,
+    REASON_CONDITIONS_UNMET,
     REASON_SITE_EXPIRED,
+    REASON_SITE_PENDING,
     TERMINAL,
     Channel,
+    Demand,
+    DemandItem,
+    Job,
     SupplyError,
 )
-from app.domain.supply.schedule import PROCESS_QUEUE
+from app.domain.supply.schedule import (
+    ATTEMPT_LIMIT,
+    LOST_AFTER,
+    PROCESS_QUEUE,
+    Conditions,
+    demand_tier,
+)
 from app.infrastructure.messaging.durable_tasks import enqueue_task
 from app.infrastructure.models.supply import (
     SupplyAttempt,
@@ -35,8 +46,13 @@ from app.infrastructure.models.supply import (
 from app.infrastructure.repositories.supply import (
     OPEN_JOB,
     _channel,
+    _demand,
+    _item,
+    _job_for,
+    settle_channel_searches,
     settle_rows,
 )
+from app.infrastructure.repositories.supply_status import enqueue_status
 
 TRIAL_TOPIC = "knowfeed.supply.channel.trial.v1"
 PROCESS_QUEUE_NAME = "加工（上传的资料）"
@@ -103,6 +119,7 @@ def _row_values(channel: Channel) -> dict[str, object]:
         "obey_robots": channel.obey_robots,
         "status_reason": channel.status_reason,
         "config": dict(channel.config),
+        "zone": channel.zone,
         "updated_at": channel.updated_at,
     }
 
@@ -147,9 +164,12 @@ class SqlCatalogRepository:
         *,
         withdraw: str | None = None,
         requeue: bool = False,
+        release: list[tuple[str, Job | None]] | None = None,
+        release_waiting_site: bool = False,
     ) -> None:
         try:
             async with self._sessions()() as session, session.begin():
+                await session.get(SupplyChannel, channel.id, with_for_update=True)
                 await session.execute(
                     update(SupplyChannel)
                     .where(SupplyChannel.id == channel.id)
@@ -158,8 +178,57 @@ class SqlCatalogRepository:
                 session.add(_event_row(event))
                 if withdraw:
                     await _withdraw(session, channel.id, withdraw, event.at)
+                elif channel.status == "paused" or channel.review == "pending":
+                    await settle_channel_searches(
+                        session,
+                        channel.id,
+                        "channel_paused"
+                        if channel.status == "paused"
+                        else "channel_pending",
+                        event.at,
+                    )
                 if requeue:
                     await _requeue_open(session, channel.id)
+                if release_waiting_site:
+                    waiting_rows = await session.execute(
+                        select(SupplyDemandItem, SupplyDemand)
+                        .join(
+                            SupplyDemand,
+                            SupplyDemand.id == SupplyDemandItem.demand_id,
+                        )
+                        .where(
+                            SupplyDemandItem.channel_id == channel.id,
+                            SupplyDemandItem.status == "accepted",
+                            SupplyDemandItem.job_id.is_(None),
+                            SupplyDemandItem.url.is_not(None),
+                        )
+                        .order_by(SupplyDemandItem.created_at)
+                        .with_for_update()
+                    )
+                    built: list[tuple[str, Job | None]] = []
+                    for i_row, d_row in waiting_rows.all():
+                        item = _item(i_row)
+                        demand = _demand(d_row)
+                        if not Conditions.from_dict(demand.conditions).allows(channel):
+                            built.append((item.id, None))
+                        else:
+                            built.append(
+                                (
+                                    item.id,
+                                    url_job(
+                                        channel,
+                                        str(item.url),
+                                        follow_links=item.follow_links,
+                                        tier=demand_tier(demand.proposer, demand.app),
+                                        job_id=str(uuid.uuid4()),
+                                        now=event.at,
+                                    ),
+                                )
+                            )
+                    if built:
+                        await _release(session, built, event.at)
+                if release:
+                    await _release(session, release, event.at)
         except IntegrityError:
             raise SupplyError(
                 409, "channel_exists", "this site is registered"
@@ -196,7 +265,15 @@ class SqlCatalogRepository:
             return await session.scalar(
                 select(func.max(SupplyChannelEvent.at)).where(
                     SupplyChannelEvent.channel_id == channel_id,
-                    SupplyChannelEvent.action.in_(REGISTRATION_ACTIONS),
+                    or_(
+                        SupplyChannelEvent.action.in_(("register", "site_found")),
+                        and_(
+                            SupplyChannelEvent.action == "update",
+                            SupplyChannelEvent.detail["_needs_review"]
+                            .as_boolean()
+                            .is_not(False),
+                        ),
+                    ),
                 )
             )
 
@@ -296,6 +373,22 @@ class SqlCatalogRepository:
             raise SupplyError(409, "channel_exists", "this channel id is taken")
         return found
 
+    async def site_waiting(self, channel_id: str) -> list[tuple[DemandItem, Demand]]:
+        """在等这个网站审核的给网址需求项（已受理、还没有作业）。"""
+        async with self._sessions()() as session:
+            rows = await session.execute(
+                select(SupplyDemandItem, SupplyDemand)
+                .join(SupplyDemand, SupplyDemand.id == SupplyDemandItem.demand_id)
+                .where(
+                    SupplyDemandItem.channel_id == channel_id,
+                    SupplyDemandItem.status == "accepted",
+                    SupplyDemandItem.job_id.is_(None),
+                    SupplyDemandItem.url.is_not(None),
+                )
+                .order_by(SupplyDemandItem.created_at)
+            )
+            return [(_item(i), _demand(d)) for i, d in rows.all()]
+
     async def pending_sites(self) -> list[dict[str, object]]:
         waiting = (
             select(
@@ -305,7 +398,10 @@ class SqlCatalogRepository:
                 func.min(SupplyDemandItem.created_at).label("oldest_item_at"),
             )
             .join(SupplyDemand, SupplyDemand.id == SupplyDemandItem.demand_id)
-            .where(SupplyDemandItem.status.not_in(tuple(TERMINAL)))
+            .where(
+                SupplyDemandItem.status == "accepted",
+                SupplyDemandItem.reason == REASON_SITE_PENDING,
+            )
             .group_by(SupplyDemandItem.channel_id)
             .subquery()
         )
@@ -320,7 +416,10 @@ class SqlCatalogRepository:
                     waiting.c.oldest_item_at,
                 )
                 .outerjoin(waiting, waiting.c.channel_id == SupplyChannel.id)
-                .where(SupplyChannel.kind == "web", SupplyChannel.review == "pending")
+                .where(
+                    SupplyChannel.kind.in_(("web", "feed", "search")),
+                    SupplyChannel.review == "pending",
+                )
                 .order_by(SupplyChannel.created_at)
             )
             return [
@@ -338,7 +437,10 @@ class SqlCatalogRepository:
     async def expire_sites(self, before: datetime, at: datetime) -> int:
         pending = (
             select(SupplyChannel.id)
-            .where(SupplyChannel.kind == "web", SupplyChannel.review == "pending")
+            .where(
+                SupplyChannel.kind.in_(("web", "feed", "search")),
+                SupplyChannel.review == "pending",
+            )
             .scalar_subquery()
         )
         async with self._sessions()() as session, session.begin():
@@ -346,7 +448,8 @@ class SqlCatalogRepository:
                 session,
                 select(SupplyDemandItem).where(
                     SupplyDemandItem.channel_id.in_(pending),
-                    SupplyDemandItem.status.not_in(tuple(TERMINAL)),
+                    SupplyDemandItem.status == "accepted",
+                    SupplyDemandItem.reason == REASON_SITE_PENDING,
                     SupplyDemandItem.created_at < before,
                 ),
                 "unsatisfiable",
@@ -546,17 +649,58 @@ class SqlCatalogRepository:
                 ],
             }
 
-    async def requeue(self, job_id: str) -> None:
-        """马上再排：回到排队中、不再等重试的时间，调度下一轮就排它。"""
+    async def requeue(self, job_id: str, actor: str, at: datetime) -> bool:
+        """马上再排：回到排队中、不再等重试的时间，调度下一轮就排它。卡住的「在跑」
+        （worker 被杀、投递进了死信）也能重排：没结束的那次尝试记「被打断」。都记下是谁
+        点的（独立审第 4、17 条）。"""
         async with self._sessions()() as session, session.begin():
-            await session.execute(
-                update(SupplyJob)
-                .where(
-                    SupplyJob.id == uuid.UUID(job_id),
-                    SupplyJob.status.in_(("queued", "waiting")),
-                )
-                .values(status="queued", not_before=None)
+            row = await session.get(SupplyJob, uuid.UUID(job_id), with_for_update=True)
+            if row is None or row.status not in OPEN_JOB:
+                return False
+            note = f"requeued_by:{actor}"[:200]
+            open_attempts = list(
+                (
+                    await session.execute(
+                        select(SupplyAttempt).where(
+                            SupplyAttempt.job_id == row.id,
+                            SupplyAttempt.finished_at.is_(None),
+                        )
+                    )
+                ).scalars()
             )
+            if row.status == "running":
+                # 在跑的只有卡住了才重排（二审第 6 条）：一次尝试超过时限，或排出去很久还
+                # 没开始跑；不然会让两个 worker 同时跑同一个作业
+                stuck = (
+                    all(a.started_at < at - ATTEMPT_LIMIT for a in open_attempts)
+                    if open_attempts
+                    else row.dispatched_at is None
+                    or row.dispatched_at < at - LOST_AFTER
+                )
+                if not stuck:
+                    return False
+            touched = False
+            for attempt in open_attempts:
+                attempt.finished_at = at
+                attempt.outcome = "interrupted"
+                attempt.reason = note
+                touched = True
+            if not touched:
+                session.add(
+                    SupplyAttempt(
+                        id=uuid.uuid4(),
+                        job_id=row.id,
+                        started_at=at,
+                        finished_at=at,
+                        outcome="requeued",
+                        reason=note,
+                    )
+                )
+            row.status = "queued"
+            row.not_before = None
+            row.dispatch_token = None
+            row.last_error = note
+            return True
 
     # —— 原件留存 ——
 
@@ -615,7 +759,8 @@ def _job_row(job: SupplyJob, waiting_items: int) -> dict[str, object]:
 async def _withdraw(
     session: AsyncSession, channel_id: str, reason: str, at: datetime
 ) -> None:
-    """渠道停用或审不过：没办完的作业取消，在等它的需求项转「无法满足」附原因。"""
+    """渠道停用或审不过：没办完的作业取消，在等它的需求项转「无法满足」附原因，搜也一并结清（三审第 5 条）。"""
+    await settle_channel_searches(session, channel_id, reason, at)
     await session.execute(
         update(SupplyJob)
         .where(SupplyJob.channel_id == channel_id, SupplyJob.status.in_(OPEN_JOB))
@@ -643,3 +788,39 @@ async def _requeue_open(session: AsyncSession, channel_id: str) -> None:
         )
         .values(status="queued", not_before=None)
     )
+
+
+async def _release(
+    session: AsyncSession, release: list[tuple[str, Job | None]], at: datetime
+) -> None:
+    """网站审过：在等它的给网址需求项挂上取数作业，转「取数中」（同一网址的共享一个）；
+    作业是 None 的（确认时的供给条件不让用这个网站）转「无法满足」。"""
+    changed: set[uuid.UUID] = set()
+    for item_id, job in release:
+        if job is None:
+            await settle_rows(
+                session,
+                select(SupplyDemandItem).where(
+                    SupplyDemandItem.id == uuid.UUID(item_id)
+                ),
+                "unsatisfiable",
+                at,
+                reason=REASON_CONDITIONS_UNMET,
+            )
+            continue
+        found, _ = await _job_for(session, job)
+        result = await session.execute(
+            update(SupplyDemandItem)
+            .where(
+                SupplyDemandItem.id == uuid.UUID(item_id),
+                SupplyDemandItem.status == "accepted",
+                SupplyDemandItem.job_id.is_(None),
+            )
+            .values(status="fetching", job_id=found, reason=None, updated_at=at)
+            .returning(SupplyDemandItem.demand_id)
+        )
+        demand_id = result.scalar()
+        if demand_id is not None:
+            changed.add(demand_id)
+    if changed:
+        await enqueue_status(session, changed, at)

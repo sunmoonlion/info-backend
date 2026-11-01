@@ -151,3 +151,136 @@ class WindAdapter:
         raise NotImplementedError(
             "Online live Wind API call requires owner explicit authorization and billing confirmation"
         )
+
+
+class DegradationCode:
+    """WP-7 异常降级代码矩阵。"""
+
+    SUCCESS = "success"
+    AUTH_FAILED = "auth_failed_fallback_offline"
+    RATE_LIMIT_EXCEEDED = "rate_limit_degraded"
+    NO_DATA_DISCLOSED = "no_data_disclosed"
+    PARTIAL_GAPS = "partial_gaps"
+
+
+class CircuitBreaker:
+    """WP-7 断路器：管理 401/429 熔断与恢复，避免无意义重试。"""
+
+    def __init__(self, failure_threshold: int = 3) -> None:
+        self.failure_threshold = failure_threshold
+        self.consecutive_failures = 0
+        self.is_open = False
+        self.tripped_reason: str | None = None
+
+    def record_success(self) -> None:
+        self.consecutive_failures = 0
+        self.is_open = False
+        self.tripped_reason = None
+
+    def record_auth_failure(self) -> None:
+        """401 认证失效：立即熔断，绝不无效重试。"""
+        self.is_open = True
+        self.tripped_reason = DegradationCode.AUTH_FAILED
+
+    def record_rate_limit(self) -> None:
+        """429 限流：累加失败，超阈值后熔断。"""
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= self.failure_threshold:
+            self.is_open = True
+            self.tripped_reason = DegradationCode.RATE_LIMIT_EXCEEDED
+
+    def reset(self) -> None:
+        self.consecutive_failures = 0
+        self.is_open = False
+        self.tripped_reason = None
+
+
+async def safe_fetch_with_degradation(
+    adapter: WindAdapter,
+    breaker: CircuitBreaker,
+    subject: str,
+    chart_fields: list[str],
+    report_date: str,
+) -> dict[str, Any]:
+    """带断路器与降级矩阵的安全取数入口（WP-7）：业务层绝不抛出未捕获崩溃。"""
+    if breaker.is_open:
+        return {
+            "status": "degraded",
+            "code": breaker.tripped_reason or DegradationCode.AUTH_FAILED,
+            "message": f"Circuit breaker is OPEN due to {breaker.tripped_reason}. Switched to offline verified fallback.",
+            "subject": subject,
+            "report_date": report_date,
+            "facts": {},
+            "gaps": chart_fields,
+        }
+
+    try:
+        res = await adapter.fetch_financials(subject, chart_fields, report_date)
+        if not res.get("matched"):
+            return {
+                "status": "degraded",
+                "code": DegradationCode.NO_DATA_DISCLOSED,
+                "message": f"Subject {subject} has no published disclosure for {report_date}.",
+                "subject": subject,
+                "report_date": report_date,
+                "facts": {},
+                "gaps": chart_fields,
+            }
+
+        facts = res.get("facts", {})
+        gaps = [f for f in chart_fields if f not in facts]
+        breaker.record_success()
+
+        if gaps:
+            return {
+                "status": "partial",
+                "code": DegradationCode.PARTIAL_GAPS,
+                "message": f"Retrieved partial facts; missing: {gaps}",
+                "subject": subject,
+                "report_date": report_date,
+                "facts": facts,
+                "gaps": gaps,
+            }
+
+        return {
+            "status": "success",
+            "code": DegradationCode.SUCCESS,
+            "subject": subject,
+            "report_date": report_date,
+            "facts": facts,
+            "gaps": [],
+        }
+
+    except WindAuthError as exc:
+        breaker.record_auth_failure()
+        return {
+            "status": "degraded",
+            "code": DegradationCode.AUTH_FAILED,
+            "message": f"Wind authentication failed: {exc}. Circuit opened; suggest offline fallback.",
+            "subject": subject,
+            "report_date": report_date,
+            "facts": {},
+            "gaps": chart_fields,
+        }
+    except WindRateLimitError as exc:
+        breaker.record_rate_limit()
+        return {
+            "status": "degraded",
+            "code": DegradationCode.RATE_LIMIT_EXCEEDED,
+            "message": f"Wind rate limited: {exc}. Degraded gracefully.",
+            "subject": subject,
+            "report_date": report_date,
+            "facts": {},
+            "gaps": chart_fields,
+        }
+    except Exception as exc:
+        breaker.record_rate_limit()
+        return {
+            "status": "error",
+            "code": "unexpected_error",
+            "message": f"Unexpected error during fetch: {type(exc).__name__}: {exc}",
+            "subject": subject,
+            "report_date": report_date,
+            "facts": {},
+            "gaps": chart_fields,
+        }
